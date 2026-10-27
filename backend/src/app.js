@@ -20,6 +20,18 @@ if (env.nodeEnv !== 'test') {
 // Parse JSON request bodies
 app.use(express.json({ limit: '100kb' }));
 
+// Sanitize request URL by trimming accidental trailing whitespace or %20
+app.use((req, res, next) => {
+  if (typeof req.url === 'string') {
+    const [pathname, search] = req.url.split('?');
+    const trimmedPath = pathname.replace(/(?:%20|\s)+$/g, '');
+    if (trimmedPath !== pathname) {
+      req.url = search !== undefined ? `${trimmedPath}?${search}` : trimmedPath;
+    }
+  }
+  next();
+});
+
 // Routes
 app.use('/', healthRoutes);
 app.use('/api/businesses', businessRoutes);
