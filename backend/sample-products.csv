@@ -1,0 +1,17 @@
+name,description,price,stock,category,size,color,created_at
+Trail Rain Jacket,"Waterproof and lightweight shell jacket with taped seams",129.99,0,Outerwear,XL,Red,2026-10-20
+Trail Rain Jacket,"Waterproof and lightweight shell jacket with taped seams",129.99,14,Outerwear,M,Blue,2026-10-20
+Summit Hiking Boots,"Waterproof leather boots with ankle support",179.00,6,Footwear,42,Brown,2026-09-15
+Breeze Running Tee,"Lightweight, breathable shirt for running",24.50,40,Apparel,XL,Red,2026-10-05
+Breeze Running Tee,"Lightweight, breathable shirt for running",24.50,0,Apparel,S,White,2026-10-05
+Packable Down Vest,"Lightweight insulated vest that packs into its own pocket",89.00,12,Outerwear,L,Black,2026-08-30
+Canyon Daypack 20L,"Water-resistant lightweight backpack with laptop sleeve",64.99,25,Bags,,Grey,2026-10-12
+Alpine Trekking Poles,"Adjustable aluminium poles with cork grips",45.00,8,Accessories,,Silver,2026-07-18
+Storm Shield Poncho,"Waterproof poncho, lightweight and foldable",19.99,55,Outerwear,One Size,Yellow,2026-10-24
+Merino Wool Socks,"Cushioned socks that keep feet dry",14.00,120,Apparel,M,Grey,2026-06-02
+Expedition Tent 2P,"Two-person tent with waterproof rainfly",249.00,0,Camping,,Green,2026-05-10
+Thermal Base Layer,"Warm fitted top for cold weather",39.95,0,Apparel,XL,Red,2026-10-01
+Glacier Insulated Bottle,"Keeps drinks cold for 24 hours",29.00,60,Accessories,,Red,2026-09-28
+Headlamp Pro 400,"Rechargeable headlamp with 400 lumen output",54.00,3,Accessories,,Black,2026-10-26
+Ridge Softshell Pants,"Stretch water-repellent hiking pants",99.00,18,Apparel,XL,Black,2026-09-02
+Compact Camp Stove,"Lightweight gas stove for backpacking",72.50,0,Camping,,,

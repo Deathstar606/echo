@@ -1,0 +1,13 @@
+name,description,rate,availability,size,available_from,created_at
+Kitchen Remodel Consultation,"On-site consultation for home renovation and kitchen remodeling projects",150.00,available,Large,2026-11-03,2026-10-02
+Bathroom Tile Installation,"Professional tile installation for bathroom renovation",85.00,available,Medium,2026-10-30,2026-10-15
+Interior Painting,"Interior wall painting for homes and offices",60.00,unavailable,Medium,2026-12-01,2026-09-10
+Deck Repair,"Repair and refinishing of wooden decks",95.00,available,Medium,2026-11-15,2026-10-20
+Emergency Plumbing,"24/7 emergency plumbing repairs",120.00,unavailable,Small,,2026-08-05
+Electrical Inspection,"Safety inspection of home electrical systems",75.00,available,Small,2026-10-28,2026-10-25
+Roof Leak Repair,"Locate and repair roof leaks",180.00,unavailable,Large,2027-01-10,2026-07-22
+Gutter Cleaning,"Seasonal gutter cleaning and flushing",45.00,available,Small,2026-11-01,2026-10-10
+Basement Waterproofing,"Basement sealing and waterproofing as part of a home renovation",220.00,available,Large,2026-12-05,2026-09-30
+Furniture Assembly,"Assembly of flat-pack furniture",40.00,unavailable,Small,,2026-10-03
+Window Replacement,"Energy-efficient window replacement for home upgrades",300.00,available,Large,2026-11-20,2026-06-14
+Smart Thermostat Setup,"Installation and configuration of smart thermostats",65.00,available,,2026-10-29,

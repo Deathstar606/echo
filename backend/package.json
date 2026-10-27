@@ -1,0 +1,28 @@
+{
+  "name": "echo-support-assistant-backend",
+  "version": "1.0.0",
+  "description": "Phase 1 Customer-Support Assistant Backend - CSV knowledge import and contextual prompt generation",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=26.8.1"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "db:init": "node db/init.js",
+    "test": "node --test test/workflow.test.js test/sheetWorkflow.test.js"
+  },
+  "dependencies": {
+    "csv-parse": "^5.6.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "morgan": "^1.10.0",
+    "multer": "^1.4.5-lts.1",
+    "nodemailer": "^10.2.1",
+    "pg": "^8.13.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
