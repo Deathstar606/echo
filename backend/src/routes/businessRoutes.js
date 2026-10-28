@@ -7,6 +7,8 @@ const {
   uploadBusinessCustomers,
 } = require('../controllers/customerController');
 const {
+  listBusinessConversations,
+  getCustomerConversationHistory,
   createBusinessConversation,
   getBusinessConversation,
   updateBusinessConversationStatus,
@@ -80,6 +82,22 @@ router.post(
   validateBusinessIdParam,
   validateAnnouncementIdParam,
   sendBusinessAnnouncement
+);
+
+// Phase 2 & 5: List All Business Conversations (Company Inquiry Panel)
+// GET /api/businesses/:businessId/conversations
+router.get(
+  '/:businessId/conversations',
+  validateBusinessIdParam,
+  listBusinessConversations
+);
+
+// Phase 2 & 5: Customer Conversation History Lookup
+// POST /api/businesses/:businessId/conversations/history
+router.post(
+  '/:businessId/conversations/history',
+  validateBusinessIdParam,
+  getCustomerConversationHistory
 );
 
 // Phase 2: Conversation Creation Endpoint

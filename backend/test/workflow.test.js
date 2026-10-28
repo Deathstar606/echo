@@ -321,6 +321,11 @@ function createInMemoryPostgresPool() {
         business_id: businessId,
         customer_id: customerId,
         status: status || 'open',
+        ai_draft_reply: null,
+        ai_draft_category: null,
+        ai_draft_missing_info: null,
+        ai_draft_message_id: null,
+        ai_draft_updated_at: null,
         created_at: now,
         updated_at: now,
       };
@@ -331,6 +336,9 @@ function createInMemoryPostgresPool() {
     if (
       normalized.startsWith(
         'SELECT ID, BUSINESS_ID, CUSTOMER_ID, STATUS, CREATED_AT, UPDATED_AT FROM CONVERSATIONS WHERE ID = $1 AND BUSINESS_ID = $2'
+      ) ||
+      normalized.startsWith(
+        'SELECT ID, BUSINESS_ID, CUSTOMER_ID, STATUS, AI_DRAFT_REPLY, AI_DRAFT_CATEGORY, AI_DRAFT_MISSING_INFO, AI_DRAFT_MESSAGE_ID, AI_DRAFT_UPDATED_AT, CREATED_AT, UPDATED_AT FROM CONVERSATIONS WHERE ID = $1 AND BUSINESS_ID = $2'
       )
     ) {
       const [conversationId, businessId] = params;
@@ -339,6 +347,44 @@ function createInMemoryPostgresPool() {
         return { rows: [], rowCount: 0 };
       }
       return { rows: [{ ...conv }], rowCount: 1 };
+    }
+
+    if (
+      normalized.startsWith(
+        'SELECT ID, BUSINESS_ID, CUSTOMER_ID, STATUS, CREATED_AT, UPDATED_AT FROM CONVERSATIONS WHERE BUSINESS_ID = $1 AND CUSTOMER_ID = $2 ORDER BY UPDATED_AT DESC, CREATED_AT DESC, ID DESC'
+      )
+    ) {
+      const [businessId, customerId] = params;
+      const rows = Array.from(conversations.values())
+        .filter(
+          (c) => c.business_id === businessId && c.customer_id === customerId
+        )
+        .sort((a, b) => {
+          const tDiff =
+            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+          if (tDiff !== 0) return tDiff;
+          return b.id.localeCompare(a.id);
+        })
+        .map((c) => ({ ...c }));
+      return { rows, rowCount: rows.length };
+    }
+
+    if (
+      normalized.startsWith(
+        'SELECT ID, BUSINESS_ID, CUSTOMER_ID, STATUS, AI_DRAFT_REPLY, AI_DRAFT_CATEGORY, AI_DRAFT_MISSING_INFO, AI_DRAFT_MESSAGE_ID, AI_DRAFT_UPDATED_AT, CREATED_AT, UPDATED_AT FROM CONVERSATIONS WHERE BUSINESS_ID = $1 ORDER BY UPDATED_AT DESC, CREATED_AT DESC, ID DESC'
+      )
+    ) {
+      const [businessId] = params;
+      const rows = Array.from(conversations.values())
+        .filter((c) => c.business_id === businessId)
+        .sort((a, b) => {
+          const tDiff =
+            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+          if (tDiff !== 0) return tDiff;
+          return b.id.localeCompare(a.id);
+        })
+        .map((c) => ({ ...c }));
+      return { rows, rowCount: rows.length };
     }
 
     if (
@@ -352,6 +398,49 @@ function createInMemoryPostgresPool() {
         return { rows: [], rowCount: 0 };
       }
       conv.updated_at = nextIsoTimestamp();
+      return { rows: [{ ...conv }], rowCount: 1 };
+    }
+
+    if (
+      normalized.startsWith(
+        'UPDATE CONVERSATIONS SET AI_DRAFT_REPLY = $3, AI_DRAFT_CATEGORY = $4, AI_DRAFT_MISSING_INFO = $5::JSONB, AI_DRAFT_MESSAGE_ID = $6, AI_DRAFT_UPDATED_AT = NOW() WHERE ID = $1 AND BUSINESS_ID = $2'
+      )
+    ) {
+      const [
+        conversationId,
+        businessId,
+        draftReply,
+        draftCategory,
+        draftMissingInfo,
+        draftMessageId,
+      ] = params;
+      const conv = conversations.get(conversationId);
+      if (!conv || conv.business_id !== businessId) {
+        return { rows: [], rowCount: 0 };
+      }
+      conv.ai_draft_reply = draftReply;
+      conv.ai_draft_category = draftCategory;
+      conv.ai_draft_missing_info = draftMissingInfo;
+      conv.ai_draft_message_id = draftMessageId;
+      conv.ai_draft_updated_at = nextIsoTimestamp();
+      return { rows: [{ ...conv }], rowCount: 1 };
+    }
+
+    if (
+      normalized.startsWith(
+        'UPDATE CONVERSATIONS SET AI_DRAFT_REPLY = NULL, AI_DRAFT_CATEGORY = NULL, AI_DRAFT_MISSING_INFO = NULL, AI_DRAFT_MESSAGE_ID = NULL, AI_DRAFT_UPDATED_AT = NOW() WHERE ID = $1 AND BUSINESS_ID = $2'
+      )
+    ) {
+      const [conversationId, businessId] = params;
+      const conv = conversations.get(conversationId);
+      if (!conv || conv.business_id !== businessId) {
+        return { rows: [], rowCount: 0 };
+      }
+      conv.ai_draft_reply = null;
+      conv.ai_draft_category = null;
+      conv.ai_draft_missing_info = null;
+      conv.ai_draft_message_id = null;
+      conv.ai_draft_updated_at = nextIsoTimestamp();
       return { rows: [{ ...conv }], rowCount: 1 };
     }
 
@@ -388,16 +477,38 @@ function createInMemoryPostgresPool() {
         conversation_id: conversationId,
         sender_type: senderType,
         content,
+        ai_suggestion: null,
+        ai_category: null,
+        ai_missing_info: null,
         created_at: nextIsoTimestamp(),
       };
       messages.push(row);
       return { rows: [{ ...row }], rowCount: 1 };
     }
 
+    if (
+      normalized.startsWith(
+        'UPDATE MESSAGES SET AI_SUGGESTION = $2, AI_CATEGORY = $3, AI_MISSING_INFO = $4::JSONB WHERE ID = $1'
+      )
+    ) {
+      const [messageId, suggestion, category, missingInfo] = params;
+      const msg = messages.find((m) => m.id === messageId);
+      if (!msg) {
+        return { rows: [], rowCount: 0 };
+      }
+      msg.ai_suggestion = suggestion;
+      msg.ai_category = category;
+      msg.ai_missing_info = missingInfo;
+      return { rows: [{ ...msg }], rowCount: 1 };
+    }
+
     // Full chronological messages for a conversation
     if (
       normalized.startsWith(
         'SELECT ID, CONVERSATION_ID, SENDER_TYPE, CONTENT, CREATED_AT FROM MESSAGES WHERE CONVERSATION_ID = $1 ORDER BY CREATED_AT ASC, ID ASC'
+      ) ||
+      normalized.startsWith(
+        'SELECT ID, CONVERSATION_ID, SENDER_TYPE, CONTENT, AI_SUGGESTION, AI_CATEGORY, AI_MISSING_INFO, CREATED_AT FROM MESSAGES WHERE CONVERSATION_ID = $1 ORDER BY CREATED_AT ASC, ID ASC'
       )
     ) {
       const [conversationId] = params;
@@ -1006,7 +1117,7 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.deepEqual(getBody.messages, []);
   });
 
-  it('9. First and second customer messages return singular AI response, include earlier conversation in prompt, preserve chronological order, and do not fabricate agent messages', async () => {
+  it('9. First and second customer messages save AI suggestion server-side without exposing it to customer, include earlier conversation in prompt, preserve chronological order, and do not fabricate agent messages', async () => {
     const beforeConvRes = await fetch(
       `${baseUrl}/api/businesses/${businessAId}/conversations/${conversationAId}`
     );
@@ -1023,16 +1134,19 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
         }),
       }
     );
-    assert.equal(msg1Res.status, 200);
+    assert.equal(msg1Res.status, 201);
     assert.match(
       msg1Res.headers.get('content-type') || '',
       /application\/json/i
     );
-    const aiReply1 = await msg1Res.json();
-    assert.equal(aiReply1.category, 'cancellation_policy');
-    assert.equal(Array.isArray(aiReply1.suggestions), true);
-    assert.equal(aiReply1.suggestions.length, 1); // Singular suggestion enforced
-    assert.equal(Array.isArray(aiReply1.missing_information), true);
+    const savedMsg1 = await msg1Res.json();
+    assert.equal(savedMsg1.sender_type, 'customer');
+    assert.equal(savedMsg1.content, 'Can you reschedule my appointment?');
+    // Privacy check: AI suggestion must NEVER be exposed in the customer-facing response
+    assert.equal(savedMsg1.suggestions, undefined);
+    assert.equal(savedMsg1.ai_suggestion, undefined);
+    assert.equal(savedMsg1.ai_draft_reply, undefined);
+    assert.equal(savedMsg1.category, undefined);
 
     const prompt1 = lastDispatchedPrompt;
 
@@ -1052,9 +1166,11 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
         }),
       }
     );
-    assert.equal(msg2Res.status, 200);
-    const aiReply2 = await msg2Res.json();
-    assert.equal(aiReply2.suggestions.length, 1);
+    assert.equal(msg2Res.status, 201);
+    const savedMsg2 = await msg2Res.json();
+    assert.equal(savedMsg2.sender_type, 'customer');
+    assert.equal(savedMsg2.suggestions, undefined);
+    assert.equal(savedMsg2.ai_suggestion, undefined);
     const prompt2 = lastDispatchedPrompt;
 
     // Prompt 2 MUST include the earlier conversation in CONVERSATION HISTORY
@@ -1083,9 +1199,10 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
         }),
       }
     );
-    assert.equal(msg3Res.status, 200);
-    const aiReply3 = await msg3Res.json();
-    assert.equal(aiReply3.suggestions.length, 1);
+    assert.equal(msg3Res.status, 201);
+    const savedMsg3 = await msg3Res.json();
+    assert.equal(savedMsg3.sender_type, 'customer');
+    assert.equal(savedMsg3.suggestions, undefined);
     const prompt3 = lastDispatchedPrompt;
     const idxMsg1 = prompt3.indexOf(
       '[Message 1] Customer (customer): Can you reschedule my appointment?'
@@ -1095,7 +1212,7 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     );
     assert.ok(idxMsg1 !== -1 && idxMsg2 !== -1 && idxMsg1 < idxMsg2);
 
-    // Fetch conversation metadata and history via GET
+    // Fetch conversation metadata and history via company GET endpoint
     const afterConvRes = await fetch(
       `${baseUrl}/api/businesses/${businessAId}/conversations/${conversationAId}`
     );
@@ -1104,6 +1221,16 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
 
     // Verify updated_at was updated when new messages were added
     assert.notEqual(afterConv.updated_at, beforeConv.updated_at);
+
+    // Confirm AI suggestion IS available on the company endpoint
+    assert.ok(afterConv.ai_draft_reply);
+    assert.ok(afterConv.ai_suggestion);
+    assert.equal(afterConv.ai_suggestion.category, 'cancellation_policy');
+    assert.ok(
+      afterConv.ai_suggestion.suggestion.includes(
+        'We would be happy to help you reschedule your appointment.'
+      )
+    );
 
     // Confirm generated suggestions were NOT stored as agent messages (only the 3 actual customer messages exist)
     assert.equal(afterConv.messages.length, 3);
@@ -1286,9 +1413,10 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
           }),
         }
       );
-      assert.equal(res.status, 200);
-      const aiReply = await res.json();
-      assert.equal(aiReply.suggestions.length, 1);
+      assert.equal(res.status, 201);
+      const savedMsg = await res.json();
+      assert.equal(savedMsg.sender_type, 'customer');
+      assert.equal(savedMsg.suggestions, undefined);
       latestPrompt = lastDispatchedPrompt;
     }
 
@@ -1323,7 +1451,7 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.equal(convRes.status, 201);
     const conv = await convRes.json();
 
-    // Turn 1: Customer sends initial message -> generates singular JSON AI response
+    // Turn 1: Customer sends initial message -> saves AI response server-side and returns only customer message
     const custTurn1Res = await fetch(
       `${baseUrl}/api/businesses/${businessAId}/conversations/${conv.id}/messages`,
       {
@@ -1334,13 +1462,14 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
         }),
       }
     );
-    assert.equal(custTurn1Res.status, 200);
+    assert.equal(custTurn1Res.status, 201);
     assert.match(
       custTurn1Res.headers.get('content-type') || '',
       /application\/json/i
     );
-    const aiTurn1 = await custTurn1Res.json();
-    assert.equal(aiTurn1.suggestions.length, 1);
+    const savedCustTurn1 = await custTurn1Res.json();
+    assert.equal(savedCustTurn1.sender_type, 'customer');
+    assert.equal(savedCustTurn1.suggestions, undefined);
     const promptTurn1 = lastDispatchedPrompt;
     assert.ok(promptTurn1.includes('No prior messages in this conversation.'));
     assert.ok(promptTurn1.includes('Can we reschedule the appointment?'));
@@ -1380,13 +1509,14 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
         }),
       }
     );
-    assert.equal(custTurn2Res.status, 200);
+    assert.equal(custTurn2Res.status, 201);
     assert.match(
       custTurn2Res.headers.get('content-type') || '',
       /application\/json/i
     );
-    const aiTurn2 = await custTurn2Res.json();
-    assert.equal(aiTurn2.suggestions.length, 1);
+    const savedCustTurn2 = await custTurn2Res.json();
+    assert.equal(savedCustTurn2.sender_type, 'customer');
+    assert.equal(savedCustTurn2.suggestions, undefined);
     const promptTurn2 = lastDispatchedPrompt;
 
     assert.ok(
@@ -1436,9 +1566,10 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
         }),
       }
     );
-    assert.equal(custTurn3Res.status, 200);
-    const aiTurn3 = await custTurn3Res.json();
-    assert.equal(aiTurn3.suggestions.length, 1);
+    assert.equal(custTurn3Res.status, 201);
+    const savedCustTurn3 = await custTurn3Res.json();
+    assert.equal(savedCustTurn3.sender_type, 'customer');
+    assert.equal(savedCustTurn3.suggestions, undefined);
     const promptTurn3 = lastDispatchedPrompt;
     assert.ok(
       promptTurn3.includes(
@@ -1848,5 +1979,148 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.equal(emptySendRes.status, 400);
     const emptySendErr = await emptySendRes.json();
     assert.match(emptySendErr.error, /No eligible customers found/i);
+  });
+
+  // =========================================================================
+  // Phase 5 Tests: Customer Conversation History Lookup & Company Inbox
+  // =========================================================================
+
+  it('20. Validates POST /conversations/history and GET /conversations for business isolation, server-side AI draft lifecycle, and customer privacy', async () => {
+    // 1. Create a brand new customer under Business A
+    const newCustRes = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/customers`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_name: 'Jane Smith',
+          email: 'jane.smith@example.test',
+        }),
+      }
+    );
+    assert.equal(newCustRes.status, 201);
+    const newCust = await newCustRes.json();
+    assert.ok(newCust.customer_id);
+    assert.equal(newCust.id, newCust.customer_id);
+
+    // 2. Lookup history for valid customer with no conversation yet
+    const histNoConvRes = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/conversations/history`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer_id: newCust.customer_id }),
+      }
+    );
+    assert.equal(histNoConvRes.status, 200);
+    const histNoConv = await histNoConvRes.json();
+    assert.equal(histNoConv.customer_valid, true);
+    assert.equal(histNoConv.has_conversation, false);
+    assert.equal(histNoConv.conversation, null);
+    assert.deepEqual(histNoConv.messages, []);
+
+    // 3. Reject cross-business customer ID on /conversations/history
+    const crossBizHistRes = await fetch(
+      `${baseUrl}/api/businesses/${businessBId}/conversations/history`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer_id: newCust.customer_id }),
+      }
+    );
+    assert.equal(crossBizHistRes.status, 400);
+
+    // 4. Create conversation and send a customer message
+    const convCreateRes = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/conversations`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer_id: newCust.customer_id }),
+      }
+    );
+    assert.equal(convCreateRes.status, 201);
+    const createdConv = await convCreateRes.json();
+    assert.equal(createdConv.conversation_id, createdConv.id);
+
+    const custMsgRes = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/conversations/${createdConv.conversation_id}/messages`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Hello, can I get an extension on my overdue balance?',
+        }),
+      }
+    );
+    assert.equal(custMsgRes.status, 201);
+    const custMsgBody = await custMsgRes.json();
+    assert.equal(custMsgBody.ai_suggestion, undefined);
+    assert.equal(custMsgBody.suggestions, undefined);
+
+    // 5. Lookup history again -> returns existing conversation and messages WITHOUT AI suggestions
+    const histWithConvRes = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/conversations/history`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer_id: newCust.customer_id }),
+      }
+    );
+    assert.equal(histWithConvRes.status, 200);
+    const histWithConv = await histWithConvRes.json();
+    assert.equal(histWithConv.has_conversation, true);
+    assert.equal(histWithConv.conversation_id, createdConv.conversation_id);
+    assert.equal(histWithConv.messages.length, 1);
+    assert.equal(histWithConv.messages[0].ai_suggestion, undefined);
+    assert.equal(histWithConv.conversation.ai_draft_reply, undefined);
+
+    // 6. Company GET /conversations lists business conversations with customer info and AI draft
+    const listRes = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/conversations`
+    );
+    assert.equal(listRes.status, 200);
+    const listBody = await listRes.json();
+    assert.equal(listBody.business_id, businessAId);
+    assert.ok(Array.isArray(listBody.conversations));
+    const janeConv = listBody.conversations.find(
+      (c) => c.id === createdConv.conversation_id
+    );
+    assert.ok(janeConv);
+    assert.equal(janeConv.customer_name, 'Jane Smith');
+    assert.equal(janeConv.unread_count, 1);
+    assert.equal(janeConv.needs_reply, true);
+    assert.ok(janeConv.ai_draft_reply);
+    assert.ok(janeConv.ai_suggestion);
+    assert.ok(
+      janeConv.ai_suggestion.suggestion.includes(
+        'We would be happy to help you reschedule your appointment.'
+      )
+    );
+
+    // 7. Company sends reply -> clears active AI draft and resets unread_count to 0
+    const replyRes = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/conversations/${createdConv.conversation_id}/replies`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Hi Jane! Let me look that up... Yes, you have 3 more days.',
+        }),
+      }
+    );
+    assert.equal(replyRes.status, 201);
+
+    const listAfterReplyRes = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/conversations`
+    );
+    const listAfterReply = await listAfterReplyRes.json();
+    const janeConvAfter = listAfterReply.conversations.find(
+      (c) => c.id === createdConv.conversation_id
+    );
+    assert.equal(janeConvAfter.unread_count, 0);
+    assert.equal(janeConvAfter.needs_reply, false);
+    assert.equal(janeConvAfter.ai_draft_reply, null);
+    assert.equal(janeConvAfter.messages.length, 2);
   });
 });

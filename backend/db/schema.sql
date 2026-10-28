@@ -68,6 +68,11 @@ CREATE TABLE IF NOT EXISTS conversations (
   business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
   customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
   status VARCHAR(20) NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
+  ai_draft_reply TEXT,
+  ai_draft_category VARCHAR(100),
+  ai_draft_missing_info JSONB,
+  ai_draft_message_id UUID,
+  ai_draft_updated_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT fk_conversations_customer_business
@@ -75,6 +80,13 @@ CREATE TABLE IF NOT EXISTS conversations (
     REFERENCES customers(id, business_id)
     ON DELETE CASCADE
 );
+
+ALTER TABLE conversations
+  ADD COLUMN IF NOT EXISTS ai_draft_reply TEXT,
+  ADD COLUMN IF NOT EXISTS ai_draft_category VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS ai_draft_missing_info JSONB,
+  ADD COLUMN IF NOT EXISTS ai_draft_message_id UUID,
+  ADD COLUMN IF NOT EXISTS ai_draft_updated_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_conversations_business_id
   ON conversations (business_id);
@@ -87,8 +99,16 @@ CREATE TABLE IF NOT EXISTS messages (
   conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
   sender_type VARCHAR(20) NOT NULL CHECK (sender_type IN ('customer', 'agent')),
   content TEXT NOT NULL CHECK (char_length(btrim(content)) > 0),
+  ai_suggestion TEXT,
+  ai_category VARCHAR(100),
+  ai_missing_info JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
 );
+
+ALTER TABLE messages
+  ADD COLUMN IF NOT EXISTS ai_suggestion TEXT,
+  ADD COLUMN IF NOT EXISTS ai_category VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS ai_missing_info JSONB;
 
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_created_at
   ON messages (conversation_id, created_at ASC, id ASC);

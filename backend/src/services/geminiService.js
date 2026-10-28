@@ -282,7 +282,9 @@ async function executeGeminiWithFallback(promptText, responseSchema) {
 
   const candidateModels = Array.from(
     new Set([
-      env.geminiModel || 'gemini-3.5-flash-lite',
+      env.geminiModel || 'gemini-2.5-flash',
+      'gemini-2.5-flash',
+      'gemini-2.0-flash',
       'gemini-3.5-flash-lite',
       'gemini-3.5-flash',
     ])

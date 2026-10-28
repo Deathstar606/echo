@@ -67,13 +67,6 @@ async function createBusinessCustomer(req, res, next) {
       }
 
       const trimmedExt = rawExternalId.trim();
-      if (!trimmedExt) {
-        throw new AppError(
-          '"external_customer_id" cannot be an empty or whitespace-only string.',
-          400
-        );
-      }
-
       if (trimmedExt.length > 255) {
         throw new AppError(
           '"external_customer_id" must not exceed 255 characters.',
@@ -81,7 +74,7 @@ async function createBusinessCustomer(req, res, next) {
         );
       }
 
-      externalCustomerId = trimmedExt;
+      externalCustomerId = trimmedExt || null;
     }
 
     // Verify that the business exists
@@ -96,6 +89,7 @@ async function createBusinessCustomer(req, res, next) {
 
     return res.status(201).json({
       id: customer.id,
+      customer_id: customer.id,
       business_id: customer.business_id,
       customer_name: customer.customer_name,
       email: customer.email,
