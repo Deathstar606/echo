@@ -4,7 +4,7 @@
   "description": "Phase 1 Customer-Support Assistant Backend - CSV knowledge import and contextual prompt generation",
   "main": "src/server.js",
   "engines": {
-    "node": ">=26.8.1"
+    "node": ">=20.0.0 <=24.x"
   },
   "scripts": {
     "start": "node src/server.js",
