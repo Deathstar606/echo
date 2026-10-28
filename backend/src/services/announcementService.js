@@ -1,6 +1,8 @@
 const { query, withTransaction } = require('../../db');
 const AppError = require('../utils/AppError');
-const { getEligibleCustomersForBusiness } = require('./customerService');
+const {
+  getCustomersMatchingAnnouncementCriteria,
+} = require('./customerService');
 const {
   validateSmtpConfig,
   personalizeAnnouncementBody,
@@ -8,14 +10,17 @@ const {
 } = require('./emailService');
 
 /**
- * Saves a newly generated AI announcement draft in PostgreSQL.
+ * Saves a newly generated AI announcement draft in PostgreSQL, including
+ * validated audience targeting criteria and human-readable audience description.
  *
  * @param {object} params
  * @param {string} params.businessId
  * @param {string} params.announcementPrompt
  * @param {string} params.subject
  * @param {string} params.body
- * @param {number} params.recipientCount
+ * @param {number} [params.recipientCount=0]
+ * @param {object} [params.targetCriteria]
+ * @param {string} [params.audienceDescription]
  */
 async function saveAnnouncementDraft({
   businessId,
@@ -23,7 +28,14 @@ async function saveAnnouncementDraft({
   subject,
   body,
   recipientCount = 0,
+  targetCriteria = { status: 'ok', scope: 'all', filters: [] },
+  audienceDescription = 'All registered customers',
 }) {
+  const serializedCriteria =
+    typeof targetCriteria === 'string'
+      ? targetCriteria
+      : JSON.stringify(targetCriteria || { status: 'ok', scope: 'all', filters: [] });
+
   const result = await query(
     `
       INSERT INTO announcements (
@@ -31,6 +43,8 @@ async function saveAnnouncementDraft({
         announcement_prompt,
         subject,
         body,
+        target_criteria,
+        audience_description,
         status,
         total_recipients,
         sent_count,
@@ -38,13 +52,15 @@ async function saveAnnouncementDraft({
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, 'draft', $5, 0, 0, NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5::jsonb, $6, 'draft', $7, 0, 0, NOW(), NOW())
       RETURNING
         id,
         business_id,
         announcement_prompt,
         subject,
         body,
+        target_criteria,
+        audience_description,
         status,
         total_recipients,
         sent_count,
@@ -53,7 +69,15 @@ async function saveAnnouncementDraft({
         created_at,
         updated_at;
     `,
-    [businessId, announcementPrompt, subject, body, Number(recipientCount)]
+    [
+      businessId,
+      announcementPrompt,
+      subject,
+      body,
+      serializedCriteria,
+      audienceDescription || 'All registered customers',
+      Number(recipientCount),
+    ]
   );
 
   return result.rows[0];
@@ -74,6 +98,8 @@ async function findAnnouncementForBusinessOrThrow(businessId, announcementId) {
         announcement_prompt,
         subject,
         body,
+        target_criteria,
+        audience_description,
         status,
         total_recipients,
         sent_count,
@@ -98,9 +124,116 @@ async function findAnnouncementForBusinessOrThrow(businessId, announcementId) {
 }
 
 /**
+ * Lists all announcements for a business ordered by creation date descending,
+ * including recipient counts and delivery results.
+ *
+ * @param {string} businessId
+ * @returns {Promise<Array<object>>}
+ */
+async function listAnnouncementsForBusiness(businessId) {
+  const annResult = await query(
+    `
+      SELECT
+        id,
+        business_id,
+        announcement_prompt,
+        subject,
+        body,
+        target_criteria,
+        audience_description,
+        status,
+        total_recipients,
+        sent_count,
+        failed_count,
+        sent_at,
+        created_at,
+        updated_at
+      FROM announcements
+      WHERE business_id = $1
+      ORDER BY created_at DESC, id DESC;
+    `,
+    [businessId]
+  );
+
+  const announcements = annResult.rows;
+  if (announcements.length === 0) {
+    return [];
+  }
+
+  const announcementIds = announcements.map((a) => a.id);
+  const recResult = await query(
+    `
+      SELECT
+        id,
+        announcement_id,
+        customer_id,
+        customer_name,
+        email,
+        status,
+        error_message,
+        sent_at
+      FROM announcement_recipients
+      WHERE announcement_id = ANY($1::uuid[])
+      ORDER BY sent_at ASC, id ASC;
+    `,
+    [announcementIds]
+  );
+
+  const recipientsByAnnouncement = new Map();
+  for (const r of recResult.rows) {
+    if (!recipientsByAnnouncement.has(r.announcement_id)) {
+      recipientsByAnnouncement.set(r.announcement_id, []);
+    }
+    recipientsByAnnouncement.get(r.announcement_id).push(r);
+  }
+
+  return announcements.map((ann) => {
+    const recs = recipientsByAnnouncement.get(ann.id) || [];
+    const parsedCriteria =
+      typeof ann.target_criteria === 'string'
+        ? JSON.parse(ann.target_criteria)
+        : ann.target_criteria || { status: 'ok', scope: 'all', filters: [] };
+
+    const failedRecipients = recs
+      .filter((r) => r.status === 'failed')
+      .map((r) => ({
+        id: r.id,
+        customer_id: r.customer_id,
+        customer_name: r.customer_name,
+        email: r.email,
+        reason: r.error_message || 'Delivery failed',
+        error_message: r.error_message || 'Delivery failed',
+        sent_at: r.sent_at,
+      }));
+
+    return {
+      id: ann.id,
+      business_id: ann.business_id,
+      announcement_prompt: ann.announcement_prompt,
+      subject: ann.subject,
+      body: ann.body,
+      content: ann.body,
+      audience_description:
+        ann.audience_description || 'All registered customers',
+      target_criteria: parsedCriteria,
+      status: ann.status,
+      total_recipients: Number(ann.total_recipients || 0),
+      recipient_count: Number(ann.total_recipients || 0),
+      sent_count: Number(ann.sent_count || 0),
+      failed_count: Number(ann.failed_count || 0),
+      sent_at: ann.sent_at,
+      created_at: ann.created_at,
+      updated_at: ann.updated_at,
+      recipients: recs,
+      failed_recipients: failedRecipients,
+    };
+  });
+}
+
+/**
  * Executes a confirmed bulk announcement campaign:
  * - Atomically locks and transitions the announcement from 'draft' -> 'sending' to prevent duplicate sends.
- * - Retrieves eligible customers belonging strictly to the business.
+ * - Uses the saved announcement's validated target_criteria to select matching customers from the DB.
  * - Personalizes {{customer_name}} for each recipient and sends individual emails sequentially.
  * - Persists each recipient's delivery status ('sent' or 'failed') immediately so partial failures never lose progress.
  * - Finalizes campaign status ('sent', 'partially_sent', or 'failed') and counts.
@@ -108,83 +241,123 @@ async function findAnnouncementForBusinessOrThrow(businessId, announcementId) {
  * @param {object} params
  * @param {string} params.businessId
  * @param {string} params.announcementId
- * @param {string} params.subject
- * @param {string} params.body
+ * @param {string | null} [params.subject]
+ * @param {string | null} [params.body]
  */
 async function sendAnnouncementCampaign({
   businessId,
   announcementId,
-  subject,
-  body,
+  subject = null,
+  body = null,
 }) {
   // 1. Validate that SMTP (or test/mock transport) is configured before locking/sending
   validateSmtpConfig();
 
-  // 2. Atomically verify ownership, prevent duplicate sends, verify eligible customers exist,
-  //    and transition status to 'sending'
-  const { eligibleCustomers } = await withTransaction(async (client) => {
-    const annResult = await client.query(
-      `
-        SELECT
-          id,
-          business_id,
-          announcement_prompt,
-          subject,
-          body,
-          status,
-          total_recipients,
-          sent_count,
-          failed_count,
-          sent_at,
-          created_at,
-          updated_at
-        FROM announcements
-        WHERE id = $1 AND business_id = $2
-        FOR UPDATE;
-      `,
-      [announcementId, businessId]
-    );
-
-    if (annResult.rowCount === 0) {
-      throw new AppError(
-        `Announcement with ID "${announcementId}" was not found for this business.`,
-        404
+  // 2. Atomically verify ownership, prevent duplicate sends, resolve saved subject/body/criteria,
+  //    verify matching customers exist, and transition status to 'sending'
+  const { eligibleCustomers, resolvedSubject, resolvedBody } =
+    await withTransaction(async (client) => {
+      const annResult = await client.query(
+        `
+          SELECT
+            id,
+            business_id,
+            announcement_prompt,
+            subject,
+            body,
+            target_criteria,
+            audience_description,
+            status,
+            total_recipients,
+            sent_count,
+            failed_count,
+            sent_at,
+            created_at,
+            updated_at
+          FROM announcements
+          WHERE id = $1 AND business_id = $2
+          FOR UPDATE;
+        `,
+        [announcementId, businessId]
       );
-    }
 
-    const announcement = annResult.rows[0];
+      if (annResult.rowCount === 0) {
+        throw new AppError(
+          `Announcement with ID "${announcementId}" was not found for this business.`,
+          404
+        );
+      }
 
-    if (announcement.status !== 'draft') {
-      throw new AppError(
-        `Announcement has already been processed (current status: "${announcement.status}"). Duplicate campaign sends are not allowed.`,
-        409
+      const announcement = annResult.rows[0];
+
+      if (announcement.status !== 'draft') {
+        throw new AppError(
+          `Announcement has already been processed (current status: "${announcement.status}"). Duplicate campaign sends are not allowed.`,
+          409
+        );
+      }
+
+      const parsedCriteria =
+        typeof announcement.target_criteria === 'string'
+          ? JSON.parse(announcement.target_criteria)
+          : announcement.target_criteria || {
+              status: 'ok',
+              scope: 'all',
+              filters: [],
+            };
+
+      if (
+        parsedCriteria.status === 'clarification_needed' ||
+        parsedCriteria.scope === 'ambiguous'
+      ) {
+        throw new AppError(
+          parsedCriteria.clarification_message ||
+            'Cannot send announcement because the intended recipient audience is ambiguous and requires clarification.',
+          400
+        );
+      }
+
+      const finalSubject =
+        typeof subject === 'string' && subject.trim()
+          ? subject.replace(/[\r\n]+/g, ' ').trim()
+          : announcement.subject;
+
+      const finalBody =
+        typeof body === 'string' && body.trim()
+          ? body.trim()
+          : announcement.body;
+
+      const customers = await getCustomersMatchingAnnouncementCriteria(
+        businessId,
+        parsedCriteria
       );
-    }
+      if (customers.length === 0) {
+        throw new AppError(
+          'No eligible customers found matching the announcement criteria for this business.',
+          400
+        );
+      }
 
-    const customers = await getEligibleCustomersForBusiness(businessId);
-    if (customers.length === 0) {
-      throw new AppError(
-        'No eligible customers found for this business. Please add or import customers with valid names and email addresses before sending an announcement.',
-        400
+      await client.query(
+        `
+          UPDATE announcements
+          SET
+            subject = $3,
+            body = $4,
+            status = 'sending',
+            total_recipients = $5,
+            updated_at = NOW()
+          WHERE id = $1 AND business_id = $2;
+        `,
+        [announcementId, businessId, finalSubject, finalBody, customers.length]
       );
-    }
 
-    await client.query(
-      `
-        UPDATE announcements
-        SET
-          subject = $3,
-          body = $4,
-          status = 'sending',
-          total_recipients = $5,
-          updated_at = NOW()
-        WHERE id = $1 AND business_id = $2;
-      `,
-      [announcementId, businessId, subject, body, customers.length]
-    );
-
-    return { eligibleCustomers: customers };
-  });
+      return {
+        eligibleCustomers: customers,
+        resolvedSubject: finalSubject,
+        resolvedBody: finalBody,
+      };
+    });
 
   // 3. Sequentially send one individually personalized email per recipient
   let sentCount = 0;
@@ -193,7 +366,7 @@ async function sendAnnouncementCampaign({
 
   for (const customer of eligibleCustomers) {
     const personalizedBody = personalizeAnnouncementBody(
-      body,
+      resolvedBody,
       customer.customer_name
     );
 
@@ -203,7 +376,7 @@ async function sendAnnouncementCampaign({
     try {
       await sendIndividualEmail({
         to: customer.email,
-        subject,
+        subject: resolvedSubject,
         text: personalizedBody,
       });
       sentCount += 1;
@@ -280,6 +453,8 @@ async function sendAnnouncementCampaign({
         announcement_prompt,
         subject,
         body,
+        target_criteria,
+        audience_description,
         status,
         total_recipients,
         sent_count,
@@ -307,5 +482,6 @@ async function sendAnnouncementCampaign({
 module.exports = {
   saveAnnouncementDraft,
   findAnnouncementForBusinessOrThrow,
+  listAnnouncementsForBusiness,
   sendAnnouncementCampaign,
 };

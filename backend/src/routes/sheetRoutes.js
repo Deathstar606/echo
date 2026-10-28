@@ -7,6 +7,8 @@ const {
   getServicesList,
   querySpreadsheet,
   mutateSpreadsheet,
+  generateSheetData,
+  saveGeneratedSheetData,
 } = require('../controllers/sheetController');
 
 const router = express.Router({ mergeParams: true });
@@ -25,5 +27,9 @@ router.post('/query', querySpreadsheet);
 // Mutation endpoints (with preview on confirm=false, execute on confirm=true)
 router.post('/mutate', mutateSpreadsheet);
 router.post('/mutation', mutateSpreadsheet);
+
+// AI sample sheet data generation & confirmed save endpoints
+router.post('/generate', generateSheetData);
+router.post('/generate/save', saveGeneratedSheetData);
 
 module.exports = router;

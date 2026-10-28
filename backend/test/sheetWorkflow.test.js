@@ -5,7 +5,10 @@ const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const app = require('../src/app');
 const { setPool } = require('../db');
-const { setSheetGeminiGenerator } = require('../src/services/geminiService');
+const {
+  setSheetGeminiGenerator,
+  setSheetSampleDataGenerator,
+} = require('../src/services/geminiService');
 
 /**
  * Creates an in-memory PostgreSQL simulator supporting products, services,
@@ -548,6 +551,45 @@ describe('Echo Natural-Language Spreadsheet Querying & Manipulation (Phase 4 Tes
       };
     });
 
+    setSheetSampleDataGenerator(async (promptText) => {
+      if (promptText.includes('sample product records')) {
+        return {
+          rows: [
+            {
+              name: 'Solar Camp Lantern Pro',
+              description: 'Collapsible solar-powered LED lantern',
+              price: 39.99,
+              stock: 25,
+              category: 'Camping',
+              size: 'One Size',
+              color: 'Yellow',
+            },
+            {
+              name: 'Titanium Spork Set',
+              description: 'Ultralight utensil set for backpacking',
+              price: 18.5,
+              stock: 40,
+              category: 'Accessories',
+              size: 'Small',
+              color: 'Silver',
+            },
+          ],
+        };
+      }
+      return {
+        rows: [
+          {
+            name: 'Attic Insulation Upgrade',
+            description: 'Blown-in cellulose insulation for energy efficiency',
+            rate: 195.0,
+            availability: 'available',
+            size: 'Large',
+            available_from: '2026-11-25',
+          },
+        ],
+      };
+    });
+
     await new Promise((resolve) => {
       server = app.listen(0, '127.0.0.1', () => {
         const address = server.address();
@@ -559,6 +601,7 @@ describe('Echo Natural-Language Spreadsheet Querying & Manipulation (Phase 4 Tes
 
   after(async () => {
     setSheetGeminiGenerator(null);
+    setSheetSampleDataGenerator(null);
     if (server) {
       await new Promise((resolve) => server.close(resolve));
     }
@@ -1000,5 +1043,58 @@ describe('Echo Natural-Language Spreadsheet Querying & Manipulation (Phase 4 Tes
     assert.equal(body.status, 'clarification_needed');
     assert.ok(body.message.includes('schema') || body.message.includes('column') || body.message.includes('weight'));
     assert.equal(body.rows.length, 0);
+  });
+
+  it('22. Generate New Sheet Data: previews validated sample records without modifying DB, and persists on confirmed save (append or replace)', async () => {
+    const countBefore = mockPool.getInternalProducts().filter((p) => p.business_id === businessId).length;
+
+    // 1. Generate draft preview
+    const genRes = await fetch(`${baseUrl}/api/businesses/${businessId}/sheets/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entity: 'products', count: 2 }),
+    });
+    assert.equal(genRes.status, 200);
+    const genBody = await genRes.json();
+    assert.equal(genBody.status, 'draft_preview');
+    assert.equal(genBody.is_unsaved_draft, true);
+    assert.equal(genBody.rows.length, 2);
+
+    // Ensure DB was not modified by preview
+    const countAfterPreview = mockPool.getInternalProducts().filter((p) => p.business_id === businessId).length;
+    assert.equal(countAfterPreview, countBefore);
+
+    // 2. Reject save without confirm: true
+    const unconfirmedSave = await fetch(`${baseUrl}/api/businesses/${businessId}/sheets/generate/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        entity: 'products',
+        rows: genBody.rows,
+        mode: 'append',
+        confirm: false,
+      }),
+    });
+    assert.equal(unconfirmedSave.status, 400);
+
+    // 3. Confirmed save in append mode
+    const appendSave = await fetch(`${baseUrl}/api/businesses/${businessId}/sheets/generate/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        entity: 'products',
+        rows: genBody.rows,
+        mode: 'append',
+        confirm: true,
+      }),
+    });
+    assert.equal(appendSave.status, 200);
+    const appendBody = await appendSave.json();
+    assert.equal(appendBody.status, 'saved');
+    assert.equal(appendBody.mode, 'append');
+    assert.equal(appendBody.saved_count, 2);
+
+    const countAfterAppend = mockPool.getInternalProducts().filter((p) => p.business_id === businessId).length;
+    assert.equal(countAfterAppend, countBefore + 2);
   });
 });

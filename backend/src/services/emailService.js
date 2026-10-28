@@ -125,6 +125,24 @@ function getMailTransporter() {
   return cachedSmtpTransporter;
 }
 
+const STRICT_EMAIL_REGEX =
+  /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+
+/**
+ * Validates whether a recipient email address has a valid syntactic format.
+ *
+ * @param {string} email
+ * @returns {boolean}
+ */
+function isValidDeliverableEmail(email) {
+  if (typeof email !== 'string') return false;
+  const trimmed = email.trim();
+  if (!trimmed || trimmed.length > 320 || trimmed.includes('..')) {
+    return false;
+  }
+  return STRICT_EMAIL_REGEX.test(trimmed);
+}
+
 /**
  * Sends a single individually personalized email to one recipient.
  * Never uses CC or BCC so recipient addresses are strictly isolated.
@@ -135,17 +153,31 @@ function getMailTransporter() {
  * @param {string} params.text - Personalized plain-text email body
  */
 async function sendIndividualEmail({ to, subject, text }) {
+  const recipientEmail = String(to ?? '').trim();
+  if (!isValidDeliverableEmail(recipientEmail)) {
+    throw new Error(
+      `Invalid email address "${recipientEmail || '(empty)'}" — delivery rejected.`
+    );
+  }
+
   const transporter = getMailTransporter();
   const fromAddress = env.mailFrom || env.smtpUser || 'no-reply@example.test';
 
   const mailOptions = {
     from: fromAddress,
-    to: String(to).trim(),
+    to: recipientEmail,
     subject: String(subject).replace(/[\r\n]+/g, ' ').trim(),
     text: String(text),
   };
 
   const info = await transporter.sendMail(mailOptions);
+
+  if (Array.isArray(info?.rejected) && info.rejected.length > 0) {
+    throw new Error(
+      `Delivery rejected by mail server for ${info.rejected.join(', ')}${info.response ? ` (${info.response})` : ''}`
+    );
+  }
+
   return info;
 }
 
@@ -155,5 +187,6 @@ module.exports = {
   personalizeAnnouncementBody,
   validateSmtpConfig,
   getMailTransporter,
+  isValidDeliverableEmail,
   sendIndividualEmail,
 };

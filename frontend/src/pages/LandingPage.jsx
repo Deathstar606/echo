@@ -199,7 +199,7 @@ export default function LandingPage() {
             </li>
             <li>
               <Database size={12} style={{ display: 'inline', marginRight: 4 }} />
-              Includes Announcement Composer &amp; Sheet Management prototype panels
+              Live Natural-Language Announcements &amp; Two-Stage Sheet Management
             </li>
           </ul>
 

@@ -121,6 +121,8 @@ CREATE TABLE IF NOT EXISTS announcements (
   announcement_prompt TEXT NOT NULL CHECK (char_length(btrim(announcement_prompt)) > 0),
   subject VARCHAR(255) NOT NULL CHECK (char_length(btrim(subject)) > 0),
   body TEXT NOT NULL CHECK (char_length(btrim(body)) > 0),
+  target_criteria JSONB NOT NULL DEFAULT '{"scope":"all","filters":[]}'::jsonb,
+  audience_description TEXT NOT NULL DEFAULT 'All eligible customers',
   status VARCHAR(30) NOT NULL DEFAULT 'draft'
     CHECK (status IN ('draft', 'sending', 'sent', 'partially_sent', 'failed')),
   total_recipients INTEGER NOT NULL DEFAULT 0,
@@ -130,6 +132,10 @@ CREATE TABLE IF NOT EXISTS announcements (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE announcements
+  ADD COLUMN IF NOT EXISTS target_criteria JSONB NOT NULL DEFAULT '{"scope":"all","filters":[]}'::jsonb,
+  ADD COLUMN IF NOT EXISTS audience_description TEXT NOT NULL DEFAULT 'All eligible customers';
 
 CREATE INDEX IF NOT EXISTS idx_announcements_business_id
   ON announcements (business_id, created_at DESC);

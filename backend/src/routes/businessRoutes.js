@@ -16,6 +16,7 @@ const {
   postAgentReplyToConversation,
 } = require('../controllers/conversationController');
 const {
+  listBusinessAnnouncements,
   draftBusinessAnnouncement,
   sendBusinessAnnouncement,
 } = require('../controllers/announcementController');
@@ -65,6 +66,14 @@ router.post(
   validateBusinessIdParam,
   uploadSingleCsv,
   uploadBusinessCustomers
+);
+
+// Phase 3 & 6: List Announcement History Endpoint
+// GET /api/businesses/:businessId/announcements
+router.get(
+  '/:businessId/announcements',
+  validateBusinessIdParam,
+  listBusinessAnnouncements
 );
 
 // Phase 3: AI Announcement Draft Generation Endpoint

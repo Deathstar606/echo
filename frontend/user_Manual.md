@@ -148,31 +148,52 @@ All requests use base URL `http://localhost:3000` and `BUSINESS_ID = 684a8863-50
 | Company Panel | `GET /api/businesses/{BUSINESS_ID}/conversations` | Lists all conversations for `BUSINESS_ID` with customer metadata, unread counts, and AI drafts |
 | Company Panel | `GET /api/businesses/{BUSINESS_ID}/conversations/{conversation_id}` | Retrieves full chronological messages and active server-side AI suggestion for a specific conversation |
 | Company Panel | `POST /api/businesses/{BUSINESS_ID}/conversations/{conversation_id}/replies` | Persists an approved/edited/manual company reply (`sender_type: 'agent'`) and clears the active AI draft |
+| Announcements | `GET /api/businesses/{BUSINESS_ID}/announcements` | Retrieves announcement history with creation dates, subjects, content, sending status, and successful/failed recipient counts |
+| Announcements | `POST /api/businesses/{BUSINESS_ID}/announcements/draft` | Drafts personalized announcement email (`{{customer_name}}`) and interprets natural-language recipient targeting criteria (`created_at`, `email`, or all users) |
+| Announcements | `POST /api/businesses/{BUSINESS_ID}/announcements/{announcementId}/send` | Sends confirmed announcement (`{ "confirm": true }`) using saved backend recipient criteria and returns detailed delivery results |
+| Sheet Management | `GET /api/sheets/products?businessId={BUSINESS_ID}` | Lists all `products` records (`name, description, price, stock, category, size, color`) |
+| Sheet Management | `GET /api/sheets/services?businessId={BUSINESS_ID}` | Lists all `services` records (`name, description, rate, availability, size, available_from`) |
+| Sheet Management | `POST /api/businesses/{BUSINESS_ID}/sheets/query` | Executes natural-language queries against `products` or `services` and highlights matching rows |
+| Sheet Management | `POST /api/sheets/mutation` | Two-stage sheet mutation: Stage 1 Preview (`confirm: false`) and Stage 2 Apply (`confirm: true`) |
+| Sheet Management | `POST /api/businesses/{BUSINESS_ID}/sheets/generate` | Generates schema-validated AI sample draft records for `products` or `services` |
+| Sheet Management | `POST /api/businesses/{BUSINESS_ID}/sheets/generate/save` | Persists generated sheet records (`mode: 'append' | 'replace'`, `confirm: true`) |
 
 ---
 
-## 8. Prototype Placeholder Panels
+## 8. Operating Announcement Management & Sheet Management (Phase 2)
 
-As specified for this implementation pass, the following sections are realistic visual placeholders and are explicitly labeled as **PROTOTYPE**, **BETA**, or **DEMO**:
+### A. Natural-Language Announcement Targeting, Sending & History (`/company`)
+1. In the right-hand **MaxiText AI Workspace Copilot** panel under **Announcement Box**:
+   - Enter a natural-language instruction describing both the announcement content and target audience, for example:
+     - `Send an announcement about a flat 10% discount on Service X to all users.`
+     - `Send an announcement about a flat 10% discount on all services to users who registered after 2026-01-01.`
+   - Click **Draft & Preview Target Audience**.
+   - The backend interprets the audience criteria separately from the message, filters customers in PostgreSQL (e.g., by `customers.created_at`), and displays the **Interpreted Audience**, **Matching Recipient Count**, and editable `Subject` and `Body` before sending.
+   - If the audience criteria are ambiguous or unsupported (e.g., filtering by VIP tier or omitting a date), the backend blocks sending and explains the ambiguity instead of silently falling back to all users.
+2. Click **Confirm & Send** (`{ "confirm": true }`) to dispatch individual personalized emails (`{{customer_name}}`) and view the delivery summary (successful sends, failed sends, and failure reasons).
+3. Click **Announcement History** in the top-right header of the Customer Inquiry Panel to inspect all past announcements, their status, and their successful recipient counts (`sent_count`).
 
-1. **Announcement Box & Announcement History (Right Panel & Header Button in `/company`)**:
-   - Reproduces the wireframe's recipient targeting toggle (`Some Customers` | `All Customers`), natural-language campaign prompt, live AI-generated preview box, and `Send Announcement` CTA button.
-   - Clicking `Send Announcement` displays a clear prototype confirmation banner and never dispatches real bulk emails.
-2. **Sheet Management Tab (`2. Sheet Management` in `/company`)**:
-   - Demonstrates natural-language querying and two-phase modification previews (`Before` vs. `Proposed After`) using locally bundled demo datasets (`sample-products.csv` and `sample-services.csv`).
-   - Does not claim Google Sheets API integration and never triggers unintended database mutations.
-3. **Business Sign-In & Voice/Video Call Icons**:
-   - `Sign in Business` opens a workspace identity modal displaying the active hardcoded `BUSINESS_ID`.
-   - Phone and video icons in the conversation header display a non-intrusive prototype notice.
+### B. Sheet Management Panel (`2. Sheet Management` Tab in `/company`)
+1. Switch between **📦 Products** (`name, description, price, stock, category, size, color`) and **🛠️ Services** (`name, description, rate, availability, size, available_from`).
+2. **Natural-Language Sheet Queries**:
+   - Enter a query in the AI Workspace Copilot (e.g., `List products that are out of stock.` or `Show unavailable services.`) and click **Query Sheet**.
+   - The full sheet remains visible on the left while matching rows are highlighted with a `MATCH` badge and the match count is shown above the table.
+3. **Two-Stage Sheet Mutations**:
+   - Enter a modification prompt (e.g., `Change the price of Trail Rain Jacket to 150.`) and click **Preview Mutation**.
+   - **Stage 1 (`confirm: false`)** displays the exact affected row count and before/after field diffs without modifying the database.
+   - **Stage 2 (`confirm: true`)**: Click **Confirm & Apply to Database** to persist the changes and automatically refresh the active sheet.
+4. **Generate New Sheet Data**:
+   - Click **Generate New Sheet Data** in the top bar of the Sheet Management panel to generate 5 schema-validated sample records for the active sheet.
+   - While an unsaved generated draft is active, natural-language query and mutation prompts are disabled for that sheet.
+   - Choose **Append Records** (adds to existing records) or **Replace Existing Sheet** (requires explicit overwrite confirmation), then click **Save Generated Data**, **Regenerate**, or **Discard Draft**.
 
 ---
 
-## 9. Known Limitations & Database Migration Notes
+## 9. Database Migrations Summary
 
-- **Database Migration (`004_conversation_ai_suggestions.sql`)**:
+- **`004_conversation_ai_suggestions.sql`**:
   - Adds `ai_draft_reply`, `ai_draft_category`, `ai_draft_missing_info`, `ai_draft_message_id`, and `ai_draft_updated_at` to `conversations`, plus `ai_suggestion`, `ai_category`, and `ai_missing_info` to `messages`.
-  - Run `npm run db:init` inside `backend/` to ensure these columns exist.
-- **Polling Interval**:
-  - Both `/customer` and `/company` poll for conversation updates every 4 seconds in addition to immediate updates on form submission, plus manual **Refresh** buttons in both interfaces.
-- **Single Active Business Scope**:
-  - All operations are intentionally locked to `BUSINESS_ID = 684a8863-5094-4c8b-9b15-c50c06335b7f`. Customer IDs belonging to other businesses are rejected.
+- **`005_announcements_and_sheets_phase2.sql`**:
+  - Adds `target_criteria JSONB` and `audience_description TEXT` to `announcements` so recipient targeting criteria are persisted server-side.
+  - Seeds sample customers with varied registration dates (`created_at` in 2025 and 2026) and seeds initial `products` (16 rows) and `services` (12 rows) for `684a8863-5094-4c8b-9b15-c50c06335b7f` if empty.
+- Run `npm run db:init` inside `backend/` to apply all schema and migration files.

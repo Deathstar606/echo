@@ -3,6 +3,9 @@ import {
   fetchCompanyConversations,
   fetchCompanyConversationDetail,
   sendCompanyReply,
+  fetchAnnouncementHistory,
+  draftAnnouncement,
+  sendAnnouncement,
 } from '../services/api';
 
 /**
@@ -117,6 +120,63 @@ export const submitCompanyReply = createAsyncThunk(
   }
 );
 
+/**
+ * Thunk: Load Announcement History via GET /api/businesses/{BUSINESS_ID}/announcements
+ */
+export const loadAnnouncementHistory = createAsyncThunk(
+  'company/loadAnnouncementHistory',
+  async (_, { rejectWithValue }) => {
+    try {
+      const data = await fetchAnnouncementHistory();
+      return Array.isArray(data?.announcements) ? data.announcements : [];
+    } catch (err) {
+      return rejectWithValue({
+        message: err.message || 'Failed to load announcement history.',
+      });
+    }
+  }
+);
+
+/**
+ * Thunk: Generate AI Announcement Draft & Interpret Natural-Language Audience Criteria
+ * POST /api/businesses/{BUSINESS_ID}/announcements/draft
+ */
+export const createAnnouncementDraft = createAsyncThunk(
+  'company/createAnnouncementDraft',
+  async (announcementText, { rejectWithValue }) => {
+    try {
+      const data = await draftAnnouncement(announcementText);
+      return data;
+    } catch (err) {
+      return rejectWithValue({
+        message:
+          err.message ||
+          'Failed to generate announcement draft and interpret audience criteria.',
+      });
+    }
+  }
+);
+
+/**
+ * Thunk: Confirm and Send Announcement Campaign
+ * POST /api/businesses/{BUSINESS_ID}/announcements/{announcementId}/send
+ */
+export const confirmAndSendAnnouncement = createAsyncThunk(
+  'company/confirmAndSendAnnouncement',
+  async ({ announcementId, subject, body }, { dispatch, rejectWithValue }) => {
+    try {
+      const result = await sendAnnouncement(announcementId, { subject, body });
+      // Refresh announcement history in background so counts stay accurate
+      dispatch(loadAnnouncementHistory());
+      return result;
+    } catch (err) {
+      return rejectWithValue({
+        message: err.message || 'Failed to send announcement campaign.',
+      });
+    }
+  }
+);
+
 const initialState = {
   conversations: [],
   activeConversationId: null,
@@ -127,13 +187,26 @@ const initialState = {
   aiSuggestionMeta: null,
   isSuggestionEdited: false,
 
-  // Loading & Error states
+  // Loading & Error states for Inbox & Replies
   inboxStatus: 'idle',
   inboxError: null,
   threadStatus: 'idle',
   threadError: null,
   sendReplyStatus: 'idle',
   sendReplyError: null,
+
+  // Phase 2: Announcement Management State
+  announcementHistory: [],
+  announcementHistoryStatus: 'idle',
+  announcementHistoryError: null,
+
+  announcementDraft: null,
+  announcementDraftStatus: 'idle',
+  announcementDraftError: null,
+
+  announcementSendStatus: 'idle',
+  announcementSendError: null,
+  announcementSendResult: null,
 };
 
 const companySlice = createSlice({
@@ -168,6 +241,27 @@ const companySlice = createSlice({
     },
     clearCompanyReplyError(state) {
       state.sendReplyError = null;
+    },
+    updateAnnouncementDraftFields(state, action) {
+      if (state.announcementDraft) {
+        if (action.payload.subject !== undefined) {
+          state.announcementDraft.subject = action.payload.subject;
+        }
+        if (action.payload.body !== undefined) {
+          state.announcementDraft.body = action.payload.body;
+        }
+      }
+    },
+    clearAnnouncementDraft(state) {
+      state.announcementDraft = null;
+      state.announcementDraftStatus = 'idle';
+      state.announcementDraftError = null;
+      state.announcementSendError = null;
+    },
+    clearAnnouncementSendResult(state) {
+      state.announcementSendResult = null;
+      state.announcementSendError = null;
+      state.announcementSendStatus = 'idle';
     },
   },
   extraReducers: (builder) => {
@@ -307,6 +401,54 @@ const companySlice = createSlice({
         state.sendReplyStatus = 'failed';
         state.sendReplyError =
           action.payload?.message || 'Failed to send reply.';
+      })
+
+      // Announcement History
+      .addCase(loadAnnouncementHistory.pending, (state) => {
+        state.announcementHistoryStatus = 'loading';
+        state.announcementHistoryError = null;
+      })
+      .addCase(loadAnnouncementHistory.fulfilled, (state, action) => {
+        state.announcementHistoryStatus = 'succeeded';
+        state.announcementHistory = action.payload;
+      })
+      .addCase(loadAnnouncementHistory.rejected, (state, action) => {
+        state.announcementHistoryStatus = 'failed';
+        state.announcementHistoryError =
+          action.payload?.message || 'Failed to load announcement history.';
+      })
+
+      // Draft Announcement & Interpret Natural-Language Audience
+      .addCase(createAnnouncementDraft.pending, (state) => {
+        state.announcementDraftStatus = 'loading';
+        state.announcementDraftError = null;
+        state.announcementSendError = null;
+        state.announcementSendResult = null;
+      })
+      .addCase(createAnnouncementDraft.fulfilled, (state, action) => {
+        state.announcementDraftStatus = 'succeeded';
+        state.announcementDraft = action.payload;
+      })
+      .addCase(createAnnouncementDraft.rejected, (state, action) => {
+        state.announcementDraftStatus = 'failed';
+        state.announcementDraftError =
+          action.payload?.message || 'Failed to generate announcement draft.';
+      })
+
+      // Confirm & Send Announcement
+      .addCase(confirmAndSendAnnouncement.pending, (state) => {
+        state.announcementSendStatus = 'loading';
+        state.announcementSendError = null;
+      })
+      .addCase(confirmAndSendAnnouncement.fulfilled, (state, action) => {
+        state.announcementSendStatus = 'succeeded';
+        state.announcementSendResult = action.payload;
+        state.announcementDraft = null;
+      })
+      .addCase(confirmAndSendAnnouncement.rejected, (state, action) => {
+        state.announcementSendStatus = 'failed';
+        state.announcementSendError =
+          action.payload?.message || 'Failed to send announcement.';
       });
   },
 });
@@ -316,6 +458,9 @@ export const {
   updateAiSuggestionDraft,
   resetAiSuggestionDraftToOriginal,
   clearCompanyReplyError,
+  updateAnnouncementDraftFields,
+  clearAnnouncementDraft,
+  clearAnnouncementSendResult,
 } = companySlice.actions;
 
 export default companySlice.reducer;

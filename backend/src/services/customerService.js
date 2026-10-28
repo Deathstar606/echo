@@ -146,10 +146,124 @@ async function countEligibleCustomersForBusiness(businessId) {
   return Number(result.rows[0]?.count || 0);
 }
 
+/**
+ * Retrieves eligible customers for a business filtered by validated announcement target criteria.
+ * Uses strictly parameterized SQL against the customers table.
+ *
+ * @param {string} businessId
+ * @param {object | null | undefined} targetCriteria
+ * @returns {Promise<Array<object>>}
+ */
+async function getCustomersMatchingAnnouncementCriteria(
+  businessId,
+  targetCriteria = null
+) {
+  if (
+    !targetCriteria ||
+    typeof targetCriteria !== 'object' ||
+    !Array.isArray(targetCriteria.filters) ||
+    targetCriteria.filters.length === 0
+  ) {
+    return getEligibleCustomersForBusiness(businessId);
+  }
+
+  const allowedFields = new Set([
+    'created_at',
+    'email',
+    'customer_name',
+    'external_customer_id',
+  ]);
+  const params = [businessId];
+  const whereClauses = [
+    'business_id = $1',
+    'customer_name IS NOT NULL',
+    'char_length(btrim(customer_name)) > 0',
+    'email IS NOT NULL',
+    'char_length(btrim(email)) > 0',
+  ];
+
+  for (const filter of targetCriteria.filters) {
+    if (!filter || typeof filter !== 'object') continue;
+    const field = String(filter.field || '').trim().toLowerCase();
+    const operator = String(filter.operator || '').trim().toLowerCase();
+    const value = filter.value;
+
+    if (!allowedFields.has(field)) {
+      throw new AppError(
+        `Invalid customer filter field "${field}" in announcement target criteria.`,
+        400
+      );
+    }
+
+    if (field === 'created_at') {
+      if (operator === 'greater_than') {
+        params.push(String(value).trim());
+        whereClauses.push(`created_at > $${params.length}`);
+      } else if (operator === 'greater_than_or_equal') {
+        params.push(String(value).trim());
+        whereClauses.push(`created_at >= $${params.length}`);
+      } else if (operator === 'less_than') {
+        params.push(String(value).trim());
+        whereClauses.push(`created_at < $${params.length}`);
+      } else if (operator === 'less_than_or_equal') {
+        params.push(String(value).trim());
+        whereClauses.push(`created_at <= $${params.length}`);
+      } else if (operator === 'equals') {
+        params.push(String(value).trim());
+        whereClauses.push(`created_at::date = $${params.length}::date`);
+      } else if (
+        operator === 'between' &&
+        Array.isArray(value) &&
+        value.length === 2
+      ) {
+        params.push(String(value[0]).trim());
+        const p1 = params.length;
+        params.push(String(value[1]).trim());
+        const p2 = params.length;
+        whereClauses.push(`created_at BETWEEN $${p1} AND $${p2}`);
+      } else {
+        throw new AppError(
+          `Unsupported operator "${operator}" for customer created_at filter.`,
+          400
+        );
+      }
+    } else {
+      if (operator === 'equals') {
+        params.push(String(value).trim());
+        whereClauses.push(`LOWER(${field}) = LOWER($${params.length})`);
+      } else if (operator === 'contains') {
+        params.push(`%${String(value).trim()}%`);
+        whereClauses.push(`${field} ILIKE $${params.length}`);
+      } else if (operator === 'ends_with') {
+        params.push(`%${String(value).trim()}`);
+        whereClauses.push(`${field} ILIKE $${params.length}`);
+      } else {
+        throw new AppError(
+          `Unsupported operator "${operator}" for customer ${field} filter.`,
+          400
+        );
+      }
+    }
+  }
+
+  const result = await query(
+    `
+      SELECT id, business_id, customer_name, email, external_customer_id, created_at, updated_at
+      FROM customers
+      WHERE ${whereClauses.join('\n        AND ')}
+      ORDER BY created_at ASC, id ASC;
+    `,
+    params
+  );
+
+  return result.rows;
+}
+
 module.exports = {
   createCustomer,
   findCustomerById,
   findCustomerByBusinessAndEmail,
   getEligibleCustomersForBusiness,
   countEligibleCustomersForBusiness,
+  getCustomersMatchingAnnouncementCriteria,
 };

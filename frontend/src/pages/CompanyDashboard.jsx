@@ -22,6 +22,9 @@ import {
   X,
   Inbox,
   Loader2,
+  Users,
+  Calendar,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   loadCompanyConversations,
@@ -31,6 +34,12 @@ import {
   updateAiSuggestionDraft,
   resetAiSuggestionDraftToOriginal,
   clearCompanyReplyError,
+  loadAnnouncementHistory,
+  createAnnouncementDraft,
+  confirmAndSendAnnouncement,
+  updateAnnouncementDraftFields,
+  clearAnnouncementDraft,
+  clearAnnouncementSendResult,
 } from '../store/companySlice';
 import SheetManagementPanel from '../components/SheetManagementPanel';
 
@@ -43,6 +52,33 @@ function formatInboxTime(isoString) {
     return '';
   }
 }
+
+function formatDateTime(isoString) {
+  if (!isoString) return '—';
+  try {
+    const d = new Date(isoString);
+    return d.toLocaleString([], {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return String(isoString);
+  }
+}
+
+const SAMPLE_ANNOUNCEMENT_PROMPTS = [
+  {
+    label: 'All Users (10% Off Service X)',
+    text: 'Send an announcement about a flat 10% discount on Service X to all users.',
+  },
+  {
+    label: 'Registered After 2026-01-01',
+    text: 'Send an announcement about a flat 10% discount on all services to users who registered after 2026-01-01.',
+  },
+];
 
 export default function CompanyDashboard() {
   const dispatch = useDispatch();
@@ -59,6 +95,15 @@ export default function CompanyDashboard() {
     threadError,
     sendReplyStatus,
     sendReplyError,
+    announcementHistory,
+    announcementHistoryStatus,
+    announcementHistoryError,
+    announcementDraft,
+    announcementDraftStatus,
+    announcementDraftError,
+    announcementSendStatus,
+    announcementSendError,
+    announcementSendResult,
   } = useSelector((state) => state.company);
 
   // Top Tab Navigation State ('inquiry' | 'sheets')
@@ -70,12 +115,10 @@ export default function CompanyDashboard() {
   // Bottom reply composer state (preserved on error)
   const [replyInput, setReplyInput] = useState('');
 
-  // Announcement Prototype Placeholder State
-  const [announcementTarget, setAnnouncementTarget] = useState('some');
+  // Natural-Language Announcement Prompt State (No manual Some/All toggle)
   const [announcementPrompt, setAnnouncementPrompt] = useState(
-    'Write an announcement reminding everyone about our upcoming holiday hours on Friday, asking them to send queries before 3 PM.'
+    'Send an announcement about a flat 10% discount on all services to users who registered after 2026-01-01.'
   );
-  const [announcementFeedback, setAnnouncementFeedback] = useState(null);
   const [showAnnouncementHistoryModal, setShowAnnouncementHistoryModal] =
     useState(false);
   const [callPlaceholderNotice, setCallPlaceholderNotice] = useState(null);
@@ -86,6 +129,7 @@ export default function CompanyDashboard() {
   // Initial load + periodic background polling for new customer inquiries
   useEffect(() => {
     dispatch(loadCompanyConversations({ silent: false }));
+    dispatch(loadAnnouncementHistory());
 
     const interval = setInterval(() => {
       dispatch(loadCompanyConversations({ silent: true }));
@@ -127,7 +171,6 @@ export default function CompanyDashboard() {
     if (submitCompanyReply.fulfilled.match(resultAction)) {
       setReplyInput('');
     }
-    // If failed, replyInput stays intact so the agent can retry!
   };
 
   // Send approved (or edited) AI suggestion directly from Copilot panel
@@ -151,11 +194,40 @@ export default function CompanyDashboard() {
     replyInputRef.current?.focus();
   };
 
-  const handlePlaceholderAnnouncementSend = () => {
-    setAnnouncementFeedback(
-      `Prototype Placeholder (${
-        announcementTarget === 'all' ? 'All Customers' : 'Some Customers'
-      }): Bulk announcement composer is a visual demonstration in this workspace pass. No live emails were dispatched.`
+  // Open Announcement History modal and fetch fresh history from backend
+  const handleOpenAnnouncementHistory = () => {
+    setShowAnnouncementHistoryModal(true);
+    dispatch(loadAnnouncementHistory());
+  };
+
+  // Generate AI Announcement Draft & Interpret Natural-Language Audience Criteria
+  const handleDraftAnnouncement = async (e) => {
+    if (e) e.preventDefault();
+    const text = announcementPrompt.trim();
+    if (!text || announcementDraftStatus === 'loading') return;
+
+    dispatch(clearAnnouncementSendResult());
+    await dispatch(createAnnouncementDraft(text));
+  };
+
+  // Confirm & Send Announcement Campaign ({ confirm: true })
+  const handleConfirmSendAnnouncement = async () => {
+    if (
+      !announcementDraft ||
+      !announcementDraft.id ||
+      announcementDraft.status === 'clarification_needed' ||
+      announcementDraft.clarification_needed ||
+      announcementSendStatus === 'loading'
+    ) {
+      return;
+    }
+
+    await dispatch(
+      confirmAndSendAnnouncement({
+        announcementId: announcementDraft.id,
+        subject: announcementDraft.subject,
+        body: announcementDraft.body,
+      })
     );
   };
 
@@ -177,17 +249,9 @@ export default function CompanyDashboard() {
     ? activeConversation.messages
     : [];
 
-  // Build dynamic preview text for the Announcement Box prototype
-  const computedAnnouncementPreview = announcementPrompt.trim()
-    ? announcementPrompt.toLowerCase().includes('holiday') ||
-      announcementPrompt.toLowerCase().includes('friday')
-      ? '🗓️ Holiday Notice: We are closing early this Friday at 3 PM! Please submit any urgent requests...'
-      : `📣 Draft Preview (${
-          announcementTarget === 'all' ? 'All Customers' : 'Selected Segment'
-        }): ${announcementPrompt.slice(0, 125)}${
-          announcementPrompt.length > 125 ? '...' : ''
-        }`
-    : 'Enter a natural-language campaign prompt above to preview the AI-generated announcement.';
+  const isClarificationNeeded =
+    announcementDraft?.status === 'clarification_needed' ||
+    Boolean(announcementDraft?.clarification_needed);
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -219,12 +283,6 @@ export default function CompanyDashboard() {
           </span>
           <BarChart3 size={15} color="#16a34a" />
           <span>Sheet Management</span>
-          <span
-            className="beta-pill"
-            style={{ padding: '1px 7px', fontSize: '9.5px' }}
-          >
-            DEMO
-          </span>
         </button>
       </div>
 
@@ -246,10 +304,25 @@ export default function CompanyDashboard() {
               <button
                 type="button"
                 className="btn-warm-outlined"
-                onClick={() => setShowAnnouncementHistoryModal(true)}
+                onClick={handleOpenAnnouncementHistory}
               >
                 <Megaphone size={14} />
                 Announcement History
+                {announcementHistory.length > 0 && (
+                  <span
+                    style={{
+                      marginLeft: 4,
+                      padding: '1px 6px',
+                      borderRadius: '999px',
+                      backgroundColor: 'var(--accent-lavender-bg)',
+                      color: 'var(--primary-indigo-dark)',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    {announcementHistory.length}
+                  </span>
+                )}
               </button>
             </div>
 
@@ -763,7 +836,7 @@ export default function CompanyDashboard() {
                     >
                       {sendReplyStatus === 'loading' ? (
                         <>
-                          <Loader2 size={14} />
+                          <Loader2 size={14} className="spin" />
                           Sending...
                         </>
                       ) : (
@@ -801,7 +874,6 @@ export default function CompanyDashboard() {
                     new message, MaxiText AI Studio automatically generates a
                     context-aware draft suggestion here.
                   </div>
-                  {/* Allow reloading the most recent historical suggestion if one exists */}
                   {activeMessages.some((m) => m.ai_suggestion) && (
                     <button
                       type="button"
@@ -825,7 +897,7 @@ export default function CompanyDashboard() {
               )}
             </div>
 
-            {/* 2. Announcement Box (Wireframe Match — Prototype Placeholder) */}
+            {/* 2. Announcement Box — Natural-Language Recipient Targeting & Live Sending */}
             <div className="announcement-section">
               <div className="announcement-title-row">
                 <div className="announcement-heading">
@@ -833,49 +905,18 @@ export default function CompanyDashboard() {
                   <span>Announcement Box</span>
                 </div>
                 <span
-                  className="beta-pill"
-                  style={{ fontSize: '9.5px', padding: '2px 7px' }}
-                >
-                  PROTOTYPE
-                </span>
-              </div>
-
-              <div className="form-group">
-                <span
                   style={{
-                    fontSize: '12.5px',
-                    color: 'var(--text-secondary)',
-                    fontWeight: 500,
+                    fontSize: '10.5px',
+                    fontWeight: 700,
+                    color: 'var(--primary-indigo)',
+                    backgroundColor: 'var(--accent-lavender-bg)',
+                    padding: '2px 8px',
+                    borderRadius: '999px',
+                    border: '1px solid var(--accent-lavender-border)',
                   }}
                 >
-                  Target
+                  NL AUDIENCE TARGETING
                 </span>
-                <div className="target-toggle-group">
-                  <button
-                    type="button"
-                    className={`target-toggle-btn ${
-                      announcementTarget === 'some' ? 'active' : ''
-                    }`}
-                    onClick={() => {
-                      setAnnouncementTarget('some');
-                      setAnnouncementFeedback(null);
-                    }}
-                  >
-                    Some Customers
-                  </button>
-                  <button
-                    type="button"
-                    className={`target-toggle-btn ${
-                      announcementTarget === 'all' ? 'active' : ''
-                    }`}
-                    onClick={() => {
-                      setAnnouncementTarget('all');
-                      setAnnouncementFeedback(null);
-                    }}
-                  >
-                    All Customers
-                  </button>
-                </div>
               </div>
 
               <div className="form-group">
@@ -883,7 +924,7 @@ export default function CompanyDashboard() {
                   className="copilot-field-label"
                   htmlFor="bulk-announcement-prompt"
                 >
-                  Bulk Announcement Prompt (NL)
+                  Bulk Announcement Prompt (Natural-Language Content &amp; Audience)
                 </label>
                 <textarea
                   id="bulk-announcement-prompt"
@@ -891,43 +932,349 @@ export default function CompanyDashboard() {
                   value={announcementPrompt}
                   onChange={(e) => {
                     setAnnouncementPrompt(e.target.value);
-                    setAnnouncementFeedback(null);
                   }}
-                  placeholder="Describe the announcement campaign in natural language..."
+                  disabled={
+                    announcementDraftStatus === 'loading' ||
+                    announcementSendStatus === 'loading'
+                  }
+                  placeholder='e.g. "Send an announcement about a flat 10% discount on all services to users who registered after 2026-01-01."'
                 />
-              </div>
-
-              <div className="form-group">
-                <span className="copilot-field-label">
-                  AI-Generated Preview
-                </span>
-                <div className="announcement-preview-box">
-                  {computedAnnouncementPreview}
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '5px',
+                    marginTop: '4px',
+                  }}
+                >
+                  {SAMPLE_ANNOUNCEMENT_PROMPTS.map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      className="btn-warm-outlined"
+                      style={{
+                        fontSize: '11px',
+                        padding: '3px 8px',
+                      }}
+                      disabled={
+                        announcementDraftStatus === 'loading' ||
+                        announcementSendStatus === 'loading'
+                      }
+                      onClick={() => {
+                        setAnnouncementPrompt(item.text);
+                        dispatch(clearAnnouncementDraft());
+                        dispatch(clearAnnouncementSendResult());
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
                 </div>
               </div>
-
-              {announcementFeedback && (
-                <div className="alert-banner info" style={{ fontSize: '12px' }}>
-                  <CheckCircle2 size={15} style={{ flexShrink: 0, marginTop: 1 }} />
-                  <span>{announcementFeedback}</span>
-                </div>
-              )}
 
               <button
                 type="button"
-                className="btn-primary-indigo"
-                style={{ width: '100%', padding: '10px 16px' }}
-                onClick={handlePlaceholderAnnouncementSend}
+                className="btn-warm-outlined"
+                style={{
+                  width: '100%',
+                  justifyContent: 'center',
+                  padding: '8px 12px',
+                  fontWeight: 700,
+                  borderColor: 'var(--primary-indigo)',
+                  color: 'var(--primary-indigo-dark)',
+                }}
+                disabled={
+                  !announcementPrompt.trim() ||
+                  announcementDraftStatus === 'loading' ||
+                  announcementSendStatus === 'loading'
+                }
+                onClick={handleDraftAnnouncement}
               >
-                <Rocket size={15} />
-                Send Announcement
+                {announcementDraftStatus === 'loading' ? (
+                  <>
+                    <Loader2 size={14} className="spin" />
+                    Interpreting Audience &amp; Drafting...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={14} />
+                    Draft &amp; Preview Target Audience
+                  </>
+                )}
               </button>
+
+              {announcementDraftError && (
+                <div className="alert-banner error" style={{ fontSize: '12px' }}>
+                  <AlertCircle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <span>{announcementDraftError}</span>
+                </div>
+              )}
+
+              {/* Ambiguous / Invalid Audience Clarification Alert */}
+              {announcementDraft && isClarificationNeeded && (
+                <div
+                  className="alert-banner warning"
+                  style={{
+                    fontSize: '12px',
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    gap: '6px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}>
+                    <AlertTriangle size={15} />
+                    <span>Audience Clarification Required (Send Blocked)</span>
+                  </div>
+                  <div>{announcementDraft.message}</div>
+                  <div style={{ fontSize: '11px', opacity: 0.9 }}>
+                    Interpreted Criteria:{' '}
+                    <strong>{announcementDraft.audience_description}</strong> ·
+                    Matching Recipients: <strong>0</strong>
+                  </div>
+                </div>
+              )}
+
+              {/* Valid Draft & Interpreted Audience Preview */}
+              {announcementDraft && !isClarificationNeeded && (
+                <div
+                  className="ai-suggestion-box"
+                  style={{
+                    padding: '12px',
+                    gap: '8px',
+                    backgroundColor: '#f8fafc',
+                    borderColor: 'var(--accent-lavender-border)',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '6px',
+                      paddingBottom: '6px',
+                      borderBottom: '1px solid var(--border-warm)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        color: 'var(--primary-indigo-dark)',
+                      }}
+                    >
+                      <Users size={14} />
+                      <span>
+                        Target: {announcementDraft.audience_description}
+                      </span>
+                    </div>
+                    <span
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: '999px',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        backgroundColor:
+                          announcementDraft.recipient_count > 0
+                            ? 'var(--status-success-bg)'
+                            : 'var(--status-error-bg)',
+                        color:
+                          announcementDraft.recipient_count > 0
+                            ? 'var(--status-success)'
+                            : 'var(--status-error)',
+                      }}
+                    >
+                      {announcementDraft.recipient_count} Recipient
+                      {announcementDraft.recipient_count === 1 ? '' : 's'}
+                    </span>
+                  </div>
+
+                  {Array.isArray(announcementDraft.matching_recipients_preview) &&
+                    announcementDraft.matching_recipients_preview.length > 0 && (
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        <strong>Matched:</strong>{' '}
+                        {announcementDraft.matching_recipients_preview
+                          .map((r) => `${r.customer_name} (${r.email})`)
+                          .join(', ')}
+                      </div>
+                    )}
+
+                  <div className="form-group">
+                    <label
+                      className="form-label"
+                      htmlFor="announcement-draft-subject"
+                      style={{ fontSize: '11.5px' }}
+                    >
+                      Subject Line:
+                    </label>
+                    <input
+                      id="announcement-draft-subject"
+                      type="text"
+                      className="form-input"
+                      style={{ padding: '6px 10px', fontSize: '12.5px' }}
+                      value={announcementDraft.subject || ''}
+                      onChange={(e) =>
+                        dispatch(
+                          updateAnnouncementDraftFields({
+                            subject: e.target.value,
+                          })
+                        )
+                      }
+                      disabled={announcementSendStatus === 'loading'}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label
+                      className="form-label"
+                      htmlFor="announcement-draft-body"
+                      style={{ fontSize: '11.5px' }}
+                    >
+                      Email Body (personalized with {'{{customer_name}}'}):
+                    </label>
+                    <textarea
+                      id="announcement-draft-body"
+                      className="ai-draft-textarea"
+                      style={{ minHeight: '92px', fontSize: '12px' }}
+                      value={announcementDraft.body || ''}
+                      onChange={(e) =>
+                        dispatch(
+                          updateAnnouncementDraftFields({
+                            body: e.target.value,
+                          })
+                        )
+                      }
+                      disabled={announcementSendStatus === 'loading'}
+                    />
+                  </div>
+
+                  {announcementSendError && (
+                    <div className="alert-banner error" style={{ fontSize: '12px' }}>
+                      <AlertCircle size={14} style={{ flexShrink: 0 }} />
+                      <span>{announcementSendError}</span>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    className="btn-primary-indigo"
+                    style={{ width: '100%', padding: '9px 14px' }}
+                    disabled={
+                      announcementSendStatus === 'loading' ||
+                      announcementDraft.recipient_count === 0 ||
+                      !announcementDraft.subject?.trim() ||
+                      !announcementDraft.body?.trim()
+                    }
+                    onClick={handleConfirmSendAnnouncement}
+                  >
+                    {announcementSendStatus === 'loading' ? (
+                      <>
+                        <Loader2 size={15} className="spin" />
+                        Sending to {announcementDraft.recipient_count} Recipient(s)...
+                      </>
+                    ) : (
+                      <>
+                        <Rocket size={15} />
+                        Confirm &amp; Send to {announcementDraft.recipient_count}{' '}
+                        Recipient{announcementDraft.recipient_count === 1 ? '' : 's'}
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+
+              {/* Post-Send Delivery Summary */}
+              {announcementSendResult && (
+                <div
+                  className={`alert-banner ${
+                    announcementSendResult.failed_count > 0 ? 'warning' : 'success'
+                  }`}
+                  style={{
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    gap: '6px',
+                    fontSize: '12px',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      width: '100%',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}>
+                      <CheckCircle2 size={15} />
+                      <span>
+                        Announcement Delivery Summary ({announcementSendResult.status})
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => dispatch(clearAnnouncementSendResult())}
+                      style={{ fontSize: '11px', fontWeight: 700 }}
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  <div>
+                    <strong>Audience:</strong>{' '}
+                    {announcementSendResult.audience_description || 'Targeted recipients'}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '12px', fontWeight: 600 }}>
+                    <span style={{ color: 'var(--status-success)' }}>
+                      ✓ Successful Sends: {announcementSendResult.sent_count}
+                    </span>
+                    <span
+                      style={{
+                        color:
+                          announcementSendResult.failed_count > 0
+                            ? 'var(--status-error)'
+                            : 'var(--text-secondary)',
+                      }}
+                    >
+                      ✕ Failed Sends: {announcementSendResult.failed_count}
+                    </span>
+                  </div>
+
+                  {Array.isArray(announcementSendResult.failed_recipients) &&
+                    announcementSendResult.failed_recipients.length > 0 && (
+                      <div
+                        style={{
+                          width: '100%',
+                          marginTop: '4px',
+                          padding: '6px 8px',
+                          borderRadius: '6px',
+                          backgroundColor: '#fef2f2',
+                          border: '1px solid #fecaca',
+                          color: '#991b1b',
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, marginBottom: '2px' }}>
+                          Failed Recipients &amp; Reasons:
+                        </div>
+                        {announcementSendResult.failed_recipients.map((fr, idx) => (
+                          <div key={fr.id || idx} style={{ fontSize: '11.5px' }}>
+                            • <strong>{fr.customer_name}</strong> ({fr.email}):{' '}
+                            {fr.reason || fr.error_message || 'Delivery failed'}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                </div>
+              )}
             </div>
           </aside>
         </motion.main>
       )}
 
-      {/* Announcement History Prototype Modal */}
+      {/* Announcement History Modal (Live Backend Integration) */}
       <AnimatePresence>
         {showAnnouncementHistoryModal && (
           <motion.div
@@ -939,6 +1286,7 @@ export default function CompanyDashboard() {
           >
             <motion.div
               className="modal-card"
+              style={{ maxWidth: '680px', maxHeight: '85vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
@@ -957,64 +1305,251 @@ export default function CompanyDashboard() {
                   <h3 style={{ fontSize: '16px', fontWeight: 700 }}>
                     Announcement History
                   </h3>
-                  <span className="beta-pill">PROTOTYPE</span>
+                  <span
+                    style={{
+                      fontSize: '11.5px',
+                      fontWeight: 600,
+                      color: 'var(--text-secondary)',
+                    }}
+                  >
+                    ({announcementHistory.length} total)
+                  </span>
                 </div>
-                <button
-                  type="button"
-                  className="icon-action-btn"
-                  onClick={() => setShowAnnouncementHistoryModal(false)}
-                >
-                  <X size={18} />
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <button
+                    type="button"
+                    className="icon-action-btn"
+                    onClick={() => dispatch(loadAnnouncementHistory())}
+                    title="Refresh announcement history"
+                  >
+                    <RefreshCw
+                      size={15}
+                      className={
+                        announcementHistoryStatus === 'loading' ? 'spin' : ''
+                      }
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-action-btn"
+                    onClick={() => setShowAnnouncementHistoryModal(false)}
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
               </div>
 
-              <div className="alert-banner info">
-                <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
-                <span>
-                  Announcement history is a visual placeholder in this prototype
-                  pass. Sample campaign previews are shown below.
-                </span>
-              </div>
+              {announcementHistoryError && (
+                <div className="alert-banner error">
+                  <AlertCircle size={16} style={{ flexShrink: 0 }} />
+                  <span>{announcementHistoryError}</span>
+                </div>
+              )}
 
               <div
                 style={{
+                  flex: 1,
+                  overflowY: 'auto',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '10px',
+                  paddingRight: '4px',
                 }}
               >
-                <div
-                  style={{
-                    padding: '12px',
-                    borderRadius: '8px',
-                    backgroundColor: 'var(--bg-subtle-warm)',
-                    border: '1px solid var(--border-warm)',
-                  }}
-                >
+                {announcementHistoryStatus === 'loading' &&
+                announcementHistory.length === 0 ? (
                   <div
                     style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      fontWeight: 700,
+                      padding: '32px',
+                      textAlign: 'center',
+                      color: 'var(--text-secondary)',
                       fontSize: '13px',
                     }}
                   >
-                    <span>🗓️ Holiday Notice: Friday Early Closing</span>
-                    <span style={{ color: 'var(--primary-indigo)', fontSize: '11.5px' }}>
-                      DEMO PREVIEW
-                    </span>
+                    Loading announcement history...
                   </div>
-                  <p
+                ) : announcementHistory.length === 0 ? (
+                  <div
                     style={{
-                      fontSize: '12px',
+                      padding: '32px',
+                      textAlign: 'center',
                       color: 'var(--text-secondary)',
-                      marginTop: 4,
+                      fontSize: '13px',
+                      backgroundColor: 'var(--bg-subtle-warm)',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-warm)',
                     }}
                   >
-                    Target: Some Customers · &ldquo;We are closing early this Friday
-                    at 3 PM! Please submit any urgent requests...&rdquo;
-                  </p>
-                </div>
+                    No announcements have been drafted or sent for this business yet.
+                  </div>
+                ) : (
+                  announcementHistory.map((ann) => {
+                    const isSent =
+                      ann.status === 'sent' || ann.status === 'partially_sent';
+                    return (
+                      <div
+                        key={ann.id}
+                        style={{
+                          padding: '12px 14px',
+                          borderRadius: '8px',
+                          backgroundColor: 'var(--bg-subtle-warm)',
+                          border: '1px solid var(--border-warm)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '6px',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'flex-start',
+                            gap: '10px',
+                            flexWrap: 'wrap',
+                          }}
+                        >
+                          <div>
+                            <div
+                              style={{
+                                fontWeight: 700,
+                                fontSize: '13.5px',
+                                color: 'var(--text-primary)',
+                              }}
+                            >
+                              {ann.subject || 'Untitled Announcement'}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: '11.5px',
+                                color: 'var(--text-secondary)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                marginTop: '2px',
+                              }}
+                            >
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                }}
+                              >
+                                <Calendar size={11} />
+                                {formatDateTime(ann.sent_at || ann.created_at)}
+                              </span>
+                              <span>·</span>
+                              <span>
+                                Audience:{' '}
+                                <strong>
+                                  {ann.audience_description ||
+                                    'All registered customers'}
+                                </strong>
+                              </span>
+                            </div>
+                          </div>
+
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                            }}
+                          >
+                            {/* Recipient Count Badge beside each entry */}
+                            <span
+                              style={{
+                                padding: '3px 9px',
+                                borderRadius: '999px',
+                                fontSize: '11.5px',
+                                fontWeight: 700,
+                                backgroundColor: isSent
+                                  ? 'var(--status-success-bg)'
+                                  : 'var(--accent-lavender-bg)',
+                                color: isSent
+                                  ? 'var(--status-success)'
+                                  : 'var(--primary-indigo-dark)',
+                                border: '1px solid rgba(99,102,241,0.2)',
+                              }}
+                            >
+                              {ann.status === 'draft'
+                                ? `${ann.recipient_count ?? ann.total_recipients ?? 0} Target Recipients`
+                                : `${ann.sent_count ?? 0} Sent${
+                                    ann.failed_count > 0
+                                      ? ` (${ann.failed_count} Failed)`
+                                      : ''
+                                  }`}
+                            </span>
+
+                            <span
+                              style={{
+                                padding: '2px 7px',
+                                borderRadius: '999px',
+                                fontSize: '10.5px',
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                backgroundColor:
+                                  ann.status === 'sent'
+                                    ? '#dcfce7'
+                                    : ann.status === 'partially_sent'
+                                      ? '#fef3c7'
+                                      : ann.status === 'failed'
+                                        ? '#fee2e2'
+                                        : '#e0e7ff',
+                                color:
+                                  ann.status === 'sent'
+                                    ? '#166534'
+                                    : ann.status === 'partially_sent'
+                                      ? '#92400e'
+                                      : ann.status === 'failed'
+                                        ? '#991b1b'
+                                        : '#3730a3',
+                              }}
+                            >
+                              {ann.status}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div
+                          style={{
+                            fontSize: '12px',
+                            color: 'var(--text-primary)',
+                            whiteSpace: 'pre-wrap',
+                            backgroundColor: '#ffffff',
+                            padding: '8px 10px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border-light)',
+                          }}
+                        >
+                          {ann.body || ann.content}
+                        </div>
+
+                        {Array.isArray(ann.failed_recipients) &&
+                          ann.failed_recipients.length > 0 && (
+                            <div
+                              style={{
+                                fontSize: '11.5px',
+                                color: '#991b1b',
+                                backgroundColor: '#fef2f2',
+                                padding: '6px 8px',
+                                borderRadius: '6px',
+                                border: '1px solid #fecaca',
+                              }}
+                            >
+                              <strong>Failed Deliveries:</strong>{' '}
+                              {ann.failed_recipients
+                                .map(
+                                  (fr) =>
+                                    `${fr.customer_name} (${fr.email}: ${fr.reason || fr.error_message})`
+                                )
+                                .join('; ')}
+                            </div>
+                          )}
+                      </div>
+                    );
+                  })
+                )}
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -1023,7 +1558,7 @@ export default function CompanyDashboard() {
                   className="btn-warm-outlined"
                   onClick={() => setShowAnnouncementHistoryModal(false)}
                 >
-                  Close Preview
+                  Close
                 </button>
               </div>
             </motion.div>

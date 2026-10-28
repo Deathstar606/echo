@@ -9,6 +9,10 @@ const {
 const { getAllRows, executeSpreadsheetQuery } = require('../services/sheetQueryService');
 const { interpretNaturalLanguageQuery } = require('../services/sheetQueryPromptBuilder');
 const { executeMutation, previewMutation } = require('../services/sheetMutationService');
+const {
+  generateSampleSheetDraft,
+  saveGeneratedSheetRows,
+} = require('../services/sheetGenerationService');
 const { normalizeEntityName } = require('../services/sheetSchemaService');
 const AppError = require('../utils/AppError');
 
@@ -275,6 +279,75 @@ async function mutateSpreadsheet(req, res, next) {
   }
 }
 
+/**
+ * POST /api/sheets/generate
+ * POST /api/businesses/:businessId/sheets/generate
+ *
+ * Body: { entity: 'products' | 'services', count?: number, prompt?: string }
+ */
+async function generateSheetData(req, res, next) {
+  try {
+    const body = req.body || {};
+    const rawEntity = body.entity;
+
+    if (!rawEntity || typeof rawEntity !== 'string') {
+      throw new AppError(
+        'Field "entity" is required ("products" or "services").',
+        400
+      );
+    }
+
+    const entity = normalizeEntityName(rawEntity);
+    const business = await resolveBusiness(req);
+
+    const result = await generateSampleSheetDraft({
+      entity,
+      business,
+      count: body.count || 5,
+      prompt: typeof body.prompt === 'string' ? body.prompt : '',
+    });
+
+    return res.status(200).json(result);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+/**
+ * POST /api/sheets/generate/save
+ * POST /api/businesses/:businessId/sheets/generate/save
+ *
+ * Body: { entity: 'products' | 'services', rows: [...], mode?: 'append' | 'replace', confirm: true }
+ */
+async function saveGeneratedSheetData(req, res, next) {
+  try {
+    const body = req.body || {};
+    const rawEntity = body.entity;
+
+    if (!rawEntity || typeof rawEntity !== 'string') {
+      throw new AppError(
+        'Field "entity" is required ("products" or "services").',
+        400
+      );
+    }
+
+    const entity = normalizeEntityName(rawEntity);
+    const business = await resolveBusiness(req);
+
+    const result = await saveGeneratedSheetRows({
+      businessId: business.id,
+      entity,
+      rows: body.rows,
+      mode: body.mode || 'append',
+      confirm: Boolean(body.confirm),
+    });
+
+    return res.status(200).json(result);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   uploadProducts,
   uploadServices,
@@ -282,4 +355,6 @@ module.exports = {
   getServicesList,
   querySpreadsheet,
   mutateSpreadsheet,
+  generateSheetData,
+  saveGeneratedSheetData,
 };

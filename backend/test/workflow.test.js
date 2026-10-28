@@ -249,21 +249,55 @@ function createInMemoryPostgresPool() {
       return { rows: [{ ...cust }], rowCount: 1 };
     }
 
+    if (normalized.startsWith('UPDATE CUSTOMERS SET CREATED_AT = $2 WHERE ID = $1')) {
+      const [id, createdAt] = params;
+      const cust = customers.get(id);
+      if (!cust) return { rows: [], rowCount: 0 };
+      cust.created_at = new Date(createdAt).toISOString();
+      customers.set(id, cust);
+      return { rows: [{ ...cust }], rowCount: 1 };
+    }
+
     if (
       normalized.startsWith(
         'SELECT ID, BUSINESS_ID, CUSTOMER_NAME, EMAIL, EXTERNAL_CUSTOMER_ID, CREATED_AT, UPDATED_AT FROM CUSTOMERS WHERE BUSINESS_ID = $1 AND CUSTOMER_NAME IS NOT NULL'
       )
     ) {
       const [businessId] = params;
-      const rows = Array.from(customers.values())
-        .filter(
-          (c) =>
-            c.business_id === businessId &&
-            c.customer_name &&
-            String(c.customer_name).trim().length > 0 &&
-            c.email &&
-            String(c.email).trim().length > 0
-        )
+      let rows = Array.from(customers.values()).filter(
+        (c) =>
+          c.business_id === businessId &&
+          c.customer_name &&
+          String(c.customer_name).trim().length > 0 &&
+          c.email &&
+          String(c.email).trim().length > 0
+      );
+
+      for (let i = 1; i < params.length; i += 1) {
+        const val = params[i];
+        const ph = `$${i + 1}`;
+        if (normalized.includes(`CREATED_AT > ${ph}`)) {
+          const cutoff = new Date(val).getTime();
+          rows = rows.filter((c) => new Date(c.created_at).getTime() > cutoff);
+        } else if (normalized.includes(`CREATED_AT >= ${ph}`)) {
+          const cutoff = new Date(val).getTime();
+          rows = rows.filter((c) => new Date(c.created_at).getTime() >= cutoff);
+        } else if (normalized.includes(`CREATED_AT < ${ph}`)) {
+          const cutoff = new Date(val).getTime();
+          rows = rows.filter((c) => new Date(c.created_at).getTime() < cutoff);
+        } else if (normalized.includes(`CREATED_AT <= ${ph}`)) {
+          const cutoff = new Date(val).getTime();
+          rows = rows.filter((c) => new Date(c.created_at).getTime() <= cutoff);
+        } else if (normalized.includes(`CREATED_AT::DATE = ${ph}::DATE`)) {
+          const targetDate = String(val).slice(0, 10);
+          rows = rows.filter((c) => String(c.created_at).slice(0, 10) === targetDate);
+        } else if (normalized.includes(`EMAIL ILIKE ${ph}`)) {
+          const needle = String(val).replace(/^%|%$/g, '').toLowerCase();
+          rows = rows.filter((c) => c.email.toLowerCase().includes(needle));
+        }
+      }
+
+      rows = rows
         .sort((a, b) => {
           const tDiff =
             new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
@@ -555,20 +589,33 @@ function createInMemoryPostgresPool() {
 
     // Announcements
     if (normalized.startsWith('INSERT INTO ANNOUNCEMENTS')) {
-      const [businessId, announcementPrompt, subject, body, recipientCount] =
-        params;
+      const [
+        businessId,
+        announcementPrompt,
+        subject,
+        body,
+        targetCriteria,
+        audienceDescription,
+        recipientCount,
+      ] = params;
       if (!businesses.has(businessId)) {
         const fkErr = new Error('Foreign key violation on businesses');
         fkErr.code = '23503';
         throw fkErr;
       }
       const now = nextIsoTimestamp();
+      const parsedCriteria =
+        typeof targetCriteria === 'string'
+          ? JSON.parse(targetCriteria)
+          : targetCriteria || { status: 'ok', scope: 'all', filters: [] };
       const row = {
         id: crypto.randomUUID(),
         business_id: businessId,
         announcement_prompt: announcementPrompt,
         subject,
         body,
+        target_criteria: parsedCriteria,
+        audience_description: audienceDescription || 'All registered customers',
         status: 'draft',
         total_recipients: Number(recipientCount) || 0,
         sent_count: 0,
@@ -579,6 +626,35 @@ function createInMemoryPostgresPool() {
       };
       announcements.set(row.id, row);
       return { rows: [{ ...row }], rowCount: 1 };
+    }
+
+    if (
+      normalized.startsWith('SELECT') &&
+      normalized.includes('FROM ANNOUNCEMENTS WHERE BUSINESS_ID = $1 ORDER BY CREATED_AT DESC')
+    ) {
+      const [businessId] = params;
+      const rows = Array.from(announcements.values())
+        .filter((a) => a.business_id === businessId)
+        .sort((a, b) => {
+          const tDiff =
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+          if (tDiff !== 0) return tDiff;
+          return b.id.localeCompare(a.id);
+        })
+        .map((a) => ({ ...a }));
+      return { rows, rowCount: rows.length };
+    }
+
+    if (
+      normalized.startsWith('SELECT') &&
+      normalized.includes('FROM ANNOUNCEMENT_RECIPIENTS WHERE ANNOUNCEMENT_ID = ANY')
+    ) {
+      const [ids] = params;
+      const idSet = new Set(Array.isArray(ids) ? ids : []);
+      const rows = announcementRecipients
+        .filter((r) => idSet.has(r.announcement_id))
+        .map((r) => ({ ...r }));
+      return { rows, rowCount: rows.length };
     }
 
     if (
@@ -2122,5 +2198,105 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.equal(janeConvAfter.needs_reply, false);
     assert.equal(janeConvAfter.ai_draft_reply, null);
     assert.equal(janeConvAfter.messages.length, 2);
+  });
+
+  // =========================================================================
+  // Phase 6 Tests: Natural-Language Recipient Targeting & Announcement History
+  // =========================================================================
+
+  it('21. Filters announcement recipients by created_at from natural-language criteria, blocks ambiguous audiences, sends with { confirm: true }, and returns Announcement History', async () => {
+    // 1. Set two customers in Business A to have registered in 2025 (before 2026-01-01)
+    const custsA = mockPool
+      .getInternalCustomers()
+      .filter((c) => c.business_id === businessAId);
+    assert.equal(custsA.length, 6); // 5 earlier + Jane Smith
+
+    await mockPool.query('UPDATE customers SET created_at = $2 WHERE id = $1', [
+      custsA[0].id,
+      '2025-11-15T10:00:00Z',
+    ]);
+    await mockPool.query('UPDATE customers SET created_at = $2 WHERE id = $1', [
+      custsA[1].id,
+      '2025-12-20T10:00:00Z',
+    ]);
+    for (let i = 2; i < custsA.length; i += 1) {
+      await mockPool.query('UPDATE customers SET created_at = $2 WHERE id = $1', [
+        custsA[i].id,
+        '2026-03-10T10:00:00Z',
+      ]);
+    }
+
+    // 2. Ambiguous / unsupported audience criteria must NOT silently fall back to all users
+    const ambigRes = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/announcements/draft`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          announcement:
+            'Send an announcement about a 15% discount to VIP gold customers.',
+        }),
+      }
+    );
+    assert.equal(ambigRes.status, 200);
+    const ambigBody = await ambigRes.json();
+    assert.equal(ambigBody.status, 'clarification_needed');
+    assert.equal(ambigBody.clarification_needed, true);
+    assert.equal(ambigBody.recipient_count, 0);
+    assert.ok(ambigBody.message);
+
+    // 3. Natural-language registration date targeting: "users who registered after 2026-01-01"
+    const filteredDraftRes = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/announcements/draft`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          announcement:
+            'Send an announcement about a flat 10% discount on all services to users who registered after 2026-01-01.',
+        }),
+      }
+    );
+    assert.equal(filteredDraftRes.status, 201);
+    const filteredDraft = await filteredDraftRes.json();
+    assert.equal(filteredDraft.status, 'draft');
+    assert.equal(filteredDraft.recipient_count, 4); // 4 customers registered in 2026, 2 in 2025
+    assert.match(filteredDraft.audience_description, /after 2026-01-01/i);
+    assert.equal(filteredDraft.target_criteria.scope, 'filtered');
+
+    // 4. Send with only { "confirm": true } -> uses saved subject, body, and validated target_criteria
+    sentEmailsLog = [];
+    failingEmailsSet.clear();
+    const sendFilteredRes = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/announcements/${filteredDraft.id}/send`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true }),
+      }
+    );
+    assert.equal(sendFilteredRes.status, 200);
+    const sendFilteredBody = await sendFilteredRes.json();
+    assert.equal(sendFilteredBody.status, 'sent');
+    assert.equal(sendFilteredBody.recipient_count, 4);
+    assert.equal(sendFilteredBody.sent_count, 4);
+    assert.equal(sendFilteredBody.failed_count, 0);
+    assert.equal(sentEmailsLog.length, 4);
+
+    // 5. Retrieve Announcement History via GET /api/businesses/:businessId/announcements
+    const historyRes = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/announcements`
+    );
+    assert.equal(historyRes.status, 200);
+    const historyBody = await historyRes.json();
+    assert.equal(historyBody.business_id, businessAId);
+    assert.ok(historyBody.announcements.length >= 3);
+    const latestHistoryItem = historyBody.announcements.find(
+      (a) => a.id === filteredDraft.id
+    );
+    assert.ok(latestHistoryItem);
+    assert.equal(latestHistoryItem.sent_count, 4);
+    assert.equal(latestHistoryItem.status, 'sent');
+    assert.ok(latestHistoryItem.failed_recipients);
   });
 });

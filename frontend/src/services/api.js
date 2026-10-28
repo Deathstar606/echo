@@ -184,3 +184,205 @@ export async function sendCompanyReply(conversationId, message) {
     }
   );
 }
+
+/**
+ * Phase 2 — 1A. Fetch Announcement History
+ * GET /api/businesses/{BUSINESS_ID}/announcements
+ */
+export async function fetchAnnouncementHistory() {
+  return request(`/api/businesses/${BUSINESS_ID}/announcements`, {
+    method: 'GET',
+  });
+}
+
+/**
+ * Phase 2 — 1B. Generate AI Announcement Draft & Natural-Language Recipient Targeting
+ * POST /api/businesses/{BUSINESS_ID}/announcements/draft
+ */
+export async function draftAnnouncement(announcementText) {
+  return request(`/api/businesses/${BUSINESS_ID}/announcements/draft`, {
+    method: 'POST',
+    body: JSON.stringify({
+      announcement: String(announcementText || '').trim(),
+    }),
+  });
+}
+
+/**
+ * Phase 2 — 1C. Confirm & Send Announcement
+ * POST /api/businesses/{BUSINESS_ID}/announcements/{announcementId}/send
+ */
+export async function sendAnnouncement(
+  announcementId,
+  { subject, body } = {}
+) {
+  const payload = {
+    confirm: true,
+  };
+  if (typeof subject === 'string' && subject.trim()) {
+    payload.subject = subject.trim();
+  }
+  if (typeof body === 'string' && body.trim()) {
+    payload.body = body.trim();
+  }
+
+  return request(
+    `/api/businesses/${BUSINESS_ID}/announcements/${encodeURIComponent(
+      announcementId
+    )}/send`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+/**
+ * Phase 2 — 2A. Fetch Products Sheet
+ * GET /api/sheets/products?businessId={BUSINESS_ID}
+ */
+export async function fetchProductsSheet() {
+  return request(
+    `/api/sheets/products?businessId=${encodeURIComponent(BUSINESS_ID)}`,
+    {
+      method: 'GET',
+    }
+  );
+}
+
+/**
+ * Phase 2 — 2A. Fetch Services Sheet
+ * GET /api/sheets/services?businessId={BUSINESS_ID}
+ */
+export async function fetchServicesSheet() {
+  return request(
+    `/api/sheets/services?businessId=${encodeURIComponent(BUSINESS_ID)}`,
+    {
+      method: 'GET',
+    }
+  );
+}
+
+/**
+ * Phase 2 — 2A. Fetch Sheet Rows by Entity ('products' | 'services')
+ */
+export async function fetchSheetRows(entity) {
+  const normalized =
+    String(entity || '').toLowerCase() === 'services' ? 'services' : 'products';
+  return normalized === 'services'
+    ? fetchServicesSheet()
+    : fetchProductsSheet();
+}
+
+/**
+ * Phase 2 — 2B. Natural-Language Sheet Query
+ * POST /api/businesses/{BUSINESS_ID}/sheets/query
+ */
+export async function querySheet({ entity, message }) {
+  return request(`/api/businesses/${BUSINESS_ID}/sheets/query`, {
+    method: 'POST',
+    body: JSON.stringify({
+      entity: String(entity || '').trim(),
+      message: String(message || '').trim(),
+    }),
+  });
+}
+
+/**
+ * Phase 2 — 2C. Two-Stage Sheet Mutation (Stage 1 Preview: confirm=false, Stage 2 Apply: confirm=true)
+ * POST /api/sheets/mutation
+ */
+export async function mutateSheet({ entity, message, confirm = false }) {
+  return request(
+    `/api/sheets/mutation?businessId=${encodeURIComponent(BUSINESS_ID)}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        business_id: BUSINESS_ID,
+        entity: String(entity || '').trim(),
+        message: String(message || '').trim(),
+        confirm: Boolean(confirm),
+      }),
+    }
+  );
+}
+
+/**
+ * Phase 2 — 2D. Generate New Sheet Data (Unsaved Draft Preview)
+ * POST /api/businesses/{BUSINESS_ID}/sheets/generate
+ */
+export async function generateSheetData({
+  entity,
+  count = 5,
+  prompt = '',
+}) {
+  return request(`/api/businesses/${BUSINESS_ID}/sheets/generate`, {
+    method: 'POST',
+    body: JSON.stringify({
+      entity: String(entity || '').trim(),
+      count: Number(count) || 5,
+      prompt: String(prompt || '').trim(),
+    }),
+  });
+}
+
+/**
+ * Phase 2 — 2D. Save Generated Sheet Data (Confirmed Append or Replace)
+ * POST /api/businesses/{BUSINESS_ID}/sheets/generate/save
+ */
+export async function saveGeneratedSheetData({
+  entity,
+  rows,
+  mode = 'append',
+  confirm = true,
+}) {
+  return request(`/api/businesses/${BUSINESS_ID}/sheets/generate/save`, {
+    method: 'POST',
+    body: JSON.stringify({
+      entity: String(entity || '').trim(),
+      rows: Array.isArray(rows) ? rows : [],
+      mode: mode === 'replace' ? 'replace' : 'append',
+      confirm: Boolean(confirm),
+    }),
+  });
+}
+
+/**
+ * Optional CSV Upload for Products or Services
+ * POST /api/sheets/{entity}/upload?businessId={BUSINESS_ID}
+ */
+export async function uploadSheetCsv(entity, file) {
+  const normalized =
+    String(entity || '').toLowerCase() === 'services' ? 'services' : 'products';
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const url = `${API_BASE_URL}/api/sheets/${normalized}/upload?businessId=${encodeURIComponent(
+    BUSINESS_ID
+  )}`;
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+    });
+  } catch (networkErr) {
+    throw new ApiError(
+      'Unable to reach the MaxiText backend at http://localhost:3000.',
+      0,
+      networkErr?.message || null
+    );
+  }
+
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new ApiError(
+      (data && (data.error || data.message)) ||
+        `CSV upload failed with status ${response.status}`,
+      response.status,
+      data
+    );
+  }
+  return data;
+}
