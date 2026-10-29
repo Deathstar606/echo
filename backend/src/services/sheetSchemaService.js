@@ -1,5 +1,17 @@
 const AppError = require('../utils/AppError');
 
+const APPAREL_SIZE_KEYS = new Set([
+  'XS',
+  'S',
+  'M',
+  'L',
+  'XL',
+  'XXL',
+  'XXXL',
+  '2XL',
+  '3XL',
+]);
+
 /**
  * Canonical Schema definition for the single supported entity ('products'),
  * matching the structure of backend/products.csv:
@@ -11,7 +23,14 @@ const ENTITY_SCHEMAS = {
     tableName: 'products',
     displayName: 'Products',
     columns: {
-      id: { type: 'uuid', readonly: true },
+      id: {
+        type: 'uuid',
+        readonly: true,
+        queryable: true,
+        modifiable: false,
+        sortable: false,
+        operators: ['equals', 'not_equals', 'in'],
+      },
       business_id: { type: 'uuid', readonly: true },
       name: {
         type: 'string',
@@ -82,6 +101,7 @@ const ENTITY_SCHEMAS = {
         modifiable: true,
         sortable: true,
         min: 0,
+        max: 100,
         operators: [
           'equals',
           'not_equals',
@@ -148,6 +168,26 @@ const ENTITY_SCHEMAS = {
           'between',
         ],
       },
+      total_stock: {
+        type: 'integer',
+        virtual: true,
+        required: false,
+        queryable: true,
+        modifiable: false,
+        sortable: false,
+        min: 0,
+        description:
+          'Computed sum of stock quantities across all sizes in the JSON "size" column',
+        operators: [
+          'equals',
+          'not_equals',
+          'greater_than',
+          'greater_than_or_equal',
+          'less_than',
+          'less_than_or_equal',
+          'between',
+        ],
+      },
       created_at: {
         type: 'date',
         required: false,
@@ -170,6 +210,16 @@ const ENTITY_SCHEMAS = {
   },
 };
 
+const NUMERIC_OPERATORS = [
+  'equals',
+  'not_equals',
+  'greater_than',
+  'greater_than_or_equal',
+  'less_than',
+  'less_than_or_equal',
+  'between',
+];
+
 const OPERATOR_ALIASES = {
   '=': 'equals',
   '==': 'equals',
@@ -184,18 +234,56 @@ const OPERATOR_ALIASES = {
   after: 'greater_than',
   '>=': 'greater_than_or_equal',
   gte: 'greater_than_or_equal',
+  at_least: 'greater_than_or_equal',
   on_or_after: 'greater_than_or_equal',
   '<': 'less_than',
   lt: 'less_than',
   before: 'less_than',
   '<=': 'less_than_or_equal',
   lte: 'less_than_or_equal',
+  at_most: 'less_than_or_equal',
   on_or_before: 'less_than_or_equal',
   like: 'contains',
   ilike: 'contains',
   match: 'contains',
   includes: 'contains',
   has: 'contains',
+};
+
+const ACTION_ALIASES = {
+  set: 'set',
+  assign: 'set',
+  equals: 'set',
+  replace: 'set',
+  add: 'add',
+  increase: 'add',
+  increment: 'add',
+  plus: 'add',
+  subtract: 'subtract',
+  reduce: 'subtract',
+  decrease: 'subtract',
+  decrement: 'subtract',
+  minus: 'subtract',
+  multiply: 'multiply',
+  scale: 'multiply',
+  times: 'multiply',
+};
+
+const UNIT_ALIASES = {
+  absolute: 'absolute',
+  currency: 'absolute',
+  units: 'absolute',
+  unit: 'absolute',
+  value: 'absolute',
+  number: 'absolute',
+  percentage: 'percentage',
+  percent: 'percentage',
+  '%': 'percentage',
+  percentage_points: 'percentage_points',
+  percentage_point: 'percentage_points',
+  points: 'percentage_points',
+  point: 'percentage_points',
+  pp: 'percentage_points',
 };
 
 /**
@@ -236,6 +324,48 @@ function parseCleanNumber(val) {
     return Number(cleaned);
   }
   return Number.NaN;
+}
+
+/**
+ * Parses a nested size field specifier such as "size.M", "size.XL", or { field: "size", size_key: "M" }.
+ * Returns the uppercase size key if valid, or null if not a nested size reference.
+ * Throws AppError if it references an invalid size key.
+ *
+ * @param {string} rawField
+ * @param {string} [explicitSizeKey]
+ * @returns {string | null}
+ */
+function resolveNestedSizeKey(rawField, explicitSizeKey) {
+  let candidateKey = null;
+  const dotMatch = String(rawField || '')
+    .trim()
+    .match(/^size\.([a-z0-9_]+)$/i);
+
+  if (dotMatch) {
+    candidateKey = dotMatch[1].toUpperCase();
+  } else if (
+    String(rawField || '').trim().toLowerCase() === 'size' &&
+    explicitSizeKey !== undefined &&
+    explicitSizeKey !== null &&
+    String(explicitSizeKey).trim() !== ''
+  ) {
+    candidateKey = String(explicitSizeKey).trim().toUpperCase();
+  }
+
+  if (!candidateKey) {
+    return null;
+  }
+
+  if (!APPAREL_SIZE_KEYS.has(candidateKey)) {
+    throw new AppError(
+      `Unsupported apparel size key "${candidateKey}". Allowed size keys: ${Array.from(
+        APPAREL_SIZE_KEYS
+      ).join(', ')}.`,
+      400
+    );
+  }
+
+  return candidateKey;
 }
 
 /**
@@ -301,12 +431,59 @@ function normalizeOperator(operator) {
 }
 
 /**
+ * Normalizes mutation action strings to 'set' | 'add' | 'subtract' | 'multiply'.
+ * @param {string} [action='set']
+ * @returns {string}
+ */
+function normalizeUpdateAction(action = 'set') {
+  if (action === undefined || action === null || action === '') {
+    return 'set';
+  }
+  if (typeof action !== 'string') {
+    throw new AppError('Update action must be a string.', 400);
+  }
+  const clean = action.trim().toLowerCase();
+  const mapped = ACTION_ALIASES[clean];
+  if (!mapped) {
+    throw new AppError(
+      `Unsupported update action "${action}". Allowed actions: set, add, subtract, multiply.`,
+      400
+    );
+  }
+  return mapped;
+}
+
+/**
+ * Normalizes unit strings to 'absolute' | 'percentage' | 'percentage_points'.
+ * @param {string} [unit='absolute']
+ * @returns {string}
+ */
+function normalizeUpdateUnit(unit = 'absolute') {
+  if (unit === undefined || unit === null || unit === '') {
+    return 'absolute';
+  }
+  if (typeof unit !== 'string') {
+    throw new AppError('Update unit must be a string.', 400);
+  }
+  const clean = unit.trim().toLowerCase();
+  const mapped = UNIT_ALIASES[clean];
+  if (!mapped) {
+    throw new AppError(
+      `Unsupported update unit "${unit}". Allowed units: absolute, percentage, percentage_points.`,
+      400
+    );
+  }
+  return mapped;
+}
+
+/**
  * Validates a single filter condition against the entity's schema.
+ * Supports standard columns, `total_stock` (aliased from `stock`), and `size.<KEY>` stock filters.
  * Throws AppError if invalid.
  *
  * @param {string} entity
  * @param {object} filter
- * @returns {{ field: string, operator: string, value: any }}
+ * @returns {{ field: string, operator: string, value: any, size_key?: string }}
  */
 function validateFilter(entity, filter) {
   const schema = getSchema(entity);
@@ -317,14 +494,72 @@ function validateFilter(entity, filter) {
     );
   }
 
-  const rawField = String(filter.field ?? '').trim().toLowerCase();
+  const rawFieldInput = String(filter.field ?? '').trim();
+  const nestedSizeKey = resolveNestedSizeKey(rawFieldInput, filter.size_key);
+
+  if (nestedSizeKey) {
+    const operator = normalizeOperator(filter.operator);
+    if (!NUMERIC_OPERATORS.includes(operator)) {
+      throw new AppError(
+        `Operator "${operator}" is not supported for nested size stock field "size.${nestedSizeKey}". Supported operators: ${NUMERIC_OPERATORS.join(', ')}.`,
+        400
+      );
+    }
+
+    let normalizedValue = filter.value;
+    if (operator === 'between') {
+      if (!Array.isArray(normalizedValue) || normalizedValue.length !== 2) {
+        throw new AppError(
+          `Operator "between" on "size.${nestedSizeKey}" requires an array of two numbers [min, max].`,
+          400
+        );
+      }
+      const num0 = parseCleanNumber(normalizedValue[0]);
+      const num1 = parseCleanNumber(normalizedValue[1]);
+      if (!Number.isFinite(num0) || !Number.isFinite(num1)) {
+        throw new AppError(
+          `Values in "between" filter for "size.${nestedSizeKey}" must be valid numbers.`,
+          400
+        );
+      }
+      normalizedValue = [Math.round(num0), Math.round(num1)];
+    } else {
+      const num = parseCleanNumber(normalizedValue);
+      if (!Number.isFinite(num)) {
+        throw new AppError(
+          `Field "size.${nestedSizeKey}" expects a valid number, got "${filter.value}".`,
+          400
+        );
+      }
+      normalizedValue = Math.round(num);
+      if (normalizedValue < 0) {
+        throw new AppError(
+          `Field "size.${nestedSizeKey}" filter value must be >= 0.`,
+          400
+        );
+      }
+    }
+
+    return {
+      field: `size.${nestedSizeKey}`,
+      size_key: nestedSizeKey,
+      operator,
+      value: normalizedValue,
+    };
+  }
+
+  let rawField = rawFieldInput.toLowerCase();
+  if (rawField === 'stock' || rawField === 'size_total_stock' || rawField === 'total_units') {
+    rawField = 'total_stock';
+  }
+
   if (!rawField || !schema.columns[rawField]) {
     throw new AppError(
       `Field "${filter.field}" does not exist on entity "${schema.entity}". Available fields: ${Object.keys(
         schema.columns
       )
         .filter((c) => schema.columns[c].queryable)
-        .join(', ')}.`,
+        .join(', ')}, size.<SIZE_KEY>.`,
       400
     );
   }
@@ -375,6 +610,9 @@ function validateFilter(entity, filter) {
       if (colDef.min !== undefined && normalizedValue < colDef.min) {
         throw new AppError(`Field "${rawField}" must be >= ${colDef.min}.`, 400);
       }
+      if (colDef.max !== undefined && normalizedValue > colDef.max) {
+        throw new AppError(`Field "${rawField}" must be <= ${colDef.max}.`, 400);
+      }
     }
   } else if (colDef.type === 'date') {
     if (operator === 'relative_days_ago') {
@@ -409,11 +647,11 @@ function validateFilter(entity, filter) {
       }
       normalizedValue = strVal;
     }
-  } else if (colDef.type === 'string') {
+  } else if (colDef.type === 'string' || colDef.type === 'uuid') {
     if (operator === 'in') {
-      if (!Array.isArray(normalizedValue)) {
+      if (!Array.isArray(normalizedValue) || normalizedValue.length === 0) {
         throw new AppError(
-          `Operator "in" on "${rawField}" requires an array of values.`,
+          `Operator "in" on "${rawField}" requires a non-empty array of values.`,
           400
         );
       }
@@ -471,10 +709,303 @@ function validateSort(entity, sort) {
 }
 
 /**
- * Validates a mutation payload ({ operation, target_filters, changes }).
+ * Validates a single transformation entry ({ field, action, value, unit, size_key }).
+ *
+ * @param {object} schema
+ * @param {object} rawUpdate
+ * @returns {{ field: string, action: string, value: any, unit: string, size_key?: string }}
+ */
+function validateSingleUpdateTransformation(schema, rawUpdate) {
+  if (!rawUpdate || typeof rawUpdate !== 'object') {
+    throw new AppError(
+      'Each update transformation must be an object with "field", "action", and "value".',
+      400
+    );
+  }
+
+  const rawFieldInput = String(rawUpdate.field ?? '').trim();
+  if (!rawFieldInput) {
+    throw new AppError('Update transformation is missing required "field".', 400);
+  }
+
+  const action = normalizeUpdateAction(rawUpdate.action);
+  let unit = normalizeUpdateUnit(rawUpdate.unit);
+
+  // Check if this is a nested size stock transformation (e.g. "size.M" or { field: "size", size_key: "M" })
+  const nestedSizeKey = resolveNestedSizeKey(rawFieldInput, rawUpdate.size_key);
+  if (nestedSizeKey) {
+    if (rawUpdate.value === undefined || rawUpdate.value === null || rawUpdate.value === '') {
+      throw new AppError(
+        `Update for "size.${nestedSizeKey}" requires a numeric "value".`,
+        400
+      );
+    }
+    const num = parseCleanNumber(rawUpdate.value);
+    if (!Number.isFinite(num)) {
+      throw new AppError(
+        `Value for "size.${nestedSizeKey}" must be a valid number, got "${rawUpdate.value}".`,
+        400
+      );
+    }
+
+    if (action === 'set') {
+      if (!Number.isInteger(num) || num < 0) {
+        throw new AppError(
+          `Stock count for "size.${nestedSizeKey}" must be a non-negative integer, got ${num}.`,
+          400
+        );
+      }
+      return {
+        field: `size.${nestedSizeKey}`,
+        size_key: nestedSizeKey,
+        action: 'set',
+        value: num,
+        unit: 'absolute',
+      };
+    }
+
+    if (action === 'add' || action === 'subtract') {
+      if (num < 0) {
+        throw new AppError(
+          `Adjustment value for "${action}" on "size.${nestedSizeKey}" cannot be negative, got ${num}.`,
+          400
+        );
+      }
+      if (unit === 'percentage' && action === 'subtract' && num > 100) {
+        throw new AppError(
+          `Cannot reduce stock for "size.${nestedSizeKey}" by more than 100%.`,
+          400
+        );
+      }
+      if (unit === 'absolute' && !Number.isInteger(num)) {
+        throw new AppError(
+          `Stock unit adjustment for "size.${nestedSizeKey}" must be a whole integer, got ${num}.`,
+          400
+        );
+      }
+      return {
+        field: `size.${nestedSizeKey}`,
+        size_key: nestedSizeKey,
+        action,
+        value: unit === 'absolute' ? Math.round(num) : num,
+        unit: unit === 'percentage' ? 'percentage' : 'absolute',
+      };
+    }
+
+    if (action === 'multiply') {
+      if (num < 0) {
+        throw new AppError(
+          `Stock multiplier for "size.${nestedSizeKey}" cannot be negative, got ${num}.`,
+          400
+        );
+      }
+      return {
+        field: `size.${nestedSizeKey}`,
+        size_key: nestedSizeKey,
+        action: 'multiply',
+        value: num,
+        unit: 'absolute',
+      };
+    }
+  }
+
+  const fieldName = rawFieldInput.toLowerCase();
+  const colDef = schema.columns[fieldName];
+  if (!colDef || colDef.virtual) {
+    throw new AppError(
+      `Cannot modify unknown or virtual field "${rawFieldInput}" on ${schema.entity}. Available modifiable fields: ${Object.keys(
+        schema.columns
+      )
+        .filter((c) => schema.columns[c].modifiable)
+        .join(', ')}, size.<SIZE_KEY>.`,
+      400
+    );
+  }
+  if (!colDef.modifiable) {
+    throw new AppError(
+      `Field "${fieldName}" is read-only and cannot be modified.`,
+      400
+    );
+  }
+
+  if (rawUpdate.value === undefined || rawUpdate.value === null) {
+    throw new AppError(`Missing value for field "${fieldName}".`, 400);
+  }
+
+  // Non-numeric fields only support 'set'
+  if (colDef.type !== 'number' && colDef.type !== 'integer') {
+    if (action !== 'set') {
+      throw new AppError(
+        `Arithmetic action "${action}" is not supported on ${colDef.type} field "${fieldName}". Only "set" is allowed.`,
+        400
+      );
+    }
+
+    let coerced = rawUpdate.value;
+    if (colDef.type === 'boolean') {
+      coerced = coerceBooleanValue(rawUpdate.value, fieldName);
+    } else if (colDef.type === 'string') {
+      if (fieldName === 'size') {
+        if (typeof rawUpdate.value === 'object') {
+          for (const [k, v] of Object.entries(rawUpdate.value)) {
+            const upperK = k.trim().toUpperCase();
+            if (!APPAREL_SIZE_KEYS.has(upperK)) {
+              throw new AppError(`Invalid size key "${k}" in size object.`, 400);
+            }
+            const qty = Number(v);
+            if (!Number.isInteger(qty) || qty < 0) {
+              throw new AppError(
+                `Stock count for size "${upperK}" must be a non-negative integer, got "${v}".`,
+                400
+              );
+            }
+          }
+          coerced = JSON.stringify(rawUpdate.value);
+        } else {
+          const strVal = String(rawUpdate.value).trim();
+          if (strVal.startsWith('{')) {
+            let parsedObj;
+            try {
+              parsedObj = JSON.parse(strVal);
+            } catch {
+              throw new AppError('Field "size" must be valid JSON.', 400);
+            }
+            for (const [k, v] of Object.entries(parsedObj)) {
+              const qty = Number(v);
+              if (!Number.isInteger(qty) || qty < 0) {
+                throw new AppError(
+                  `Stock count for size "${k}" must be a non-negative integer, got "${v}".`,
+                  400
+                );
+              }
+            }
+            coerced = JSON.stringify(parsedObj);
+          } else {
+            coerced = strVal;
+          }
+        }
+      } else {
+        coerced = String(rawUpdate.value ?? '').trim();
+        if (colDef.required && !coerced) {
+          throw new AppError(`Field "${fieldName}" cannot be empty.`, 400);
+        }
+      }
+    } else {
+      coerced = String(rawUpdate.value ?? '').trim();
+    }
+
+    return {
+      field: fieldName,
+      action: 'set',
+      value: coerced,
+      unit: 'absolute',
+    };
+  }
+
+  // Numeric / Integer field validation
+  const num = parseCleanNumber(rawUpdate.value);
+  if (!Number.isFinite(num)) {
+    throw new AppError(
+      `Value for "${fieldName}" must be a valid number, got "${rawUpdate.value}".`,
+      400
+    );
+  }
+
+  if (action === 'set') {
+    const coerced = colDef.type === 'integer' ? Math.round(num) : num;
+    if (colDef.type === 'integer' && !Number.isInteger(num)) {
+      throw new AppError(
+        `Field "${fieldName}" requires an integer value, got ${num}.`,
+        400
+      );
+    }
+    if (colDef.min !== undefined && coerced < colDef.min) {
+      throw new AppError(
+        `Value for "${fieldName}" must be >= ${colDef.min}, got ${coerced}.`,
+        400
+      );
+    }
+    if (colDef.max !== undefined && coerced > colDef.max) {
+      throw new AppError(
+        `Value for "${fieldName}" must be <= ${colDef.max}, got ${coerced}.`,
+        400
+      );
+    }
+    return {
+      field: fieldName,
+      action: 'set',
+      value: coerced,
+      unit: 'absolute',
+    };
+  }
+
+  if (action === 'add' || action === 'subtract') {
+    if (num < 0) {
+      throw new AppError(
+        `Value for "${action}" on "${fieldName}" must be >= 0, got ${num}.`,
+        400
+      );
+    }
+
+    // For discount, adding/subtracting a percentage means percentage points (e.g. +5% -> 20 to 25)
+    if (fieldName === 'discount' && (unit === 'percentage' || unit === 'absolute')) {
+      unit = 'percentage_points';
+    }
+
+    if (fieldName === 'discount' && num > 100) {
+      throw new AppError(
+        `Discount adjustment on "discount" cannot exceed 100 percentage points, got ${num}.`,
+        400
+      );
+    }
+
+    if (unit === 'percentage' && action === 'subtract' && num > 100) {
+      throw new AppError(
+        `Cannot subtract more than 100% from "${fieldName}".`,
+        400
+      );
+    }
+
+    if (colDef.type === 'integer' && unit === 'absolute' && !Number.isInteger(num)) {
+      throw new AppError(
+        `Absolute "${action}" value for integer field "${fieldName}" must be an integer, got ${num}.`,
+        400
+      );
+    }
+
+    return {
+      field: fieldName,
+      action,
+      value: colDef.type === 'integer' && unit === 'absolute' ? Math.round(num) : num,
+      unit,
+    };
+  }
+
+  if (action === 'multiply') {
+    if (num < 0) {
+      throw new AppError(
+        `Multiplier for "${fieldName}" cannot be negative, got ${num}.`,
+        400
+      );
+    }
+    return {
+      field: fieldName,
+      action: 'multiply',
+      value: num,
+      unit: 'absolute',
+    };
+  }
+
+  throw new AppError(`Unsupported action "${action}" on "${fieldName}".`, 400);
+}
+
+/**
+ * Validates a mutation payload supporting conditional bulk updates, arithmetic transformations,
+ * nested size updates, AND/OR filter combinations, and legacy `changes` objects.
+ *
  * @param {string} entity
  * @param {object} mutation
- * @returns {object} validated mutation
+ * @returns {object} validated mutation plan
  */
 function validateMutation(entity, mutation) {
   const schema = getSchema(entity);
@@ -482,109 +1013,153 @@ function validateMutation(entity, mutation) {
     throw new AppError('Mutation payload must be an object.', 400);
   }
 
-  const operation = String(mutation.operation ?? '').trim().toLowerCase();
-  if (!['update', 'delete', 'create'].includes(operation)) {
+  const rawOp = String(mutation.operation ?? '').trim().toLowerCase();
+  if (!['update', 'update_many', 'delete', 'create'].includes(rawOp)) {
     throw new AppError(
-      `Unsupported mutation operation "${mutation.operation}". Supported operations are: update, delete, create.`,
+      `Unsupported mutation operation "${mutation.operation}". Supported operations are: update, update_many, delete, create.`,
       400
     );
   }
 
+  const rawLogic = String(
+    mutation.filter_logic || mutation.logical_operator || 'AND'
+  )
+    .trim()
+    .toUpperCase();
+  if (rawLogic !== 'AND' && rawLogic !== 'OR') {
+    throw new AppError(
+      `Unsupported filter_logic "${rawLogic}". Allowed values: AND, OR.`,
+      400
+    );
+  }
+
+  const matchAll = Boolean(mutation.match_all);
   const targetFilters = [];
-  if (operation === 'update' || operation === 'delete') {
+
+  if (rawOp === 'update' || rawOp === 'update_many' || rawOp === 'delete') {
     const rawFilters = mutation.target_filters || mutation.filters || [];
-    if (!Array.isArray(rawFilters) || rawFilters.length === 0) {
-      throw new AppError(
-        `Mutation "${operation}" requires at least one target filter (e.g. name or category) to identify records safely.`,
-        400
-      );
+    if (!Array.isArray(rawFilters)) {
+      throw new AppError('"target_filters" must be an array.', 400);
     }
+
     for (const f of rawFilters) {
-      targetFilters.push(validateFilter(entity, f));
+      targetFilters.push(validateFilter(schema.entity, f));
+    }
+
+    if (targetFilters.length === 0) {
+      if (rawOp === 'delete') {
+        throw new AppError(
+          'Mutation "delete" requires at least one target filter to identify records safely.',
+          400
+        );
+      }
+      if (!matchAll) {
+        throw new AppError(
+          `Mutation "${rawOp}" requires at least one target filter (or explicit "match_all": true when targeting all products) to identify records safely.`,
+          400
+        );
+      }
     }
   }
 
-  const validatedChanges = {};
-  if (operation === 'update' || operation === 'create') {
-    const rawChanges = mutation.changes || {};
-    if (typeof rawChanges !== 'object' || Object.keys(rawChanges).length === 0) {
+  // Convert `updates` array and/or legacy `changes` object into a unified `updates` list
+  const rawUpdatesList = [];
+  if (Array.isArray(mutation.updates) && mutation.updates.length > 0) {
+    rawUpdatesList.push(...mutation.updates);
+  } else if (
+    mutation.changes &&
+    typeof mutation.changes === 'object' &&
+    !Array.isArray(mutation.changes) &&
+    Object.keys(mutation.changes).length > 0
+  ) {
+    for (const [k, v] of Object.entries(mutation.changes)) {
+      if (
+        v &&
+        typeof v === 'object' &&
+        !Array.isArray(v) &&
+        (v.action !== undefined || v.value !== undefined) &&
+        k.toLowerCase() !== 'size'
+      ) {
+        rawUpdatesList.push({
+          field: k,
+          action: v.action || 'set',
+          value: v.value,
+          unit: v.unit || 'absolute',
+          size_key: v.size_key,
+        });
+      } else {
+        rawUpdatesList.push({
+          field: k,
+          action: 'set',
+          value: v,
+          unit: 'absolute',
+        });
+      }
+    }
+  }
+
+  const validatedUpdates = [];
+  const legacyChangesSummary = {};
+
+  if (rawOp === 'update' || rawOp === 'update_many' || rawOp === 'create') {
+    if (rawUpdatesList.length === 0) {
       throw new AppError(
-        `Mutation "${operation}" requires a non-empty "changes" object.`,
+        `Mutation "${rawOp}" requires a non-empty "updates" array or "changes" object.`,
         400
       );
     }
 
-    for (const [key, val] of Object.entries(rawChanges)) {
-      const fieldName = key.trim().toLowerCase();
-      const colDef = schema.columns[fieldName];
-      if (!colDef) {
+    for (const item of rawUpdatesList) {
+      const validatedItem = validateSingleUpdateTransformation(schema, item);
+      if (rawOp === 'create' && (validatedItem.action !== 'set' || validatedItem.size_key)) {
         throw new AppError(
-          `Cannot modify unknown field "${key}" on ${schema.entity}. Available modifiable fields: ${Object.keys(
-            schema.columns
-          )
-            .filter((c) => schema.columns[c].modifiable)
-            .join(', ')}.`,
+          'Mutation "create" only supports direct field assignments ("action": "set").',
           400
         );
       }
-      if (!colDef.modifiable) {
-        throw new AppError(
-          `Field "${fieldName}" is read-only and cannot be modified.`,
-          400
-        );
-      }
+      validatedUpdates.push(validatedItem);
 
-      let coerced = val;
-      if (colDef.type === 'boolean') {
-        coerced = coerceBooleanValue(val, fieldName);
-      } else if (colDef.type === 'number' || colDef.type === 'integer') {
-        const num = parseCleanNumber(val);
-        if (!Number.isFinite(num)) {
-          throw new AppError(
-            `Value for "${fieldName}" must be a valid number.`,
-            400
-          );
-        }
-        coerced = colDef.type === 'integer' ? Math.round(num) : num;
-        if (colDef.min !== undefined && coerced < colDef.min) {
-          throw new AppError(
-            `Value for "${fieldName}" must be >= ${colDef.min}.`,
-            400
-          );
-        }
-      } else if (colDef.type === 'string') {
-        if (fieldName === 'size' && val && typeof val === 'object') {
-          coerced = JSON.stringify(val);
-        } else {
-          coerced = String(val ?? '').trim();
-          if (colDef.required && !coerced) {
-            throw new AppError(`Field "${fieldName}" cannot be empty.`, 400);
-          }
-        }
-      } else if (colDef.type === 'date') {
-        coerced = String(val ?? '').trim();
+      if (validatedItem.action === 'set') {
+        legacyChangesSummary[validatedItem.field] = validatedItem.value;
+      } else {
+        const unitSuffix =
+          validatedItem.unit === 'percentage'
+            ? '%'
+            : validatedItem.unit === 'percentage_points'
+              ? ' percentage points'
+              : '';
+        legacyChangesSummary[validatedItem.field] =
+          `${validatedItem.action} ${validatedItem.value}${unitSuffix}`;
       }
-
-      validatedChanges[fieldName] = coerced;
     }
   }
 
   return {
     entity: schema.entity,
-    operation,
+    operation: rawOp,
+    filter_logic: rawLogic,
+    match_all: matchAll,
     target_filters: targetFilters,
-    changes: validatedChanges,
+    updates: validatedUpdates,
+    changes: legacyChangesSummary,
   };
 }
 
 module.exports = {
+  APPAREL_SIZE_KEYS,
   ENTITY_SCHEMAS,
   getSupportedEntities,
   isEntitySupported,
   normalizeEntityName,
   getSchema,
   normalizeOperator,
+  normalizeUpdateAction,
+  normalizeUpdateUnit,
+  resolveNestedSizeKey,
   validateFilter,
   validateSort,
+  validateSingleUpdateTransformation,
   validateMutation,
+  parseCleanNumber,
+  coerceBooleanValue,
 };

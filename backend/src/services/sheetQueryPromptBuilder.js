@@ -1,4 +1,5 @@
 const {
+  APPAREL_SIZE_KEYS,
   getSchema,
   normalizeEntityName,
   validateFilter,
@@ -6,17 +7,54 @@ const {
   validateMutation,
 } = require('./sheetSchemaService');
 const { generateAiSheetInterpretation } = require('./geminiService');
+const { loadCatalogNames } = require('./productNameResolver');
 const AppError = require('../utils/AppError');
+
+const MAX_PROMPT_CATALOG_NAMES = 300;
+const MAX_PROMPT_CATEGORIES = 100;
+
+/**
+ * Formats the business's live catalog (product names + distinct categories) for prompt grounding.
+ * Values are read from the database at request time; nothing is hardcoded.
+ *
+ * @param {{ names?: string[], categories?: string[] } | null} catalog
+ * @returns {string}
+ */
+function formatCatalogContext(catalog) {
+  const names = Array.isArray(catalog?.names) ? catalog.names : [];
+  const categories = Array.isArray(catalog?.categories) ? catalog.categories : [];
+
+  if (names.length === 0 && categories.length === 0) {
+    return 'LIVE CATALOG CONTEXT\n(Catalog names are not available for this request. Copy product names exactly as the user wrote them.)';
+  }
+
+  const shownNames = names.slice(0, MAX_PROMPT_CATALOG_NAMES);
+  const shownCategories = categories.slice(0, MAX_PROMPT_CATEGORIES);
+  const lines = ['LIVE CATALOG CONTEXT (loaded from the database for this business; use only for spelling/grounding)'];
+  if (shownCategories.length > 0) {
+    lines.push(`Distinct "category" values: ${shownCategories.map((c) => JSON.stringify(c)).join(', ')}`);
+  }
+  if (shownNames.length > 0) {
+    lines.push(`Product names (${names.length} total${names.length > shownNames.length ? `, first ${shownNames.length} shown` : ''}):`);
+    for (const n of shownNames) {
+      lines.push(`- ${JSON.stringify(n)}`);
+    }
+  }
+  return lines.join('\n');
+}
 
 /**
  * Builds the natural-language prompt instructing Gemini to convert a spreadsheet query/mutation
- * into structured JSON according to the single products schema (based on products.csv).
+ * into structured JSON according to the products schema. The prompt is grounded in the business's
+ * live catalog (names and categories are injected at request time) and contains no hardcoded
+ * product data, so it works for arbitrary product names.
  *
  * @param {object} params
  * @param {string} [params.entity='products'] - Must resolve to 'products'
  * @param {string} params.message - Raw user natural language prompt
  * @param {boolean} [params.isMutation=false] - Whether a mutation is expected
  * @param {string} [params.currentDate] - Current reference date in YYYY-MM-DD
+ * @param {{ names?: string[], categories?: string[] } | null} [params.catalog] - Live catalog context
  * @returns {string}
  */
 function buildSheetQueryPrompt({
@@ -24,10 +62,12 @@ function buildSheetQueryPrompt({
   message,
   isMutation = false,
   currentDate = new Date().toISOString().slice(0, 10),
+  catalog = null,
 }) {
   const schema = getSchema(entity);
+  const sizeKeys = Array.from(APPAREL_SIZE_KEYS);
   const columnsList = Object.entries(schema.columns)
-    .filter(([, def]) => !def.readonly)
+    .filter(([, def]) => !def.readonly || def.virtual)
     .map(([col, def]) => {
       let desc = `- "${col}" (${def.type})`;
       if (def.description) {
@@ -44,118 +84,127 @@ function buildSheetQueryPrompt({
     .join('\n');
 
   return `ROLE
-You are a precise spreadsheet query and mutation interpreter for a single-sheet product catalog management system (backed by products.csv).
+You are a precise spreadsheet query and mutation interpreter for a product catalog management system.
 
 OBJECTIVE
-Translate the user's natural language request into a strictly structured JSON query or mutation for the "${schema.entity}" table.
-${isMutation ? 'Note: The user is invoking the mutation endpoint, so prefer interpreting actionable change requests as "update", "create", or "delete" operations.' : ''}
+Translate the user's natural language request into a strictly structured JSON query or mutation plan for the "${schema.entity}" table.
+${isMutation ? 'Note: The user is invoking the mutation endpoint, so interpret actionable change requests as "update_many", "update", "create", or "delete" operations.' : ''}
 
 CURRENT REFERENCE DATE
 Today's date is: ${currentDate}
 
-ENTITY SCHEMA: "${schema.entity}"
-Table: ${schema.tableName}
+ENTITY SCHEMA: "${schema.entity}" (Table: ${schema.tableName})
 Available fields:
 ${columnsList}
+- "size.<SIZE_KEY>" (integer): Nested stock count for one size key inside the JSON "size" column. Valid size keys: ${sizeKeys.join(', ')} (e.g., "size.${sizeKeys[0]}"). Supports numeric filter operators and update actions [set, add, subtract, multiply].
+- "total_stock" (integer, virtual, filter-only): Sum of stock units across all sizes in "size".
 
-DATASET CONVENTIONS (products.csv)
-- "name": Product title (e.g., "OpenWeave Shirt", "Classic Short-Sleeve Polo", "PleatWave Shirt", "Granular Texture Polo Shirt", "Sparkle fusion Shirt", "Retro Knit Polo Shirt", "Floral Half Sleeve Shirt", "Palm Breeze Shirt").
-- "category": Apparel category. Common values in the catalog are "shirt", "polo", "full shirt", "luxury shirt", "luxury polo", "summer shirt".
-- "description": Full product details including fabric composition (e.g., cotton, polyester, spandex, bamboo fiber, linen), GSM, fit (Slim Fit, Regular Fit, Relaxed Fit, Drop Shoulder), care instructions, and measurements.
-- "best": Boolean flag indicating whether the product is a best-seller (true or false).
-- "color": Comma-separated list of available colors (e.g., "White, Black", "Beige", "Blue, Sage green, Terracotta, Charcoal", "Mustard, Black").
-- "discount": Percentage discount as a number (e.g., 25, 45).
-- "ordered": Integer count of orders placed for the product (e.g., 0, 1, 2).
-- "images": Comma-separated list of product image URLs.
-- "size": JSON string mapping size labels (M, L, XL, XXL, XXXL) to stock counts, e.g. '{"M":2,"L":4,"XL":2,"XXL":2}'.
-- "price": Numeric price of the product (e.g., 990, 1190, 1290, 1350, 1490, 1650, 1690, 1790, 2590).
+FIELD CONVENTIONS
+- "name": Free-text product title. Names are arbitrary user data and may contain any words, punctuation, or trailing periods.
+- "category": Free-text category. Use the distinct values from LIVE CATALOG CONTEXT when the user refers to a category (map plural/colloquial wording such as "all <category>s" to the closest listed value with operator "equals").
+- "best": Boolean best-seller / "best value" flag.
+- "color": Comma-separated colors. Filter a specific color with {"field": "color", "operator": "contains", "value": "<Color>"}.
+- "discount": Percentage discount stored as a number from 0 to 100 (25 means 25%).
+- "ordered": Integer count of orders placed.
+- "size": JSON string mapping size labels to stock counts, e.g. '{"${sizeKeys[0]}":2,"${sizeKeys[1]}":4}'. "available in size <KEY>" -> {"field": "size", "operator": "contains", "value": "<KEY>"}.
+- "price": Numeric price.
 
-SEMANTIC MAPPING RULES
-1. Best-Seller Filtering ("best"):
-   - "best sellers", "best-selling products", "top picks", "best products", "featured items", "where best is true" -> {"field": "best", "operator": "equals", "value": true}
-   - "non-best sellers", "not best sellers", "where best is false" -> {"field": "best", "operator": "equals", "value": false}
+${formatCatalogContext(catalog)}
 
-2. Category Filtering ("category"):
-   - Specific category named (e.g., "in category luxury shirt", "summer shirts", "full shirts", "luxury polo") -> {"field": "category", "operator": "equals", "value": "luxury shirt"} (use lowercase category name: "shirt", "polo", "full shirt", "luxury shirt", "luxury polo", "summer shirt").
-   - If the user asks broadly for "all polo shirts" or "any polo category", you may use {"field": "category", "operator": "contains", "value": "polo"}.
+PRODUCT NAME RULES (CRITICAL)
+1. You are NOT the authority on whether a product exists. The backend resolves product names against the database (case-, punctuation- and spacing-insensitive, partial-name aware).
+2. NEVER return "clarification_needed" because a product name seems unknown, misspelled, or absent from LIVE CATALOG CONTEXT. NEVER answer "not found" or "did you mean".
+3. When the user refers to a specific product by name, emit {"field": "name", "operator": "equals", "value": "<name>"}. If a catalog name in LIVE CATALOG CONTEXT clearly refers to the same product (differs only by case, punctuation, a trailing period, or spacing), copy that catalog name exactly; otherwise copy the user's wording verbatim.
+4. Never substitute a different product that merely shares some words with what the user wrote.
+5. Multiple named products ("A and B") -> one {"field": "name", "operator": "equals"} filter per product with "filter_logic": "OR".
 
-3. Color & Size Filtering ("color", "size"):
-   - Because "color" stores comma-separated colors (e.g. "White, Black"), filter by a specific color using "contains" or "equals", e.g. "black products" or "available in Black" -> {"field": "color", "operator": "contains", "value": "Black"}.
-   - Because "size" stores a JSON map of available sizes (e.g. '{"M":2,"L":4,"XL":2,"XXL":2}'), filter for a specific size using "contains" or "equals" with the size code, e.g. "available in size M" or "size XXXL" -> {"field": "size", "operator": "contains", "value": "M"} (or "XXXL").
+FILTERING & LOGIC RULES
+- Allowed operators: "equals", "not_equals", "contains", "not_contains", "starts_with", "ends_with", "in", "greater_than", "less_than", "greater_than_or_equal", "less_than_or_equal", "between", "relative_days_ago", "this_month".
+- Combine multiple filters with "filter_logic": "AND" by default. Use "OR" ONLY when the user explicitly asks for alternatives ("X or Y") or names several distinct products.
+- If a bulk mutation explicitly targets ALL products with no condition, set "target_filters": [] and "match_all": true.
+- Conditions such as "if it isn't already set" may be expressed as an extra filter on the field being changed (e.g., {"field": "best", "operator": "equals", "value": false}).
 
-4. Price, Discount, and Ordered Comparisons ("price", "discount", "ordered"):
-   - "price above 1500", "costs over 1500", "more than 1500" -> {"field": "price", "operator": "greater_than", "value": 1500}
-   - "price below 1300", "cheaper than 1300", "under 1300" -> {"field": "price", "operator": "less_than", "value": 1300}
-   - "discount above 30%", "more than 30% discount" -> {"field": "discount", "operator": "greater_than", "value": 30}
-   - "discount is 45%" -> {"field": "discount", "operator": "equals", "value": 45}
-   - "products with orders", "ordered at least once", "ordered > 0" -> {"field": "ordered", "operator": "greater_than", "value": 0}
-   - "products with 0 orders", "never ordered", "un-ordered products" -> {"field": "ordered", "operator": "equals", "value": 0}
-   - "ordered 2 times" -> {"field": "ordered", "operator": "equals", "value": 2}
+MUTATION CONTRACT ("update_many" / "update" / "delete" / "create")
+- "operation": "update_many" (conditional/bulk/arithmetic updates) or "update" (a single named product)
+- "filter_logic": "AND" | "OR"
+- "match_all": boolean (true only when targeting every product with no filters)
+- "target_filters": [{"field": "...", "operator": "...", "value": ...}]
+- "updates": [{"field": "<column or size.<KEY>>", "action": "set" | "add" | "subtract" | "multiply", "value": <number | boolean | string>, "unit": "absolute" | "percentage" | "percentage_points"}]
+- When the same change applies to several sizes ("sizes XL and M"), emit ONE update entry PER size key (e.g., "size.XL" and "size.M").
 
-5. Combined Criteria & Description Search:
-   - "Find black shirts in size XL under 1500" ->
-     {"field": "color", "operator": "contains", "value": "Black"},
-     {"field": "size", "operator": "contains", "value": "XL"},
-     {"field": "price", "operator": "less_than", "value": 1500}
-   - "Find products made of bamboo fiber or spandex" -> use "description" with operator "contains".
-   - "Slim fit shirts" -> {"field": "description", "operator": "contains", "value": "Slim Fit"}
+ARITHMETIC & PERCENTAGE SEMANTICS (CRITICAL)
+1. "Set/Change/Update X to Y", or "Increase/Reduce X ... to Y" -> {"action": "set", "value": Y}. The preposition "to" means the final value.
+2. "Increase/Add/Raise X by Y" -> "add"; "Reduce/Decrease/Lower X by Y" -> "subtract".
+   - "discount" changed by N% -> {"field": "discount", "action": "add" | "subtract", "value": N, "unit": "percentage_points"} (e.g., 25 -> 30).
+   - "price" changed by N% -> {"field": "price", "action": "add" | "subtract", "value": N, "unit": "percentage"} (multiplies by 1 ± N/100).
+   - "price" changed by a plain amount -> "unit": "absolute".
+   - Size stock changed by N units -> {"field": "size.<KEY>", "action": "add" | "subtract", "value": N, "unit": "absolute"}.
+3. "Multiply/Double/Triple X" -> {"action": "multiply", "value": factor}.
 
-6. Sorting & Limits:
-   - "cheapest products", "lowest price" -> sort: [{"field": "price", "direction": "asc"}]
-   - "most expensive products", "highest price" -> sort: [{"field": "price", "direction": "desc"}]
-   - "most ordered products", "top ordered" -> sort: [{"field": "ordered", "direction": "desc"}]
-   - "highest discount" -> sort: [{"field": "discount", "direction": "desc"}]
-   - "top 5", "first 3" -> limit: 5 (or 3)
+AMBIGUITY & VALIDATION RULES
+- Return "status": "clarification_needed" ONLY when the request is missing the change amount/value or direction, missing which sizes to change for a stock change, has no identifiable target scope, or references a column that does not exist in the schema (e.g., "warehouse", "supplier", "weight").
+- If the user gives an explicit value on a valid column — even an out-of-range one (discount > 100, negative stock or price) — still output the structured mutation with "status": "ok"; the backend validator rejects invalid values deterministically.
 
-7. Dates ("created_at"):
-   - "created during the last 30 days", "past 30 days" -> {"field": "created_at", "operator": "relative_days_ago", "value": 30}
-   - "created this month" -> {"field": "created_at", "operator": "this_month", "value": true}
+OUTPUT FORMAT (Return valid JSON only; the angle-bracket values below are placeholders, not real data)
+Example A (named product, multiple sizes):
+User: "Increase stock of <Product Name> for sizes ${sizeKeys[2]} and ${sizeKeys[0]} by 2"
+{
+  "status": "ok",
+  "message": "Increase ${sizeKeys[2]} and ${sizeKeys[0]} stock of <Product Name> by 2",
+  "entity": "products",
+  "operation": "update",
+  "filter_logic": "AND",
+  "match_all": false,
+  "target_filters": [{"field": "name", "operator": "equals", "value": "<Product Name>"}],
+  "updates": [
+    {"field": "size.${sizeKeys[2]}", "action": "add", "value": 2, "unit": "absolute"},
+    {"field": "size.${sizeKeys[0]}", "action": "add", "value": 2, "unit": "absolute"}
+  ]
+}
 
-8. Mutations (Updates / Deletions / Creation):
-   - "Change the price of OpenWeave Shirt to 1450" ->
-     operation: "update",
-     target_filters: [{"field": "name", "operator": "equals", "value": "OpenWeave Shirt"}],
-     changes: {"price": 1450}
-   - "Set discount of Palm Breeze Shirt to 35 and mark it as a best seller" ->
-     operation: "update",
-     target_filters: [{"field": "name", "operator": "equals", "value": "Palm Breeze Shirt"}],
-     changes: {"discount": 35, "best": true}
-   - "Update ordered count for PleatWave Shirt to 5" ->
-     operation: "update",
-     target_filters: [{"field": "name", "operator": "equals", "value": "PleatWave Shirt"}],
-     changes: {"ordered": 5}
-   - "Delete Palm Breeze Shirt" ->
-     operation: "delete",
-     target_filters: [{"field": "name", "operator": "equals", "value": "Palm Breeze Shirt"}],
-     changes: {}
+Example B (conditional bulk arithmetic):
+User: "Reduce the price of products with a discount of 25% or more by 200"
+{
+  "status": "ok",
+  "message": "Reduce price by 200 for products with discount >= 25",
+  "entity": "products",
+  "operation": "update_many",
+  "filter_logic": "AND",
+  "match_all": false,
+  "target_filters": [{"field": "discount", "operator": "greater_than_or_equal", "value": 25}],
+  "updates": [{"field": "price", "action": "subtract", "value": 200, "unit": "absolute"}]
+}
 
-9. Ambiguity & Schema Limitations:
-   - There is NO "services" table anymore—only the "products" table exists.
-   - If the request references columns NOT present in the products schema (e.g., "supplier", "warehouse", "hourly rate", "technician", "weight"), DO NOT invent them. Return status "clarification_needed" explaining that the column does not exist in the products schema.
-   - If a mutation request is missing the target product or the new value to set (e.g., "Update the discount of OpenWeave Shirt" without specifying the new discount percentage), return status "clarification_needed" asking for the missing detail.
+Example C (all products):
+User: "Increase the stock of size ${sizeKeys[0]} by 5 units for all products"
+{
+  "status": "ok",
+  "message": "Increase size ${sizeKeys[0]} stock by 5 for all products",
+  "entity": "products",
+  "operation": "update_many",
+  "filter_logic": "AND",
+  "match_all": true,
+  "target_filters": [],
+  "updates": [{"field": "size.${sizeKeys[0]}", "action": "add", "value": 5, "unit": "absolute"}]
+}
 
-OUTPUT FORMAT (Return valid JSON only)
-For successful query:
+Example D (read query):
 {
   "status": "ok",
   "message": "",
   "entity": "products",
   "operation": "filter",
-  "filters": [
-    {
-      "field": "best",
-      "operator": "equals",
-      "value": true
-    }
-  ],
+  "filter_logic": "AND",
+  "filters": [{"field": "best", "operator": "equals", "value": true}],
   "sort": [],
   "limit": null
 }
 
-For clarification:
+Example E (clarification — missing value):
+User: "Update the discount of <Product Name>"
 {
   "status": "clarification_needed",
-  "message": "What new discount percentage would you like to set for OpenWeave Shirt?",
+  "message": "What new discount percentage would you like to set for <Product Name>?",
   "entity": "products",
   "operation": null,
   "filters": [],
@@ -163,29 +212,37 @@ For clarification:
   "limit": null
 }
 
-For successful mutation:
-{
-  "status": "ok",
-  "message": "Update price of OpenWeave Shirt to 1450",
-  "entity": "products",
-  "operation": "update",
-  "target_filters": [
-    {
-      "field": "name",
-      "operator": "equals",
-      "value": "OpenWeave Shirt"
-    }
-  ],
-  "changes": {
-    "price": 1450
-  }
-}
-
 USER MESSAGE:
 <user_message>
 ${message}
 </user_message>
 `;
+}
+
+/**
+ * Determines whether a validation error represents a hard value/domain constraint violation
+ * (which should be rejected with HTTP 400) versus an incomplete/ambiguous request or
+ * schema column limitation (which should return status: 'clarification_needed').
+ *
+ * @param {Error} err
+ * @returns {boolean}
+ */
+function isHardConstraintValidationError(err) {
+  const msg = String(err?.message || '');
+  return (
+    msg.includes('must be <=') ||
+    msg.includes('must be >=') ||
+    msg.includes('non-negative integer') ||
+    msg.includes('cannot be negative') ||
+    msg.includes('cannot exceed') ||
+    msg.includes('Cannot subtract more than 100%') ||
+    msg.includes('Cannot reduce stock') ||
+    msg.includes('Arithmetic action') ||
+    msg.includes('requires an integer') ||
+    msg.includes('must be a whole integer') ||
+    msg.includes('Unsupported apparel size key') ||
+    msg.includes('Invalid size key')
+  );
 }
 
 /**
@@ -224,12 +281,20 @@ function normalizeInterpretedQuery(entity = 'products', parsed) {
 
   const operation = String(parsed.operation || 'filter').trim().toLowerCase();
 
-  // If mutation operation (update, delete, create)
-  if (operation === 'update' || operation === 'delete' || operation === 'create') {
+  // If mutation operation (update, update_many, delete, create)
+  if (
+    operation === 'update' ||
+    operation === 'update_many' ||
+    operation === 'delete' ||
+    operation === 'create'
+  ) {
     try {
       const validatedMut = validateMutation(normalizedEntity, {
         operation,
+        filter_logic: parsed.filter_logic || parsed.logical_operator || 'AND',
+        match_all: Boolean(parsed.match_all),
         target_filters: parsed.target_filters || parsed.filters || [],
+        updates: parsed.updates,
         changes: parsed.changes || {},
       });
       return {
@@ -237,10 +302,16 @@ function normalizeInterpretedQuery(entity = 'products', parsed) {
         message: String(parsed.message || '').trim(),
         entity: normalizedEntity,
         operation: validatedMut.operation,
+        filter_logic: validatedMut.filter_logic,
+        match_all: validatedMut.match_all,
         target_filters: validatedMut.target_filters,
+        updates: validatedMut.updates,
         changes: validatedMut.changes,
       };
     } catch (err) {
+      if (isHardConstraintValidationError(err)) {
+        throw err;
+      }
       return {
         status: 'clarification_needed',
         message: err.message,
@@ -254,14 +325,17 @@ function normalizeInterpretedQuery(entity = 'products', parsed) {
   }
 
   // Filter / read operation
-  const rawFilters = Array.isArray(parsed.filters) ? parsed.filters : [];
+  const rawFilters = Array.isArray(parsed.filters)
+    ? parsed.filters
+    : Array.isArray(parsed.target_filters)
+      ? parsed.target_filters
+      : [];
   const validatedFilters = [];
 
   for (const f of rawFilters) {
     try {
       validatedFilters.push(validateFilter(normalizedEntity, f));
     } catch (err) {
-      // If a filter uses an invalid field or operator, explain limitation
       return {
         status: 'clarification_needed',
         message: `Schema limitation: ${err.message}`,
@@ -289,11 +363,19 @@ function normalizeInterpretedQuery(entity = 'products', parsed) {
     }
   }
 
+  const rawFilterLogic = String(
+    parsed.filter_logic || parsed.logical_operator || 'AND'
+  )
+    .trim()
+    .toUpperCase();
+  const filterLogic = rawFilterLogic === 'OR' ? 'OR' : 'AND';
+
   return {
     status: 'ok',
     message: String(parsed.message || '').trim(),
     entity: normalizedEntity,
     operation: 'filter',
+    filter_logic: filterLogic,
     filters: validatedFilters,
     sort: validatedSort,
     limit,
@@ -309,6 +391,8 @@ function normalizeInterpretedQuery(entity = 'products', parsed) {
  * @param {string} params.message - user natural language prompt
  * @param {boolean} [params.isMutation=false]
  * @param {string} [params.currentDate]
+ * @param {string} [params.businessId] - When provided, the business's live product names and
+ *   categories are loaded and injected into the prompt for grounding.
  * @returns {Promise<object>}
  */
 async function interpretNaturalLanguageQuery({
@@ -316,6 +400,7 @@ async function interpretNaturalLanguageQuery({
   message,
   isMutation = false,
   currentDate,
+  businessId,
 }) {
   const normalizedEntity = normalizeEntityName(entity || 'products');
 
@@ -323,11 +408,27 @@ async function interpretNaturalLanguageQuery({
     throw new AppError('Message is required and must be a non-empty string.', 400);
   }
 
+  let catalog = null;
+  if (businessId) {
+    try {
+      const rows = await loadCatalogNames(businessId, normalizedEntity);
+      const names = [...new Set(rows.map((r) => r.name).filter(Boolean))];
+      const categories = [
+        ...new Set(rows.map((r) => (r.category ? String(r.category).trim() : '')).filter(Boolean)),
+      ].sort();
+      catalog = { names, categories };
+    } catch (err) {
+      // Catalog grounding is best-effort; the backend name resolver still guarantees matching.
+      console.warn('Could not load catalog context for sheet prompt:', err.message);
+    }
+  }
+
   const promptText = buildSheetQueryPrompt({
     entity: normalizedEntity,
     message: message.trim(),
     isMutation,
     currentDate,
+    catalog,
   });
 
   const rawAiResult = await generateAiSheetInterpretation(promptText);
@@ -336,6 +437,7 @@ async function interpretNaturalLanguageQuery({
 
 module.exports = {
   buildSheetQueryPrompt,
+  formatCatalogContext,
   normalizeInterpretedQuery,
   interpretNaturalLanguageQuery,
 };

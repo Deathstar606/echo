@@ -71,8 +71,8 @@ function formatDateTime(isoString) {
 
 const SAMPLE_ANNOUNCEMENT_PROMPTS = [
   {
-    label: 'All Users (25% Off OpenWeave Shirt)',
-    text: 'Send an announcement about a 25% discount on OpenWeave Shirt to all users.',
+    label: 'All Users (25% Off Seasonal Collection)',
+    text: 'Send an announcement about a 25% discount on our seasonal collection to all users.',
   },
   {
     label: 'Registered After 2026-01-01',

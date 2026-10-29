@@ -1,8 +1,43 @@
 const { query } = require('../../db');
-const { getSchema, validateFilter, validateSort } = require('./sheetSchemaService');
+const {
+  APPAREL_SIZE_KEYS,
+  getSchema,
+  validateFilter,
+  validateSort,
+} = require('./sheetSchemaService');
+const { resolveNameFilters } = require('./productNameResolver');
 const AppError = require('../utils/AppError');
 
-const APPAREL_SIZE_KEYS = new Set(['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', '2XL', '3XL']);
+/**
+ * Computes the total stock across all sizes from a JSON size string.
+ *
+ * @param {string | object | null} sizeVal
+ * @returns {number}
+ */
+function computeTotalStockFromSizeJson(sizeVal) {
+  if (!sizeVal) return 0;
+  let obj = sizeVal;
+  if (typeof sizeVal === 'string') {
+    const trimmed = sizeVal.trim();
+    if (!trimmed.startsWith('{')) return 0;
+    try {
+      obj = JSON.parse(trimmed);
+    } catch {
+      return 0;
+    }
+  }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+    return 0;
+  }
+  let total = 0;
+  for (const val of Object.values(obj)) {
+    const num = Number(val);
+    if (Number.isFinite(num)) {
+      total += Math.round(num);
+    }
+  }
+  return total;
+}
 
 /**
  * Normalizes a database row from the products table so numeric and boolean fields
@@ -41,12 +76,58 @@ function normalizeProductRow(row) {
 }
 
 /**
+ * Builds a numeric comparison SQL clause for a given SQL expression and operator.
+ *
+ * @param {string} sqlExpr
+ * @param {string} operator
+ * @param {any} value
+ * @param {any[]} sqlParams
+ * @returns {string}
+ */
+function buildNumericComparisonClause(sqlExpr, operator, value, sqlParams) {
+  if (operator === 'equals') {
+    sqlParams.push(value);
+    return `${sqlExpr} = $${sqlParams.length}`;
+  }
+  if (operator === 'not_equals') {
+    sqlParams.push(value);
+    return `${sqlExpr} <> $${sqlParams.length}`;
+  }
+  if (operator === 'greater_than') {
+    sqlParams.push(value);
+    return `${sqlExpr} > $${sqlParams.length}`;
+  }
+  if (operator === 'greater_than_or_equal') {
+    sqlParams.push(value);
+    return `${sqlExpr} >= $${sqlParams.length}`;
+  }
+  if (operator === 'less_than') {
+    sqlParams.push(value);
+    return `${sqlExpr} < $${sqlParams.length}`;
+  }
+  if (operator === 'less_than_or_equal') {
+    sqlParams.push(value);
+    return `${sqlExpr} <= $${sqlParams.length}`;
+  }
+  if (operator === 'between') {
+    sqlParams.push(value[0]);
+    const p1 = sqlParams.length;
+    sqlParams.push(value[1]);
+    const p2 = sqlParams.length;
+    return `${sqlExpr} BETWEEN $${p1} AND $${p2}`;
+  }
+  throw new AppError(`Unsupported numeric operator "${operator}".`, 400);
+}
+
+/**
  * Builds a safe, parameterized SQL query for reading products rows.
+ * Supports AND/OR filter combinations, virtual `total_stock`, and nested `size.<KEY>` stock filters.
  *
  * @param {object} params
  * @param {string} [params.entity='products'] - Must resolve to 'products'
  * @param {string} params.businessId - UUID of the business
  * @param {Array<{ field: string, operator: string, value: any }>} [params.filters=[]]
+ * @param {string} [params.filterLogic='AND'] - 'AND' | 'OR'
  * @param {Array<{ field: string, direction?: 'asc' | 'desc' }>} [params.sort=[]]
  * @param {number | null} [params.limit=null]
  * @returns {{ sql: string, params: any[] }}
@@ -55,22 +136,49 @@ function buildParameterizedSelectQuery({
   entity = 'products',
   businessId,
   filters = [],
+  filterLogic = 'AND',
   sort = [],
   limit = null,
 }) {
   const schema = getSchema(entity);
   const sqlParams = [businessId];
-  const whereClauses = [`business_id = $1`];
+  const filterClauses = [];
+
+  const normalizedLogic =
+    String(filterLogic || 'AND')
+      .trim()
+      .toUpperCase() === 'OR'
+      ? 'OR'
+      : 'AND';
 
   for (const rawFilter of filters) {
     const validated = validateFilter(schema.entity, rawFilter);
-    const { field, operator, value } = validated;
+    const { field, operator, value, size_key: sizeKey } = validated;
+
+    // 1. Nested size.<KEY> stock filter (e.g. size.M, size.XL)
+    if (sizeKey && APPAREL_SIZE_KEYS.has(sizeKey)) {
+      const sizeKeyExpr = `COALESCE((CASE WHEN size IS NOT NULL AND size LIKE '{%}' AND (size::jsonb ->> '${sizeKey}') ~ '^-?[0-9]+$' THEN (size::jsonb ->> '${sizeKey}')::integer ELSE 0 END), 0)`;
+      filterClauses.push(
+        buildNumericComparisonClause(sizeKeyExpr, operator, value, sqlParams)
+      );
+      continue;
+    }
+
+    // 2. Virtual total_stock filter across all sizes in the JSON `size` column
+    if (field === 'total_stock') {
+      const totalStockExpr = `COALESCE((SELECT SUM(CASE WHEN value ~ '^-?[0-9]+$' THEN value::integer ELSE 0 END) FROM jsonb_each_text(CASE WHEN size IS NOT NULL AND size LIKE '{%}' THEN size::jsonb ELSE '{}'::jsonb END)), 0)`;
+      filterClauses.push(
+        buildNumericComparisonClause(totalStockExpr, operator, value, sqlParams)
+      );
+      continue;
+    }
+
     const colDef = schema.columns[field];
 
-    // Special handling for comma-separated color lists and JSON size maps
+    // 3. Special handling for comma-separated color lists and JSON size maps
     if (field === 'color' && (operator === 'equals' || operator === 'contains')) {
       sqlParams.push(`%${String(value).trim()}%`);
-      whereClauses.push(`${field} ILIKE $${sqlParams.length}`);
+      filterClauses.push(`${field} ILIKE $${sqlParams.length}`);
       continue;
     }
 
@@ -81,66 +189,72 @@ function buildParameterizedSelectQuery({
       } else {
         sqlParams.push(`%${trimmedVal}%`);
       }
-      whereClauses.push(`${field} ILIKE $${sqlParams.length}`);
+      filterClauses.push(`${field} ILIKE $${sqlParams.length}`);
       continue;
     }
 
     if (operator === 'equals') {
       if (colDef.type === 'string' && !colDef.allowedValues) {
         sqlParams.push(value);
-        whereClauses.push(`LOWER(${field}) = LOWER($${sqlParams.length})`);
+        filterClauses.push(`LOWER(${field}) = LOWER($${sqlParams.length})`);
       } else {
         sqlParams.push(value);
-        whereClauses.push(`${field} = $${sqlParams.length}`);
+        filterClauses.push(`${field} = $${sqlParams.length}`);
       }
     } else if (operator === 'not_equals') {
       if (colDef.type === 'string' && !colDef.allowedValues) {
         sqlParams.push(value);
-        whereClauses.push(`LOWER(${field}) <> LOWER($${sqlParams.length})`);
+        filterClauses.push(`LOWER(${field}) <> LOWER($${sqlParams.length})`);
       } else {
         sqlParams.push(value);
-        whereClauses.push(`${field} <> $${sqlParams.length}`);
+        filterClauses.push(`${field} <> $${sqlParams.length}`);
       }
-    } else if (operator === 'greater_than') {
-      sqlParams.push(value);
-      whereClauses.push(`${field} > $${sqlParams.length}`);
-    } else if (operator === 'greater_than_or_equal') {
-      sqlParams.push(value);
-      whereClauses.push(`${field} >= $${sqlParams.length}`);
-    } else if (operator === 'less_than') {
-      sqlParams.push(value);
-      whereClauses.push(`${field} < $${sqlParams.length}`);
-    } else if (operator === 'less_than_or_equal') {
-      sqlParams.push(value);
-      whereClauses.push(`${field} <= $${sqlParams.length}`);
+    } else if (
+      operator === 'greater_than' ||
+      operator === 'greater_than_or_equal' ||
+      operator === 'less_than' ||
+      operator === 'less_than_or_equal' ||
+      operator === 'between'
+    ) {
+      filterClauses.push(
+        buildNumericComparisonClause(field, operator, value, sqlParams)
+      );
     } else if (operator === 'contains') {
       sqlParams.push(`%${value}%`);
-      whereClauses.push(`${field} ILIKE $${sqlParams.length}`);
+      filterClauses.push(`${field} ILIKE $${sqlParams.length}`);
     } else if (operator === 'not_contains') {
       sqlParams.push(`%${value}%`);
-      whereClauses.push(`${field} NOT ILIKE $${sqlParams.length}`);
+      filterClauses.push(`${field} NOT ILIKE $${sqlParams.length}`);
     } else if (operator === 'starts_with') {
       sqlParams.push(`${value}%`);
-      whereClauses.push(`${field} ILIKE $${sqlParams.length}`);
+      filterClauses.push(`${field} ILIKE $${sqlParams.length}`);
     } else if (operator === 'ends_with') {
       sqlParams.push(`%${value}`);
-      whereClauses.push(`${field} ILIKE $${sqlParams.length}`);
-    } else if (operator === 'between') {
-      sqlParams.push(value[0]);
-      const p1 = sqlParams.length;
-      sqlParams.push(value[1]);
-      const p2 = sqlParams.length;
-      whereClauses.push(`${field} BETWEEN $${p1} AND $${p2}`);
+      filterClauses.push(`${field} ILIKE $${sqlParams.length}`);
     } else if (operator === 'in') {
       sqlParams.push(value);
-      whereClauses.push(`${field} = ANY($${sqlParams.length}::text[])`);
+      const arrayType = colDef.type === 'uuid' ? 'uuid[]' : 'text[]';
+      filterClauses.push(`${field} = ANY($${sqlParams.length}::${arrayType})`);
     } else if (operator === 'relative_days_ago') {
       sqlParams.push(value);
-      whereClauses.push(`${field} >= (NOW() - ($${sqlParams.length}::integer * INTERVAL '1 day'))`);
+      filterClauses.push(
+        `${field} >= (NOW() - ($${sqlParams.length}::integer * INTERVAL '1 day'))`
+      );
     } else if (operator === 'this_month') {
-      whereClauses.push(
+      filterClauses.push(
         `${field} >= DATE_TRUNC('month', CURRENT_DATE) AND ${field} < (DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month')`
       );
+    }
+  }
+
+  let whereSql = 'business_id = $1';
+  if (filterClauses.length === 1) {
+    whereSql += ` AND ${filterClauses[0]}`;
+  } else if (filterClauses.length > 1) {
+    if (normalizedLogic === 'OR') {
+      whereSql += ` AND (${filterClauses.join(' OR ')})`;
+    } else {
+      whereSql += ` AND ${filterClauses.join(' AND ')}`;
     }
   }
 
@@ -155,7 +269,7 @@ function buildParameterizedSelectQuery({
   let sql = `
     SELECT *
     FROM ${schema.tableName}
-    WHERE ${whereClauses.join(' AND ')}
+    WHERE ${whereSql}
     ORDER BY ${sortClauses.join(', ')}
   `;
 
@@ -198,7 +312,11 @@ async function getAllRows(entity = 'products', businessId) {
  * @param {object} params.queryJson - Interpreted query JSON
  * @returns {Promise<object>}
  */
-async function executeSpreadsheetQuery({ entity = 'products', businessId, queryJson }) {
+async function executeSpreadsheetQuery({
+  entity = 'products',
+  businessId,
+  queryJson,
+}) {
   if (!businessId) {
     throw new AppError('Business ID is required to execute a sheet query.', 400);
   }
@@ -215,10 +333,32 @@ async function executeSpreadsheetQuery({ entity = 'products', businessId, queryJ
     };
   }
 
+  const filterLogic = queryJson.filter_logic || 'AND';
+
+  // Resolve product-name filters against the live catalog (punctuation/case-insensitive,
+  // partial-name aware) so arbitrary product names match reliably.
+  const nameResolution = await resolveNameFilters({
+    businessId,
+    entity: schema.entity,
+    filters: queryJson.filters || [],
+  });
+  if (nameResolution.status === 'clarification_needed') {
+    return {
+      status: 'clarification_needed',
+      message: nameResolution.message,
+      suggestions: nameResolution.suggestions,
+      entity: schema.entity,
+      rows: [],
+      count: 0,
+    };
+  }
+  const resolvedFilters = nameResolution.filters;
+
   const { sql, params: sqlParams } = buildParameterizedSelectQuery({
     entity: schema.entity,
     businessId,
-    filters: queryJson.filters || [],
+    filters: resolvedFilters,
+    filterLogic,
     sort: queryJson.sort || [],
     limit: queryJson.limit || null,
   });
@@ -231,16 +371,19 @@ async function executeSpreadsheetQuery({ entity = 'products', businessId, queryJ
     interpretedQuery: {
       entity: schema.entity,
       operation: 'filter',
-      filters: queryJson.filters || [],
+      filter_logic: filterLogic,
+      filters: resolvedFilters,
       sort: queryJson.sort || [],
       limit: queryJson.limit || null,
     },
+    name_resolutions: nameResolution.resolutions,
     rows,
     count: rows.length,
   };
 }
 
 module.exports = {
+  computeTotalStockFromSizeJson,
   normalizeProductRow,
   buildParameterizedSelectQuery,
   getAllRows,

@@ -40,7 +40,7 @@ const PRODUCT_COLUMNS = [
   "images",
 ];
 
-const SAMPLE_PROMPTS = [
+const BASE_SAMPLE_PROMPTS = [
   {
     type: "query",
     label: "Best-selling products",
@@ -63,13 +63,13 @@ const SAMPLE_PROMPTS = [
   },
   {
     type: "mutation",
-    label: "Set OpenWeave Shirt price to 1450",
-    text: "Change the price of OpenWeave Shirt to 1450.",
+    label: "Increase summer shirts discount by 5%",
+    text: "Increase the discount of all summer shirts by 5%.",
   },
   {
     type: "mutation",
-    label: "Set Palm Breeze Shirt discount to 35%",
-    text: "Set the discount of Palm Breeze Shirt to 35.",
+    label: "Reduce price by 200 where discount >= 25%",
+    text: "Reduce the price of products with a discount of 25% or more by 200.",
   },
 ];
 
@@ -155,6 +155,17 @@ export default function SheetManagementPanel() {
   }, [dispatch]);
 
   const activeRows = rowsByEntity.products || [];
+  const samplePrompts =
+    activeRows.length > 0 && activeRows[0]?.name
+      ? [
+          ...BASE_SAMPLE_PROMPTS,
+          {
+            type: "mutation",
+            label: `Increase ${activeRows[0].name} (XL & M) stock by 2`,
+            text: `Increase stock of product ${activeRows[0].name} for sizes XL and M by 2.`,
+          },
+        ]
+      : BASE_SAMPLE_PROMPTS;
 
   const matchedIdsSet = new Set(
     Array.isArray(queryResult?.matchedIds) ? queryResult.matchedIds : [],
@@ -581,7 +592,7 @@ export default function SheetManagementPanel() {
             value={nlPrompt}
             onChange={(e) => dispatch(setSheetNlPrompt(e.target.value))}
             disabled={isBusy}
-            placeholder='e.g. "Show all best-selling products." or "Change the price of OpenWeave Shirt to 1450."'
+            placeholder='e.g. "Show all best-selling products." or "Increase the discount of all summer shirts by 5%."'
           />
 
           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
@@ -666,7 +677,7 @@ export default function SheetManagementPanel() {
             Quick Sample Prompts (products.csv):
           </span>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-            {SAMPLE_PROMPTS.map((sample) => (
+            {samplePrompts.map((sample) => (
               <button
                 key={sample.text}
                 type="button"
@@ -901,7 +912,7 @@ export default function SheetManagementPanel() {
               Enter a modification instruction above and click{" "}
               <strong>Preview Mutation</strong> (e.g.,{" "}
               <em>
-                &ldquo;Change the price of OpenWeave Shirt to 1450.&rdquo;
+                &ldquo;Increase the discount of all summer shirts by 5%.&rdquo;
               </em>
               ) to inspect exact before/after changes prior to database
               confirmation.

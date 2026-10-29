@@ -132,6 +132,7 @@ async function querySpreadsheet(req, res, next) {
       entity,
       message: rawMessage.trim(),
       isMutation: false,
+      businessId: business.id,
     });
 
     // 2. Execute query against PostgreSQL (or return clarification response)
@@ -178,6 +179,7 @@ async function mutateSpreadsheet(req, res, next) {
         entity,
         message: body.message.trim(),
         isMutation: true,
+        businessId: business.id,
       });
     }
 
@@ -188,11 +190,15 @@ async function mutateSpreadsheet(req, res, next) {
       );
     }
 
+    const expectedPreviewHash =
+      body.expected_preview_hash || body.preview_hash || undefined;
+
     const result = await executeMutation({
       entity,
       businessId: business.id,
       mutationJson,
       confirm,
+      expectedPreviewHash,
     });
 
     return res.status(200).json({
