@@ -2,17 +2,11 @@ const path = require('node:path');
 const { findBusinessOrThrow } = require('./businessController');
 const {
   parseAndValidateProductsCsv,
-  parseAndValidateServicesCsv,
   importProductsToDatabase,
-  importServicesToDatabase,
 } = require('../services/sheetCsvImportService');
 const { getAllRows, executeSpreadsheetQuery } = require('../services/sheetQueryService');
 const { interpretNaturalLanguageQuery } = require('../services/sheetQueryPromptBuilder');
-const { executeMutation, previewMutation } = require('../services/sheetMutationService');
-const {
-  generateSampleSheetDraft,
-  saveGeneratedSheetRows,
-} = require('../services/sheetGenerationService');
+const { executeMutation } = require('../services/sheetMutationService');
 const { normalizeEntityName } = require('../services/sheetSchemaService');
 const AppError = require('../utils/AppError');
 
@@ -90,57 +84,6 @@ async function uploadProducts(req, res, next) {
 }
 
 /**
- * POST /api/sheets/services/upload
- * POST /api/businesses/:businessId/sheets/services/upload
- */
-async function uploadServices(req, res, next) {
-  try {
-    if (!req.file) {
-      throw new AppError(
-        'No CSV file uploaded. Please attach a .csv file under form-data key "file" or "customer_csv".',
-        400
-      );
-    }
-
-    const business = await resolveBusiness(req);
-    const fileName = path.basename(req.file.originalname || 'services.csv');
-
-    const { validRecords, rejectedRows, totalRows } = parseAndValidateServicesCsv(req.file.buffer);
-
-    if (validRecords.length === 0) {
-      return res.status(400).json({
-        error: 'All rows in the uploaded services CSV failed validation.',
-        business_id: business.id,
-        entity: 'services',
-        source_file: fileName,
-        total_rows: totalRows,
-        imported_count: 0,
-        rejected_count: rejectedRows.length,
-        errors: rejectedRows,
-      });
-    }
-
-    const importedCount = await importServicesToDatabase(business.id, validRecords);
-
-    return res.status(200).json({
-      message:
-        rejectedRows.length > 0
-          ? 'Services CSV processed with some rejected rows.'
-          : 'Services CSV imported successfully.',
-      business_id: business.id,
-      entity: 'services',
-      source_file: fileName,
-      total_rows: totalRows,
-      imported_count: importedCount,
-      rejected_count: rejectedRows.length,
-      errors: rejectedRows,
-    });
-  } catch (error) {
-    return next(error);
-  }
-}
-
-/**
  * GET /api/sheets/products
  * GET /api/businesses/:businessId/sheets/products
  */
@@ -162,40 +105,19 @@ async function getProductsList(req, res, next) {
 }
 
 /**
- * GET /api/sheets/services
- * GET /api/businesses/:businessId/sheets/services
- */
-async function getServicesList(req, res, next) {
-  try {
-    const business = await resolveBusiness(req);
-    const rows = await getAllRows('services', business.id);
-
-    return res.status(200).json({
-      status: 'ok',
-      entity: 'services',
-      business_id: business.id,
-      rows,
-      count: rows.length,
-    });
-  } catch (error) {
-    return next(error);
-  }
-}
-
-/**
  * POST /api/sheets/query
  * POST /api/businesses/:businessId/sheets/query
  *
- * Body: { entity: 'products' | 'services', message: '...' }
+ * Body: { entity?: 'products', message: '...' }
  */
 async function querySpreadsheet(req, res, next) {
   try {
     const body = req.body || {};
-    const rawEntity = body.entity;
+    const rawEntity = body.entity !== undefined ? body.entity : 'products';
     const rawMessage = body.message;
 
     if (!rawEntity || typeof rawEntity !== 'string') {
-      throw new AppError('Field "entity" is required ("products" or "services").', 400);
+      throw new AppError('Field "entity" must be "products".', 400);
     }
 
     if (!rawMessage || typeof rawMessage !== 'string' || !rawMessage.trim()) {
@@ -233,16 +155,16 @@ async function querySpreadsheet(req, res, next) {
  * POST /api/sheets/mutation
  * POST /api/businesses/:businessId/sheets/mutate
  *
- * Body: { entity, message, confirm?: boolean } OR { entity, mutation, confirm?: boolean }
+ * Body: { entity?: 'products', message, confirm?: boolean } OR { entity?: 'products', mutation, confirm?: boolean }
  */
 async function mutateSpreadsheet(req, res, next) {
   try {
     const body = req.body || {};
-    const rawEntity = body.entity;
+    const rawEntity = body.entity !== undefined ? body.entity : 'products';
     const confirm = Boolean(body.confirm);
 
     if (!rawEntity || typeof rawEntity !== 'string') {
-      throw new AppError('Field "entity" is required ("products" or "services").', 400);
+      throw new AppError('Field "entity" must be "products".', 400);
     }
 
     const entity = normalizeEntityName(rawEntity);
@@ -260,7 +182,10 @@ async function mutateSpreadsheet(req, res, next) {
     }
 
     if (!mutationJson) {
-      throw new AppError('Provide either "message" (natural language) or structured "mutation" object.', 400);
+      throw new AppError(
+        'Provide either "message" (natural language) or structured "mutation" object.',
+        400
+      );
     }
 
     const result = await executeMutation({
@@ -279,82 +204,9 @@ async function mutateSpreadsheet(req, res, next) {
   }
 }
 
-/**
- * POST /api/sheets/generate
- * POST /api/businesses/:businessId/sheets/generate
- *
- * Body: { entity: 'products' | 'services', count?: number, prompt?: string }
- */
-async function generateSheetData(req, res, next) {
-  try {
-    const body = req.body || {};
-    const rawEntity = body.entity;
-
-    if (!rawEntity || typeof rawEntity !== 'string') {
-      throw new AppError(
-        'Field "entity" is required ("products" or "services").',
-        400
-      );
-    }
-
-    const entity = normalizeEntityName(rawEntity);
-    const business = await resolveBusiness(req);
-
-    const result = await generateSampleSheetDraft({
-      entity,
-      business,
-      count: body.count || 5,
-      prompt: typeof body.prompt === 'string' ? body.prompt : '',
-    });
-
-    return res.status(200).json(result);
-  } catch (error) {
-    return next(error);
-  }
-}
-
-/**
- * POST /api/sheets/generate/save
- * POST /api/businesses/:businessId/sheets/generate/save
- *
- * Body: { entity: 'products' | 'services', rows: [...], mode?: 'append' | 'replace', confirm: true }
- */
-async function saveGeneratedSheetData(req, res, next) {
-  try {
-    const body = req.body || {};
-    const rawEntity = body.entity;
-
-    if (!rawEntity || typeof rawEntity !== 'string') {
-      throw new AppError(
-        'Field "entity" is required ("products" or "services").',
-        400
-      );
-    }
-
-    const entity = normalizeEntityName(rawEntity);
-    const business = await resolveBusiness(req);
-
-    const result = await saveGeneratedSheetRows({
-      businessId: business.id,
-      entity,
-      rows: body.rows,
-      mode: body.mode || 'append',
-      confirm: Boolean(body.confirm),
-    });
-
-    return res.status(200).json(result);
-  } catch (error) {
-    return next(error);
-  }
-}
-
 module.exports = {
   uploadProducts,
-  uploadServices,
   getProductsList,
-  getServicesList,
   querySpreadsheet,
   mutateSpreadsheet,
-  generateSheetData,
-  saveGeneratedSheetData,
 };

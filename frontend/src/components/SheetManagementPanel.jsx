@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { motion } from "framer-motion";
 import {
@@ -11,110 +11,67 @@ import {
   SlidersHorizontal,
   ArrowRight,
   RotateCcw,
-  Wand2,
-  Save,
-  Trash2,
   RefreshCw,
   Loader2,
   Edit3,
   AlertTriangle,
-  Lock,
 } from "lucide-react";
 import {
   loadSheetRows,
   runSheetQuery,
   previewSheetMutation,
   applySheetMutation,
-  generateNewSheetDraft,
-  saveGeneratedDraftToDb,
   importSheetCsvFile,
-  setActiveSheetEntity,
   setSheetNlPrompt,
   clearSheetFiltersAndFeedback,
   discardMutationPreview,
-  discardGeneratedDraft,
 } from "../store/sheetSlice";
 
 const PRODUCT_COLUMNS = [
   "name",
-  "description",
-  "price",
-  "stock",
   "category",
-  "size",
+  "price",
+  "discount",
+  "best",
+  "ordered",
   "color",
-];
-
-const SERVICE_COLUMNS = [
-  "name",
-  "description",
-  "rate",
-  "availability",
   "size",
-  "available_from",
+  "description",
+  "images",
 ];
 
-const SAMPLE_PROMPTS_BY_ENTITY = {
-  products: [
-    {
-      type: "query",
-      label: "Out of stock products",
-      text: "List products that are out of stock.",
-    },
-    {
-      type: "query",
-      label: "Price above 100",
-      text: "Show me products with a price above 100.",
-    },
-    {
-      type: "query",
-      label: "Red products in size XL",
-      text: "Find red products in size XL.",
-    },
-    {
-      type: "query",
-      label: "Waterproof & lightweight",
-      text: "Find products matching this description: waterproof and lightweight.",
-    },
-    {
-      type: "mutation",
-      label: "Change Trail Rain Jacket price to 150",
-      text: "Change the price of Trail Rain Jacket to 150.",
-    },
-    {
-      type: "mutation",
-      label: "Set Trail Rain Jacket stock to zero",
-      text: "Set the stock of Trail Rain Jacket to zero.",
-    },
-  ],
-  services: [
-    {
-      type: "query",
-      label: "Unavailable services",
-      text: "Show unavailable services.",
-    },
-    {
-      type: "query",
-      label: "Rate below 100",
-      text: "Find services with a rate below 100.",
-    },
-    {
-      type: "query",
-      label: "Home renovation services",
-      text: "Find services related to home renovation.",
-    },
-    {
-      type: "mutation",
-      label: "Set Kitchen Remodel to unavailable",
-      text: "Update the availability of Kitchen Remodel Consultation to unavailable.",
-    },
-    {
-      type: "mutation",
-      label: "Set Interior Painting to available",
-      text: "Update the availability of Interior Painting to available.",
-    },
-  ],
-};
+const SAMPLE_PROMPTS = [
+  {
+    type: "query",
+    label: "Best-selling products",
+    text: "Show all best-selling products.",
+  },
+  {
+    type: "query",
+    label: "Black shirts under 1500",
+    text: "Find products available in Black with price below 1500.",
+  },
+  {
+    type: "query",
+    label: "Products with orders > 0",
+    text: "List products with ordered count greater than 0.",
+  },
+  {
+    type: "query",
+    label: "Luxury shirts",
+    text: "Show products in the luxury shirt category.",
+  },
+  {
+    type: "mutation",
+    label: "Set OpenWeave Shirt price to 1450",
+    text: "Change the price of OpenWeave Shirt to 1450.",
+  },
+  {
+    type: "mutation",
+    label: "Set Palm Breeze Shirt discount to 35%",
+    text: "Set the discount of Palm Breeze Shirt to 35.",
+  },
+];
 
 function looksLikeMutationInstruction(text) {
   const lower = String(text || "")
@@ -129,12 +86,44 @@ function formatCellValue(col, value) {
   if (value === null || value === undefined || value === "") {
     return "—";
   }
-  if (col === "price" || col === "rate") {
+  if (col === "price") {
     const num = Number(value);
-    return Number.isFinite(num) ? `$${num.toFixed(2)}` : String(value);
+    return Number.isFinite(num) ? `${num}` : String(value);
   }
-  if (col === "available_from") {
-    return String(value).slice(0, 10);
+  if (col === "discount") {
+    const num = Number(value);
+    return Number.isFinite(num) ? `${num}%` : String(value);
+  }
+  if (col === "best") {
+    return value === true || String(value).toLowerCase() === "true"
+      ? "True"
+      : "False";
+  }
+  if (col === "size") {
+    const raw = String(value);
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        return Object.entries(parsed)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join(", ");
+      }
+    } catch {
+      // Fall through
+    }
+    return raw;
+  }
+  if (col === "description") {
+    const str = String(value).replace(/\s+/g, " ").trim();
+    return str.length > 90 ? `${str.slice(0, 90)}...` : str;
+  }
+  if (col === "images") {
+    const urls = String(value)
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (urls.length === 0) return "—";
+    return `${urls.length} image(s)`;
   }
   return String(value);
 }
@@ -142,7 +131,6 @@ function formatCellValue(col, value) {
 export default function SheetManagementPanel() {
   const dispatch = useDispatch();
   const {
-    activeEntity,
     rowsByEntity,
     sheetLoadStatus,
     sheetLoadError,
@@ -156,47 +144,25 @@ export default function SheetManagementPanel() {
     mutationApplyStatus,
     mutationApplyError,
     mutationApplySuccessMessage,
-    generatedDraftByEntity,
-    generateStatus,
-    generateError,
-    saveGeneratedStatus,
-    saveGeneratedError,
-    saveGeneratedSuccessMessage,
     csvUploadStatus,
     csvUploadMessage,
     csvUploadError,
   } = useSelector((state) => state.sheets);
 
-  // Save mode for generated draft data ('append' | 'replace')
-  const [saveMode, setSaveMode] = useState("append");
-  const [confirmOverwriteChecked, setConfirmOverwriteChecked] = useState(false);
-
-  // Load both sheets on mount so tab counts are populated immediately
+  // Load products sheet on mount
   useEffect(() => {
     dispatch(loadSheetRows("products"));
-    dispatch(loadSheetRows("services"));
   }, [dispatch]);
 
-  const activeRows = rowsByEntity[activeEntity] || [];
-  const activeColumns =
-    activeEntity === "services" ? SERVICE_COLUMNS : PRODUCT_COLUMNS;
-  const activeGeneratedDraft = generatedDraftByEntity[activeEntity] || null;
-  const isUnsavedDraftActive = Boolean(activeGeneratedDraft);
+  const activeRows = rowsByEntity.products || [];
 
   const matchedIdsSet = new Set(
     Array.isArray(queryResult?.matchedIds) ? queryResult.matchedIds : [],
   );
   const hasActiveQueryFilter = Boolean(queryResult);
 
-  const handleSwitchEntity = (entity) => {
-    dispatch(setActiveSheetEntity(entity));
-    setSaveMode("append");
-    setConfirmOverwriteChecked(false);
-  };
-
   // Run Natural-Language Query
   const handleRunQuery = async (customText) => {
-    if (isUnsavedDraftActive) return;
     const text = (
       typeof customText === "string" ? customText : nlPrompt
     ).trim();
@@ -204,7 +170,7 @@ export default function SheetManagementPanel() {
 
     await dispatch(
       runSheetQuery({
-        entity: activeEntity,
+        entity: "products",
         message: text,
       }),
     );
@@ -212,7 +178,6 @@ export default function SheetManagementPanel() {
 
   // Run Stage 1 Mutation Preview (confirm: false)
   const handleRunMutationPreview = async (customText) => {
-    if (isUnsavedDraftActive) return;
     const text = (
       typeof customText === "string" ? customText : nlPrompt
     ).trim();
@@ -220,7 +185,7 @@ export default function SheetManagementPanel() {
 
     await dispatch(
       previewSheetMutation({
-        entity: activeEntity,
+        entity: "products",
         message: text,
       }),
     );
@@ -229,7 +194,6 @@ export default function SheetManagementPanel() {
   // Unified form submit (auto-detects query vs mutation intent)
   const handlePrimaryPromptSubmit = async (e) => {
     e.preventDefault();
-    if (isUnsavedDraftActive) return;
     const text = nlPrompt.trim();
     if (!text) return;
 
@@ -253,50 +217,10 @@ export default function SheetManagementPanel() {
     const messageToConfirm = mutationPreview.promptUsed || nlPrompt.trim();
     await dispatch(
       applySheetMutation({
-        entity: activeEntity,
+        entity: "products",
         message: messageToConfirm,
       }),
     );
-  };
-
-  // Generate New Sheet Data (Unsaved Draft Preview)
-  const handleGenerateNewData = async () => {
-    if (generateStatus === "loading" || saveGeneratedStatus === "loading") {
-      return;
-    }
-    setSaveMode("append");
-    setConfirmOverwriteChecked(false);
-    await dispatch(
-      generateNewSheetDraft({
-        entity: activeEntity,
-        count: 5,
-      }),
-    );
-  };
-
-  // Save Generated Sheet Data to DB
-  const handleSaveGeneratedData = async () => {
-    if (
-      !activeGeneratedDraft ||
-      !Array.isArray(activeGeneratedDraft.rows) ||
-      activeGeneratedDraft.rows.length === 0 ||
-      saveGeneratedStatus === "loading"
-    ) {
-      return;
-    }
-
-    if (saveMode === "replace" && !confirmOverwriteChecked) {
-      return;
-    }
-
-    await dispatch(
-      saveGeneratedDraftToDb({
-        entity: activeEntity,
-        rows: activeGeneratedDraft.rows,
-        mode: saveMode,
-      }),
-    );
-    setConfirmOverwriteChecked(false);
   };
 
   // CSV Upload Handler
@@ -305,7 +229,7 @@ export default function SheetManagementPanel() {
     if (!file) return;
     await dispatch(
       importSheetCsvFile({
-        entity: activeEntity,
+        entity: "products",
         file,
       }),
     );
@@ -316,14 +240,7 @@ export default function SheetManagementPanel() {
     sheetLoadStatus === "loading" ||
     queryStatus === "loading" ||
     mutationPreviewStatus === "loading" ||
-    mutationApplyStatus === "loading" ||
-    generateStatus === "loading" ||
-    saveGeneratedStatus === "loading";
-
-  // Rows displayed in the left table: either the unsaved generated draft rows (when active) or the live database rows
-  const tableRowsToRender = isUnsavedDraftActive
-    ? activeGeneratedDraft.rows
-    : activeRows;
+    mutationApplyStatus === "loading";
 
   return (
     <motion.div
@@ -340,7 +257,7 @@ export default function SheetManagementPanel() {
         gap: "16px",
       }}
     >
-      {/* Left Main Card: Live Products & Services Spreadsheet Area */}
+      {/* Left Main Card: Live Products Spreadsheet Area */}
       <div
         className="portal-card"
         style={{ padding: 0, overflow: "hidden", gap: 0 }}
@@ -356,24 +273,8 @@ export default function SheetManagementPanel() {
           >
             <FileSpreadsheet size={18} color="var(--primary-indigo)" />
             <span className="inquiry-card-title">
-              Sheet Management (
-              {activeEntity === "products" ? "Products" : "Services"})
+              Product Catalog Sheet (products.csv)
             </span>
-            {isUnsavedDraftActive && (
-              <span
-                style={{
-                  padding: "2px 9px",
-                  borderRadius: "999px",
-                  fontSize: "11px",
-                  fontWeight: 700,
-                  backgroundColor: "#fef3c7",
-                  color: "#92400e",
-                  border: "1px solid #f59e0b",
-                }}
-              >
-                UNSAVED GENERATED DRAFT PREVIEW
-              </span>
-            )}
           </div>
 
           <div
@@ -384,51 +285,23 @@ export default function SheetManagementPanel() {
               flexWrap: "wrap",
             }}
           >
-            <button
-              type="button"
-              className="btn-warm-outlined"
-              style={{
-                fontSize: "12.5px",
-                padding: "6px 12px",
-                borderColor: "var(--primary-indigo)",
-                color: "var(--primary-indigo-dark)",
-                fontWeight: 700,
-              }}
-              disabled={
-                generateStatus === "loading" ||
-                saveGeneratedStatus === "loading"
-              }
-              onClick={handleGenerateNewData}
-            >
-              {generateStatus === "loading" ? (
-                <>
-                  <Loader2 size={14} className="spin" />
-                  Generating Sample Data...
-                </>
-              ) : (
-                <>
-                  <Wand2 size={14} />
-                  Generate New Sheet Data
-                </>
-              )}
-            </button>
-
             <label
               className="btn-warm-outlined"
               style={{
-                cursor: isUnsavedDraftActive ? "not-allowed" : "pointer",
-                opacity: isUnsavedDraftActive ? 0.6 : 1,
+                cursor: "pointer",
                 fontSize: "12.5px",
                 padding: "6px 12px",
               }}
-              title="Upload a CSV file to replace the active sheet"
+              title="Upload a products.csv file to replace the product catalog"
             >
               <Upload size={14} />
-              {csvUploadStatus === "loading" ? "Uploading..." : "Import CSV"}
+              {csvUploadStatus === "loading"
+                ? "Uploading..."
+                : "Upload products.csv"}
               <input
                 type="file"
                 accept=".csv"
-                disabled={isUnsavedDraftActive || csvUploadStatus === "loading"}
+                disabled={csvUploadStatus === "loading"}
                 onChange={handleCsvFileUpload}
                 style={{ display: "none" }}
               />
@@ -437,9 +310,9 @@ export default function SheetManagementPanel() {
             <button
               type="button"
               className="icon-action-btn"
-              disabled={sheetLoadStatus === "loading" || isUnsavedDraftActive}
-              onClick={() => dispatch(loadSheetRows(activeEntity))}
-              title="Refresh sheet from database"
+              disabled={sheetLoadStatus === "loading"}
+              onClick={() => dispatch(loadSheetRows("products"))}
+              title="Refresh products sheet from database"
             >
               <RefreshCw
                 size={15}
@@ -457,7 +330,7 @@ export default function SheetManagementPanel() {
             gap: "14px",
           }}
         >
-          {/* Sheet Tabs: Products vs Services */}
+          {/* Sheet Header Info */}
           <div
             style={{
               display: "flex",
@@ -478,29 +351,15 @@ export default function SheetManagementPanel() {
               <span style={{ fontWeight: 600, fontSize: "13px" }}>
                 Active Sheet:
               </span>
-              <div className="target-toggle-group">
-                <button
-                  type="button"
-                  className={`target-toggle-btn ${
-                    activeEntity === "products" ? "active" : ""
-                  }`}
-                  onClick={() => handleSwitchEntity("products")}
-                >
-                  📦 Products ({rowsByEntity.products.length})
-                </button>
-                <button
-                  type="button"
-                  className={`target-toggle-btn ${
-                    activeEntity === "services" ? "active" : ""
-                  }`}
-                  onClick={() => handleSwitchEntity("services")}
-                >
-                  🛠️ Services ({rowsByEntity.services.length})
-                </button>
-              </div>
+              <span
+                className="target-toggle-btn active"
+                style={{ cursor: "default" }}
+              >
+                📦 Products ({activeRows.length})
+              </span>
             </div>
 
-            {hasActiveQueryFilter && !isUnsavedDraftActive && (
+            {hasActiveQueryFilter && (
               <button
                 type="button"
                 className="btn-warm-outlined"
@@ -513,231 +372,11 @@ export default function SheetManagementPanel() {
             )}
           </div>
 
-          {/* Unsaved Generated Sheet Data Draft Banner & Controls */}
-          {isUnsavedDraftActive && (
-            <div
-              style={{
-                padding: "14px 16px",
-                borderRadius: "10px",
-                backgroundColor: "#fffbeb",
-                border: "1.5px solid #f59e0b",
-                display: "flex",
-                flexDirection: "column",
-                gap: "10px",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  flexWrap: "wrap",
-                  gap: "8px",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    fontWeight: 700,
-                    fontSize: "13.5px",
-                    color: "#92400e",
-                  }}
-                >
-                  <Wand2 size={16} />
-                  <span>
-                    Unsaved AI-Generated{" "}
-                    {activeEntity === "products" ? "Products" : "Services"}{" "}
-                    Draft ({activeGeneratedDraft.rows.length} schema-validated
-                    records)
-                  </span>
-                </div>
-                <span
-                  style={{
-                    fontSize: "11.5px",
-                    color: "#b45309",
-                    fontWeight: 600,
-                  }}
-                >
-                  Natural-language queries &amp; mutations are disabled until
-                  you save or discard this draft.
-                </span>
-              </div>
-
-              {/* Save Mode Selection (Append vs Replace Explanation) */}
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "6px",
-                  padding: "10px 12px",
-                  backgroundColor: "#ffffff",
-                  borderRadius: "8px",
-                  border: "1px solid #fde68a",
-                  fontSize: "12.5px",
-                }}
-              >
-                <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>
-                  Choose How to Save Generated Records:
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "16px" }}>
-                  <label
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      cursor: "pointer",
-                      fontWeight: saveMode === "append" ? 700 : 500,
-                    }}
-                  >
-                    <input
-                      type="radio"
-                      name="sheet-save-mode"
-                      checked={saveMode === "append"}
-                      onChange={() => {
-                        setSaveMode("append");
-                        setConfirmOverwriteChecked(false);
-                      }}
-                    />
-                    <span>
-                      <strong>Append Records (Recommended):</strong> Adds these{" "}
-                      {activeGeneratedDraft.rows.length} new records to your
-                      existing {activeRows.length} {activeEntity} without
-                      deleting current data.
-                    </span>
-                  </label>
-
-                  <label
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      cursor: "pointer",
-                      fontWeight: saveMode === "replace" ? 700 : 500,
-                      color: saveMode === "replace" ? "#b91c1c" : "inherit",
-                    }}
-                  >
-                    <input
-                      type="radio"
-                      name="sheet-save-mode"
-                      checked={saveMode === "replace"}
-                      onChange={() => setSaveMode("replace")}
-                    />
-                    <span>
-                      <strong>Replace Existing Sheet:</strong> Overwrites all{" "}
-                      {activeRows.length} current {activeEntity} records with
-                      these {activeGeneratedDraft.rows.length} generated
-                      records.
-                    </span>
-                  </label>
-                </div>
-
-                {saveMode === "replace" && (
-                  <label
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      marginTop: "4px",
-                      color: "#b91c1c",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={confirmOverwriteChecked}
-                      onChange={(e) =>
-                        setConfirmOverwriteChecked(e.target.checked)
-                      }
-                    />
-                    <span>
-                      I confirm that I want to overwrite and replace the
-                      existing {activeRows.length} {activeEntity} record(s) in
-                      the database.
-                    </span>
-                  </label>
-                )}
-              </div>
-
-              {saveGeneratedError && (
-                <div
-                  className="alert-banner error"
-                  style={{ fontSize: "12px" }}
-                >
-                  <AlertCircle size={15} style={{ flexShrink: 0 }} />
-                  <span>{saveGeneratedError}</span>
-                </div>
-              )}
-
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                <button
-                  type="button"
-                  className="btn-primary-indigo"
-                  disabled={
-                    saveGeneratedStatus === "loading" ||
-                    generateStatus === "loading" ||
-                    (saveMode === "replace" && !confirmOverwriteChecked)
-                  }
-                  onClick={handleSaveGeneratedData}
-                >
-                  {saveGeneratedStatus === "loading" ? (
-                    <>
-                      <Loader2 size={14} className="spin" />
-                      Saving to Database...
-                    </>
-                  ) : (
-                    <>
-                      <Save size={14} />
-                      Save Generated Data (
-                      {saveMode === "replace" ? "Replace All" : "Append"})
-                    </>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  className="btn-warm-outlined"
-                  disabled={
-                    generateStatus === "loading" ||
-                    saveGeneratedStatus === "loading"
-                  }
-                  onClick={handleGenerateNewData}
-                >
-                  <RefreshCw
-                    size={14}
-                    className={generateStatus === "loading" ? "spin" : ""}
-                  />
-                  Regenerate
-                </button>
-
-                <button
-                  type="button"
-                  className="btn-warm-outlined"
-                  style={{ color: "#dc2626", borderColor: "#fca5a5" }}
-                  disabled={saveGeneratedStatus === "loading"}
-                  onClick={() => dispatch(discardGeneratedDraft(activeEntity))}
-                >
-                  <Trash2 size={14} />
-                  Discard Draft
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* Status & Feedback Banners */}
           {sheetLoadError && (
             <div className="alert-banner error">
               <AlertCircle size={16} style={{ flexShrink: 0 }} />
               <span>{sheetLoadError}</span>
-            </div>
-          )}
-
-          {generateError && (
-            <div className="alert-banner error">
-              <AlertCircle size={16} style={{ flexShrink: 0 }} />
-              <span>{generateError}</span>
             </div>
           )}
 
@@ -755,13 +394,6 @@ export default function SheetManagementPanel() {
             </div>
           )}
 
-          {saveGeneratedSuccessMessage && (
-            <div className="alert-banner success">
-              <CheckCircle2 size={16} style={{ flexShrink: 0 }} />
-              <span>{saveGeneratedSuccessMessage}</span>
-            </div>
-          )}
-
           {mutationApplySuccessMessage && (
             <div className="alert-banner success">
               <CheckCircle2 size={16} style={{ flexShrink: 0 }} />
@@ -770,61 +402,57 @@ export default function SheetManagementPanel() {
           )}
 
           {/* Query / Match Status Bar */}
-          {!isUnsavedDraftActive && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                flexWrap: "wrap",
-                gap: "8px",
-                padding: "10px 14px",
-                backgroundColor:
-                  queryResult?.status === "clarification_needed"
-                    ? "#fffbeb"
-                    : queryResult && queryResult.count === 0
-                      ? "#fef2f2"
-                      : "var(--bg-subtle-warm)",
-                borderRadius: "8px",
-                border:
-                  queryResult?.status === "clarification_needed"
-                    ? "1px solid #f59e0b"
-                    : queryResult && queryResult.count === 0
-                      ? "1px solid #fecaca"
-                      : "1px solid var(--border-warm)",
-              }}
-            >
-              <div
-                style={{ display: "flex", alignItems: "center", gap: "8px" }}
-              >
-                <SlidersHorizontal size={15} color="var(--primary-indigo)" />
-                <span style={{ fontWeight: 600, fontSize: "13px" }}>
-                  {!queryResult
-                    ? `Showing all ${activeRows.length} ${activeEntity} record(s) from database.`
-                    : queryResult.status === "clarification_needed"
-                      ? `Clarification Needed: ${queryResult.message}`
-                      : queryResult.count === 0
-                        ? `0 records matched "${queryResult.promptUsed}". Full sheet remains visible below.`
-                        : `Highlighted ${queryResult.count} matching record(s) for "${queryResult.promptUsed}".`}
-                </span>
-              </div>
-              <span
-                style={{
-                  fontSize: "12px",
-                  color: "var(--text-secondary)",
-                  fontWeight: 600,
-                }}
-              >
-                {queryResult
-                  ? `Matched: ${matchedIdsSet.size} of ${activeRows.length} rows`
-                  : `Total Rows: ${activeRows.length}`}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: "8px",
+              padding: "10px 14px",
+              backgroundColor:
+                queryResult?.status === "clarification_needed"
+                  ? "#fffbeb"
+                  : queryResult && queryResult.count === 0
+                    ? "#fef2f2"
+                    : "var(--bg-subtle-warm)",
+              borderRadius: "8px",
+              border:
+                queryResult?.status === "clarification_needed"
+                  ? "1px solid #f59e0b"
+                  : queryResult && queryResult.count === 0
+                    ? "1px solid #fecaca"
+                    : "1px solid var(--border-warm)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <SlidersHorizontal size={15} color="var(--primary-indigo)" />
+              <span style={{ fontWeight: 600, fontSize: "13px" }}>
+                {!queryResult
+                  ? `Showing all ${activeRows.length} product record(s) from database.`
+                  : queryResult.status === "clarification_needed"
+                    ? `Clarification Needed: ${queryResult.message}`
+                    : queryResult.count === 0
+                      ? `0 records matched "${queryResult.promptUsed}". Full sheet remains visible below.`
+                      : `Highlighted ${queryResult.count} matching record(s) for "${queryResult.promptUsed}".`}
               </span>
             </div>
-          )}
+            <span
+              style={{
+                fontSize: "12px",
+                color: "var(--text-secondary)",
+                fontWeight: 600,
+              }}
+            >
+              {queryResult
+                ? `Matched: ${matchedIdsSet.size} of ${activeRows.length} rows`
+                : `Total Rows: ${activeRows.length}`}
+            </span>
+          </div>
 
           {/* Spreadsheet Table */}
           <div className="sheet-table-wrap">
-            {sheetLoadStatus === "loading" && tableRowsToRender.length === 0 ? (
+            {sheetLoadStatus === "loading" && activeRows.length === 0 ? (
               <div
                 style={{
                   padding: "48px 20px",
@@ -838,9 +466,9 @@ export default function SheetManagementPanel() {
                   className="spin"
                   style={{ margin: "0 auto 8px auto" }}
                 />
-                <div>Loading {activeEntity} records from PostgreSQL...</div>
+                <div>Loading product records from PostgreSQL...</div>
               </div>
-            ) : tableRowsToRender.length === 0 ? (
+            ) : activeRows.length === 0 ? (
               <div
                 style={{
                   padding: "48px 20px",
@@ -849,24 +477,23 @@ export default function SheetManagementPanel() {
                   fontSize: "13.5px",
                 }}
               >
-                No {activeEntity} records found for this business. Click{" "}
-                <strong>Generate New Sheet Data</strong> or{" "}
-                <strong>Import CSV</strong> above to populate records.
+                No product records found for this business. Click{" "}
+                <strong>Upload products.csv</strong> above to import your
+                catalog.
               </div>
             ) : (
               <table className="sheet-table">
                 <thead>
                   <tr>
                     <th style={{ width: "54px" }}>#</th>
-                    {activeColumns.map((col) => (
+                    {PRODUCT_COLUMNS.map((col) => (
                       <th key={col}>{col.replace(/_/g, " ")}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {tableRowsToRender.map((row, idx) => {
-                    const isHighlighted =
-                      !isUnsavedDraftActive && matchedIdsSet.has(row.id);
+                  {activeRows.map((row, idx) => {
+                    const isHighlighted = matchedIdsSet.has(row.id);
                     return (
                       <tr
                         key={row.id || idx}
@@ -890,25 +517,18 @@ export default function SheetManagementPanel() {
                               MATCH
                             </span>
                           )}
-                          {isUnsavedDraftActive && (
-                            <span
-                              style={{
-                                marginLeft: "6px",
-                                display: "inline-block",
-                                padding: "1px 6px",
-                                borderRadius: "999px",
-                                backgroundColor: "#d97706",
-                                color: "#ffffff",
-                                fontSize: "9.5px",
-                                fontWeight: 700,
-                              }}
-                            >
-                              DRAFT
-                            </span>
-                          )}
                         </td>
-                        {activeColumns.map((col) => (
-                          <td key={col}>{formatCellValue(col, row[col])}</td>
+                        {PRODUCT_COLUMNS.map((col) => (
+                          <td
+                            key={col}
+                            title={
+                              row[col] !== null && row[col] !== undefined
+                                ? String(row[col])
+                                : ""
+                            }
+                          >
+                            {formatCellValue(col, row[col])}
+                          </td>
                         ))}
                       </tr>
                     );
@@ -937,33 +557,9 @@ export default function SheetManagementPanel() {
               borderRadius: "999px",
             }}
           >
-            {activeEntity.toUpperCase()}
+            PRODUCTS
           </span>
         </div>
-
-        {/* Disabled Notice while Unsaved Draft is Active */}
-        {isUnsavedDraftActive && (
-          <div
-            className="alert-banner warning"
-            style={{
-              fontSize: "12px",
-              display: "flex",
-              alignItems: "flex-start",
-              gap: "8px",
-            }}
-          >
-            <Lock size={16} style={{ flexShrink: 0, marginTop: 1 }} />
-            <div>
-              <strong>Unsaved Generated Draft Active</strong>
-              <div style={{ marginTop: 2 }}>
-                Natural-language querying and sheet mutations are disabled while
-                previewing unsaved generated data. Please{" "}
-                <strong>Save Generated Data</strong> or{" "}
-                <strong>Discard Draft</strong> first.
-              </div>
-            </div>
-          </div>
-        )}
 
         <form
           onSubmit={handlePrimaryPromptSubmit}
@@ -971,7 +567,6 @@ export default function SheetManagementPanel() {
             display: "flex",
             flexDirection: "column",
             gap: "10px",
-            opacity: isUnsavedDraftActive ? 0.55 : 1,
           }}
         >
           <label
@@ -985,12 +580,8 @@ export default function SheetManagementPanel() {
             className="announcement-prompt-textarea"
             value={nlPrompt}
             onChange={(e) => dispatch(setSheetNlPrompt(e.target.value))}
-            disabled={isUnsavedDraftActive || isBusy}
-            placeholder={
-              activeEntity === "products"
-                ? 'e.g. "List products that are out of stock." or "Change the price of Trail Rain Jacket to 150."'
-                : 'e.g. "Show unavailable services." or "Update the availability of Kitchen Remodel Consultation to unavailable."'
-            }
+            disabled={isBusy}
+            placeholder='e.g. "Show all best-selling products." or "Change the price of OpenWeave Shirt to 1450."'
           />
 
           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
@@ -998,7 +589,7 @@ export default function SheetManagementPanel() {
               type="button"
               className="btn-primary-indigo"
               style={{ flex: 1, minWidth: "140px", padding: "9px 12px" }}
-              disabled={isUnsavedDraftActive || !nlPrompt.trim() || isBusy}
+              disabled={!nlPrompt.trim() || isBusy}
               onClick={() => handleRunQuery(nlPrompt)}
             >
               {queryStatus === "loading" ? (
@@ -1025,7 +616,7 @@ export default function SheetManagementPanel() {
                 color: "#92400e",
                 fontWeight: 700,
               }}
-              disabled={isUnsavedDraftActive || !nlPrompt.trim() || isBusy}
+              disabled={!nlPrompt.trim() || isBusy}
               onClick={() => handleRunMutationPreview(nlPrompt)}
             >
               {mutationPreviewStatus === "loading" ? (
@@ -1063,7 +654,6 @@ export default function SheetManagementPanel() {
             display: "flex",
             flexDirection: "column",
             gap: "7px",
-            opacity: isUnsavedDraftActive ? 0.5 : 1,
           }}
         >
           <span
@@ -1073,10 +663,10 @@ export default function SheetManagementPanel() {
               color: "var(--text-secondary)",
             }}
           >
-            Quick Sample Prompts ({activeEntity}):
+            Quick Sample Prompts (products.csv):
           </span>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-            {(SAMPLE_PROMPTS_BY_ENTITY[activeEntity] || []).map((sample) => (
+            {SAMPLE_PROMPTS.map((sample) => (
               <button
                 key={sample.text}
                 type="button"
@@ -1090,7 +680,7 @@ export default function SheetManagementPanel() {
                       ? "#fcd34d"
                       : "var(--border-warm-strong)",
                 }}
-                disabled={isUnsavedDraftActive || isBusy}
+                disabled={isBusy}
                 onClick={() => {
                   dispatch(setSheetNlPrompt(sample.text));
                   if (sample.type === "mutation") {
@@ -1148,7 +738,9 @@ export default function SheetManagementPanel() {
               </div>
               <div>{mutationPreview.message}</div>
             </div>
-          ) : mutationPreview && mutationPreview.status === "no_match" ? (
+          ) : mutationPreview &&
+            (mutationPreview.status === "no_match" ||
+              mutationPreview.status === "not_found") ? (
             <div className="alert-banner warning" style={{ fontSize: "12px" }}>
               <AlertCircle size={15} style={{ flexShrink: 0 }} />
               <span>
@@ -1229,29 +821,34 @@ export default function SheetManagementPanel() {
                           <div style={{ fontWeight: 700, marginBottom: "4px" }}>
                             {rowDiff.name}
                           </div>
-                          {changedFields.map((field) => (
-                            <div
-                              key={field}
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "8px",
-                                flexWrap: "wrap",
-                              }}
-                            >
-                              <span style={{ fontWeight: 600 }}>{field}:</span>
-                              <del style={{ color: "#dc2626" }}>
-                                {formatCellValue(
-                                  field,
-                                  rowDiff.before?.[field],
-                                )}
-                              </del>
-                              <ArrowRight size={13} />
-                              <strong style={{ color: "#16a34a" }}>
-                                {formatCellValue(field, rowDiff.after?.[field])}
-                              </strong>
-                            </div>
-                          ))}
+                          {changedFields.map((field) => {
+                            const beforeVal =
+                              rowDiff.before?.[field] ??
+                              rowDiff.changes?.[field]?.current;
+                            const afterVal =
+                              rowDiff.after?.[field] ??
+                              rowDiff.changes?.[field]?.proposed;
+                            return (
+                              <div
+                                key={field}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "8px",
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                <span style={{ fontWeight: 600 }}>{field}:</span>
+                                <del style={{ color: "#dc2626" }}>
+                                  {formatCellValue(field, beforeVal)}
+                                </del>
+                                <ArrowRight size={13} />
+                                <strong style={{ color: "#16a34a" }}>
+                                  {formatCellValue(field, afterVal)}
+                                </strong>
+                              </div>
+                            );
+                          })}
                         </div>
                       );
                     })}
@@ -1273,9 +870,7 @@ export default function SheetManagementPanel() {
                   type="button"
                   className="btn-primary-indigo"
                   style={{ flex: 1 }}
-                  disabled={
-                    mutationApplyStatus === "loading" || isUnsavedDraftActive
-                  }
+                  disabled={mutationApplyStatus === "loading"}
                   onClick={handleConfirmMutation}
                 >
                   {mutationApplyStatus === "loading" ? (
@@ -1306,7 +901,7 @@ export default function SheetManagementPanel() {
               Enter a modification instruction above and click{" "}
               <strong>Preview Mutation</strong> (e.g.,{" "}
               <em>
-                &ldquo;Change the price of Trail Rain Jacket to 150.&rdquo;
+                &ldquo;Change the price of OpenWeave Shirt to 1450.&rdquo;
               </em>
               ) to inspect exact before/after changes prior to database
               confirmation.

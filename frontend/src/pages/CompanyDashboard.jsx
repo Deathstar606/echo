@@ -71,12 +71,12 @@ function formatDateTime(isoString) {
 
 const SAMPLE_ANNOUNCEMENT_PROMPTS = [
   {
-    label: 'All Users (10% Off Service X)',
-    text: 'Send an announcement about a flat 10% discount on Service X to all users.',
+    label: 'All Users (25% Off OpenWeave Shirt)',
+    text: 'Send an announcement about a 25% discount on OpenWeave Shirt to all users.',
   },
   {
     label: 'Registered After 2026-01-01',
-    text: 'Send an announcement about a flat 10% discount on all services to users who registered after 2026-01-01.',
+    text: 'Send an announcement about up to 45% off our luxury polo and shirt collection to users who registered after 2026-01-01.',
   },
 ];
 
@@ -117,7 +117,7 @@ export default function CompanyDashboard() {
 
   // Natural-Language Announcement Prompt State (No manual Some/All toggle)
   const [announcementPrompt, setAnnouncementPrompt] = useState(
-    'Send an announcement about a flat 10% discount on all services to users who registered after 2026-01-01.'
+    'Send an announcement about up to 45% off our luxury polo and shirt collection to users who registered after 2026-01-01.'
   );
   const [showAnnouncementHistoryModal, setShowAnnouncementHistoryModal] =
     useState(false);

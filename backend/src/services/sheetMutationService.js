@@ -1,6 +1,9 @@
 const { withTransaction, query } = require('../../db');
 const { getSchema, validateMutation } = require('./sheetSchemaService');
-const { buildParameterizedSelectQuery } = require('./sheetQueryService');
+const {
+  buildParameterizedSelectQuery,
+  normalizeProductRow,
+} = require('./sheetQueryService');
 const AppError = require('../utils/AppError');
 
 /**
@@ -8,29 +11,30 @@ const AppError = require('../utils/AppError');
  * Identifies target records and previews before/after changes.
  *
  * @param {object} params
- * @param {string} params.entity - 'products' | 'services'
+ * @param {string} [params.entity='products'] - Must resolve to 'products'
  * @param {string} params.businessId - UUID of the business
  * @param {object} params.mutationJson - Validated or interpreted mutation JSON
  * @returns {Promise<object>} Preview summary
  */
-async function previewMutation({ entity, businessId, mutationJson }) {
+async function previewMutation({ entity = 'products', businessId, mutationJson }) {
   if (!businessId) {
     throw new AppError('Business ID is required to preview a mutation.', 400);
   }
+
+  const schema = getSchema(entity);
 
   if (mutationJson.status === 'clarification_needed') {
     return {
       status: 'clarification_needed',
       message: mutationJson.message,
-      entity,
+      entity: schema.entity,
       operation: null,
       affected_count: 0,
       target_rows: [],
     };
   }
 
-  const validated = validateMutation(entity, mutationJson);
-  const schema = getSchema(entity);
+  const validated = validateMutation(schema.entity, mutationJson);
 
   if (validated.operation === 'create') {
     return {
@@ -53,7 +57,7 @@ async function previewMutation({ entity, businessId, mutationJson }) {
   });
 
   const selectResult = await query(sql, sqlParams);
-  const targetRows = selectResult.rows;
+  const targetRows = selectResult.rows.map(normalizeProductRow);
 
   if (targetRows.length === 0) {
     return {
@@ -69,16 +73,22 @@ async function previewMutation({ entity, businessId, mutationJson }) {
   if (validated.operation === 'update') {
     const diffPreview = targetRows.map((row) => {
       const diff = {};
+      const before = {};
+      const after = {};
       for (const [k, newVal] of Object.entries(validated.changes)) {
         diff[k] = {
           current: row[k],
           proposed: newVal,
         };
+        before[k] = row[k];
+        after[k] = newVal;
       }
       return {
         id: row.id,
         name: row.name,
         changes: diff,
+        before,
+        after,
       };
     });
 
@@ -115,34 +125,40 @@ async function previewMutation({ entity, businessId, mutationJson }) {
  * If confirm !== true, returns the preview response instead.
  *
  * @param {object} params
- * @param {string} params.entity - 'products' | 'services'
+ * @param {string} [params.entity='products'] - Must resolve to 'products'
  * @param {string} params.businessId - UUID of the business
  * @param {object} params.mutationJson - Mutation description
  * @param {boolean} [params.confirm=false] - Explicit user confirmation flag
  * @returns {Promise<object>}
  */
-async function executeMutation({ entity, businessId, mutationJson, confirm = false }) {
+async function executeMutation({
+  entity = 'products',
+  businessId,
+  mutationJson,
+  confirm = false,
+}) {
   if (!businessId) {
     throw new AppError('Business ID is required to execute a mutation.', 400);
   }
 
+  const schema = getSchema(entity);
+
   // If not confirmed, return preview
   if (confirm !== true) {
-    return previewMutation({ entity, businessId, mutationJson });
+    return previewMutation({ entity: schema.entity, businessId, mutationJson });
   }
 
   if (mutationJson.status === 'clarification_needed') {
     return {
       status: 'clarification_needed',
       message: mutationJson.message,
-      entity,
+      entity: schema.entity,
       operation: null,
       affected_count: 0,
     };
   }
 
-  const validated = validateMutation(entity, mutationJson);
-  const schema = getSchema(entity);
+  const validated = validateMutation(schema.entity, mutationJson);
 
   return withTransaction(async (client) => {
     // 1. Create operation
@@ -151,6 +167,13 @@ async function executeMutation({ entity, businessId, mutationJson, confirm = fal
       if (keys.length === 0) {
         throw new AppError('Cannot create record with empty fields.', 400);
       }
+      if (!validated.changes.name) {
+        throw new AppError('Product "name" is required to create a new product.', 400);
+      }
+      if (validated.changes.price === undefined || validated.changes.price === null) {
+        throw new AppError('Product "price" is required to create a new product.', 400);
+      }
+
       const cols = ['business_id', ...keys, 'created_at', 'updated_at'];
       const placeholders = ['$1'];
       const values = [businessId];
@@ -172,7 +195,7 @@ async function executeMutation({ entity, businessId, mutationJson, confirm = fal
         operation: 'create',
         entity: schema.entity,
         affected_count: 1,
-        created_row: res.rows[0],
+        created_row: normalizeProductRow(res.rows[0]),
         message: `Successfully created new ${schema.entity} record.`,
       };
     }
@@ -224,7 +247,7 @@ async function executeMutation({ entity, businessId, mutationJson, confirm = fal
         operation: 'update',
         entity: schema.entity,
         affected_count: updateRes.rows.length,
-        updated_rows: updateRes.rows,
+        updated_rows: updateRes.rows.map(normalizeProductRow),
         message: `Successfully updated ${updateRes.rows.length} ${schema.entity} record(s).`,
       };
     }
@@ -243,7 +266,7 @@ async function executeMutation({ entity, businessId, mutationJson, confirm = fal
         operation: 'delete',
         entity: schema.entity,
         affected_count: deleteRes.rows.length,
-        deleted_rows: deleteRes.rows,
+        deleted_rows: deleteRes.rows.map(normalizeProductRow),
         message: `Successfully deleted ${deleteRes.rows.length} ${schema.entity} record(s).`,
       };
     }

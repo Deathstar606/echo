@@ -155,48 +155,46 @@ CREATE TABLE IF NOT EXISTS announcement_recipients (
 CREATE INDEX IF NOT EXISTS idx_announcement_recipients_announcement_id
   ON announcement_recipients (announcement_id);
 
--- Phase 4: Spreadsheet Products and Services for Natural Language Querying & Manipulation
+-- Phase 4: Spreadsheet Products Table for Natural Language Querying & Manipulation
+-- Remove legacy services table and legacy products schema if present
+DROP TABLE IF EXISTS services CASCADE;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'products'
+      AND column_name = 'stock'
+  ) THEN
+    DROP TABLE products CASCADE;
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS products (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
   name VARCHAR(255) NOT NULL CHECK (char_length(btrim(name)) > 0),
-  description TEXT,
-  price NUMERIC(10, 2) NOT NULL DEFAULT 0.00 CHECK (price >= 0),
-  stock INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
   category VARCHAR(100),
-  size VARCHAR(50),
-  color VARCHAR(50),
+  description TEXT,
+  best BOOLEAN NOT NULL DEFAULT FALSE,
+  color TEXT,
+  discount NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (discount >= 0),
+  ordered INTEGER NOT NULL DEFAULT 0 CHECK (ordered >= 0),
+  images TEXT,
+  size TEXT,
+  price NUMERIC(10, 2) NOT NULL DEFAULT 0.00 CHECK (price >= 0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_products_business_id ON products(business_id);
 CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
-CREATE INDEX IF NOT EXISTS idx_products_price ON products(price);
-CREATE INDEX IF NOT EXISTS idx_products_stock ON products(stock);
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
-CREATE INDEX IF NOT EXISTS idx_products_size ON products(size);
+CREATE INDEX IF NOT EXISTS idx_products_best ON products(best);
 CREATE INDEX IF NOT EXISTS idx_products_color ON products(color);
+CREATE INDEX IF NOT EXISTS idx_products_discount ON products(discount);
+CREATE INDEX IF NOT EXISTS idx_products_ordered ON products(ordered);
+CREATE INDEX IF NOT EXISTS idx_products_price ON products(price);
 CREATE INDEX IF NOT EXISTS idx_products_created_at ON products(created_at DESC);
-
-CREATE TABLE IF NOT EXISTS services (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
-  name VARCHAR(255) NOT NULL CHECK (char_length(btrim(name)) > 0),
-  description TEXT,
-  rate NUMERIC(10, 2) NOT NULL DEFAULT 0.00 CHECK (rate >= 0),
-  availability VARCHAR(50) NOT NULL DEFAULT 'available' CHECK (availability IN ('available', 'unavailable')),
-  size VARCHAR(50),
-  available_from DATE,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_services_business_id ON services(business_id);
-CREATE INDEX IF NOT EXISTS idx_services_name ON services(name);
-CREATE INDEX IF NOT EXISTS idx_services_rate ON services(rate);
-CREATE INDEX IF NOT EXISTS idx_services_availability ON services(availability);
-CREATE INDEX IF NOT EXISTS idx_services_size ON services(size);
-CREATE INDEX IF NOT EXISTS idx_services_available_from ON services(available_from);
-CREATE INDEX IF NOT EXISTS idx_services_created_at ON services(created_at DESC);

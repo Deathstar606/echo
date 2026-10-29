@@ -13,11 +13,22 @@ export class ApiError extends Error {
 }
 
 /**
+ * Normalizes the base URL and endpoint so duplicate `/api/api` prefixes cannot occur.
+ */
+function buildApiUrl(endpoint) {
+  const base = String(API_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
+  if (base.endsWith('/api') && endpoint.startsWith('/api/')) {
+    return `${base}${endpoint.slice(4)}`;
+  }
+  return `${base}${endpoint}`;
+}
+
+/**
  * Shared HTTP client helper for communicating with the Node.js backend.
  * Handles JSON serialization, response parsing, and actionable error messages.
  */
 async function request(endpoint, options = {}) {
-  const url = `${API_BASE_URL}${endpoint}`;
+  const url = buildApiUrl(endpoint);
   const headers = {
     Accept: 'application/json',
     ...(options.body ? { 'Content-Type': 'application/json' } : {}),
@@ -251,38 +262,21 @@ export async function fetchProductsSheet() {
 }
 
 /**
- * Phase 2 — 2A. Fetch Services Sheet
- * GET /api/sheets/services?businessId={BUSINESS_ID}
+ * Phase 2 — 2A. Fetch Sheet Rows (Single Products Sheet)
  */
-export async function fetchServicesSheet() {
-  return request(
-    `/api/sheets/services?businessId=${encodeURIComponent(BUSINESS_ID)}`,
-    {
-      method: 'GET',
-    }
-  );
-}
-
-/**
- * Phase 2 — 2A. Fetch Sheet Rows by Entity ('products' | 'services')
- */
-export async function fetchSheetRows(entity) {
-  const normalized =
-    String(entity || '').toLowerCase() === 'services' ? 'services' : 'products';
-  return normalized === 'services'
-    ? fetchServicesSheet()
-    : fetchProductsSheet();
+export async function fetchSheetRows() {
+  return fetchProductsSheet();
 }
 
 /**
  * Phase 2 — 2B. Natural-Language Sheet Query
  * POST /api/businesses/{BUSINESS_ID}/sheets/query
  */
-export async function querySheet({ entity, message }) {
+export async function querySheet({ entity = 'products', message }) {
   return request(`/api/businesses/${BUSINESS_ID}/sheets/query`, {
     method: 'POST',
     body: JSON.stringify({
-      entity: String(entity || '').trim(),
+      entity: String(entity || 'products').trim(),
       message: String(message || '').trim(),
     }),
   });
@@ -292,14 +286,18 @@ export async function querySheet({ entity, message }) {
  * Phase 2 — 2C. Two-Stage Sheet Mutation (Stage 1 Preview: confirm=false, Stage 2 Apply: confirm=true)
  * POST /api/sheets/mutation
  */
-export async function mutateSheet({ entity, message, confirm = false }) {
+export async function mutateSheet({
+  entity = 'products',
+  message,
+  confirm = false,
+}) {
   return request(
     `/api/sheets/mutation?businessId=${encodeURIComponent(BUSINESS_ID)}`,
     {
       method: 'POST',
       body: JSON.stringify({
         business_id: BUSINESS_ID,
-        entity: String(entity || '').trim(),
+        entity: String(entity || 'products').trim(),
         message: String(message || '').trim(),
         confirm: Boolean(confirm),
       }),
@@ -308,58 +306,17 @@ export async function mutateSheet({ entity, message, confirm = false }) {
 }
 
 /**
- * Phase 2 — 2D. Generate New Sheet Data (Unsaved Draft Preview)
- * POST /api/businesses/{BUSINESS_ID}/sheets/generate
+ * CSV Upload for Products Sheet
+ * POST /api/sheets/products/upload?businessId={BUSINESS_ID}
  */
-export async function generateSheetData({
-  entity,
-  count = 5,
-  prompt = '',
-}) {
-  return request(`/api/businesses/${BUSINESS_ID}/sheets/generate`, {
-    method: 'POST',
-    body: JSON.stringify({
-      entity: String(entity || '').trim(),
-      count: Number(count) || 5,
-      prompt: String(prompt || '').trim(),
-    }),
-  });
-}
-
-/**
- * Phase 2 — 2D. Save Generated Sheet Data (Confirmed Append or Replace)
- * POST /api/businesses/{BUSINESS_ID}/sheets/generate/save
- */
-export async function saveGeneratedSheetData({
-  entity,
-  rows,
-  mode = 'append',
-  confirm = true,
-}) {
-  return request(`/api/businesses/${BUSINESS_ID}/sheets/generate/save`, {
-    method: 'POST',
-    body: JSON.stringify({
-      entity: String(entity || '').trim(),
-      rows: Array.isArray(rows) ? rows : [],
-      mode: mode === 'replace' ? 'replace' : 'append',
-      confirm: Boolean(confirm),
-    }),
-  });
-}
-
-/**
- * Optional CSV Upload for Products or Services
- * POST /api/sheets/{entity}/upload?businessId={BUSINESS_ID}
- */
-export async function uploadSheetCsv(entity, file) {
-  const normalized =
-    String(entity || '').toLowerCase() === 'services' ? 'services' : 'products';
+export async function uploadSheetCsv(_entity, file) {
+  const actualFile = file || _entity;
   const formData = new FormData();
-  formData.append('file', file);
+  formData.append('file', actualFile);
 
-  const url = `${API_BASE_URL}/api/sheets/${normalized}/upload?businessId=${encodeURIComponent(
-    BUSINESS_ID
-  )}`;
+  const url = buildApiUrl(
+    `/api/sheets/products/upload?businessId=${encodeURIComponent(BUSINESS_ID)}`
+  );
 
   let response;
   try {

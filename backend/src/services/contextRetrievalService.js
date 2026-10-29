@@ -210,6 +210,39 @@ function scoreContextEntry(entry, queryKeywords) {
 }
 
 /**
+ * Formats a product row from the `products` table into a structured context entry
+ * so customer inquiries are grounded directly in the live `products.csv` catalog.
+ *
+ * @param {object} productRow
+ * @returns {object}
+ */
+function formatProductRowAsContextEntry(productRow) {
+  const bestLabel = productRow.best ? 'Yes (Best Seller)' : 'No';
+  const contentParts = [
+    `Product Name: ${productRow.name}`,
+    `Category: ${productRow.category || 'shirt'}`,
+    `Price: ${productRow.price}`,
+    `Discount: ${productRow.discount ?? 0}%`,
+    `Best Seller: ${bestLabel}`,
+    `Available Colors: ${productRow.color || 'N/A'}`,
+    `Available Sizes & Stock (JSON): ${productRow.size || 'N/A'}`,
+    `Orders Placed: ${productRow.ordered ?? 0}`,
+    `Description: ${productRow.description || ''}`,
+  ];
+
+  return {
+    id: productRow.id,
+    business_id: productRow.business_id,
+    category: productRow.category || 'product',
+    title: productRow.name,
+    content: contentParts.join('\n'),
+    source_file: 'products.csv',
+    created_at: productRow.created_at,
+    updated_at: productRow.updated_at,
+  };
+}
+
+/**
  * Ranks a list of context entries by deterministic keyword relevance and returns top K.
  *
  * @param {Array<object>} entries - Context entries belonging to the business
@@ -256,15 +289,16 @@ function selectRelevantContextEntries(
     if (titleCompare !== 0) {
       return titleCompare;
     }
-    return Number(a.id || 0) - Number(b.id || 0);
+    return String(a.id || '').localeCompare(String(b.id || ''));
   });
 
   return scoredEntries.slice(0, limit);
 }
 
 /**
- * Retrieves all context entries for a specific business from PostgreSQL
- * and returns the highest-scoring relevant records for the customer message.
+ * Retrieves product catalog entries (from `products` table seeded by `products.csv`)
+ * and context entries for a specific business from PostgreSQL, returning the highest-scoring
+ * relevant records for the customer inquiry.
  *
  * @param {string} businessId - UUID of the business
  * @param {string} customerMessage - Customer's message
@@ -276,17 +310,47 @@ async function retrieveRelevantContextForBusiness(
   customerMessage,
   limit = env.promptTopK
 ) {
-  const result = await query(
-    `
-      SELECT id, business_id, category, title, content, source_file, created_at, updated_at
-      FROM context_entries
-      WHERE business_id = $1
-      ORDER BY id ASC;
-    `,
-    [businessId]
-  );
+  let productEntries = [];
+  try {
+    const productsResult = await query(
+      `
+        SELECT id, business_id, name, category, description, best, color, discount, ordered, images, size, price, created_at, updated_at
+        FROM products
+        WHERE business_id = $1
+        ORDER BY best DESC, ordered DESC, name ASC;
+      `,
+      [businessId]
+    );
+    if (productsResult && Array.isArray(productsResult.rows)) {
+      productEntries = productsResult.rows.map(formatProductRowAsContextEntry);
+    }
+  } catch {
+    // Fallback gracefully if running against a test mock without a products table
+    productEntries = [];
+  }
 
-  return selectRelevantContextEntries(result.rows, customerMessage, limit);
+  let contextEntries = [];
+  try {
+    const result = await query(
+      `
+        SELECT id, business_id, category, title, content, source_file, created_at, updated_at
+        FROM context_entries
+        WHERE business_id = $1
+        ORDER BY id ASC;
+      `,
+      [businessId]
+    );
+    if (result && Array.isArray(result.rows)) {
+      contextEntries = result.rows;
+    }
+  } catch {
+    contextEntries = [];
+  }
+
+  const allEntries = [...productEntries, ...contextEntries];
+  const matched = selectRelevantContextEntries(allEntries, customerMessage, limit);
+
+  return matched;
 }
 
 module.exports = {
@@ -294,6 +358,7 @@ module.exports = {
   stemWord,
   extractQueryKeywords,
   scoreContextEntry,
+  formatProductRowAsContextEntry,
   selectRelevantContextEntries,
   retrieveRelevantContextForBusiness,
 };

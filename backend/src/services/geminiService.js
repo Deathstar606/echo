@@ -46,7 +46,6 @@ const ANNOUNCEMENT_DRAFT_SCHEMA = {
 let customGenerator = null;
 let customAnnouncementGenerator = null;
 let customSheetGenerator = null;
-let customSheetSampleGenerator = null;
 
 /**
  * Allows overriding the customer-support Gemini generator function (e.g. for offline unit testing).
@@ -73,15 +72,6 @@ function setAnnouncementGeminiGenerator(fn) {
  */
 function setSheetGeminiGenerator(fn) {
   customSheetGenerator = fn;
-}
-
-/**
- * Allows overriding the sheet sample data generator function (e.g. for offline unit testing).
- *
- * @param {Function | null} fn
- */
-function setSheetSampleDataGenerator(fn) {
-  customSheetSampleGenerator = fn;
 }
 
 function parseJsonFromGemini(rawOutput) {
@@ -383,33 +373,14 @@ async function generateAiSheetInterpretation(promptText) {
   return parseJsonFromGemini(rawText);
 }
 
-/**
- * Sends a prompt to Google AI Studio (Gemini) to generate sample rows for a sheet
- * and returns the parsed JSON object/array.
- *
- * @param {string} promptText
- * @returns {Promise<object | Array<object>>}
- */
-async function generateAiSheetSampleData(promptText) {
-  if (typeof customSheetSampleGenerator === 'function') {
-    const customOutput = await customSheetSampleGenerator(promptText);
-    return parseJsonFromGemini(customOutput);
-  }
-
-  const rawText = await executeGeminiWithFallback(promptText, null);
-  return parseJsonFromGemini(rawText);
-}
-
 module.exports = {
   setGeminiGenerator,
   setAnnouncementGeminiGenerator,
   setSheetGeminiGenerator,
-  setSheetSampleDataGenerator,
   parseJsonFromGemini,
   normalizeAndValidateAiResponse,
   normalizeAndValidateAnnouncementDraft,
   generateAiSupportResponse,
   generateAiAnnouncementDraft,
   generateAiSheetInterpretation,
-  generateAiSheetSampleData,
 };
