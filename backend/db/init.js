@@ -5,6 +5,10 @@ const {
   parseAndValidateProductsCsv,
   importProductsToDatabase,
 } = require('../src/services/sheetCsvImportService');
+const {
+  parseAndValidateCsv,
+  importContextRecords,
+} = require('../src/services/csvImportService');
 
 const DEFAULT_BUSINESS_ID = '684a8863-5094-4c8b-9b15-c50c06335b7f';
 
@@ -12,6 +16,7 @@ async function initializeDatabase() {
   const schemaPath = path.resolve(__dirname, 'schema.sql');
   const schemaSql = fs.readFileSync(schemaPath, 'utf8');
   const migrationsDir = path.resolve(__dirname, 'migrations');
+  const sampleContextCsvPath = path.resolve(__dirname, '..', 'sample-context.csv');
   const productsCsvPath = path.resolve(__dirname, '..', 'products.csv');
 
   console.log('Initializing PostgreSQL database schema and migrations...');
@@ -36,11 +41,24 @@ async function initializeDatabase() {
       }
     }
 
-    // Clear legacy context_entries for the default business so inquiries use products.csv
+    // Replace context_entries for the default business with sample-context.csv
     await pool.query(
       'DELETE FROM context_entries WHERE business_id = $1;',
       [DEFAULT_BUSINESS_ID]
     );
+
+    if (fs.existsSync(sampleContextCsvPath)) {
+      const contextCsvBuffer = fs.readFileSync(sampleContextCsvPath);
+      const contextRecords = parseAndValidateCsv(contextCsvBuffer);
+      const contextSummary = await importContextRecords(
+        DEFAULT_BUSINESS_ID,
+        'sample-context.csv',
+        contextRecords
+      );
+      console.log(
+        `Seeded sample-context.csv for business ${DEFAULT_BUSINESS_ID}: ${contextSummary.totalProcessed} records imported (${contextSummary.insertedCount} inserted, ${contextSummary.updatedCount} updated).`
+      );
+    }
 
     // Import products.csv into the products table for the default business
     if (fs.existsSync(productsCsvPath)) {

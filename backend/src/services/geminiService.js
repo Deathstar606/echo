@@ -268,6 +268,8 @@ async function callGeminiModelWithSchema(
   return rawText;
 }
 
+const unavailableModels = new Set();
+
 /**
  * Executes a prompt against the configured Gemini model with automatic fallback on transient errors.
  *
@@ -286,13 +288,13 @@ async function executeGeminiWithFallback(promptText, responseSchema) {
 
   const candidateModels = Array.from(
     new Set([
-      env.geminiModel || 'gemini-2.5-flash',
-      'gemini-2.5-flash',
-      'gemini-2.0-flash',
+      env.geminiModel || 'gemini-3.5-flash-lite',
       'gemini-3.5-flash-lite',
       'gemini-3.5-flash',
+      'gemini-3.8-flash',
+      'gemini-2.5-flash',
     ])
-  );
+  ).filter((m) => !unavailableModels.has(m));
 
   let lastError = null;
   for (const modelName of candidateModels) {
@@ -305,11 +307,11 @@ async function executeGeminiWithFallback(promptText, responseSchema) {
       );
     } catch (error) {
       lastError = error;
-      if (
-        error.upstreamStatus === 503 ||
-        error.upstreamStatus === 429 ||
-        error.upstreamStatus === 404
-      ) {
+      if (error.upstreamStatus === 404) {
+        unavailableModels.add(modelName);
+        continue;
+      }
+      if (error.upstreamStatus === 503 || error.upstreamStatus === 429) {
         continue;
       }
       throw error;

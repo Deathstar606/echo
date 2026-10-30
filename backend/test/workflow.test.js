@@ -2299,4 +2299,104 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.equal(latestHistoryItem.status, 'sent');
     assert.ok(latestHistoryItem.failed_recipients);
   });
+
+  it('22. Imports extensive sample-context.csv (VELOURA), dynamically retrieves across all designated fields, adapts when field content changes, and keeps prompt tokens compact', async () => {
+    const bizRes = await fetch(`${baseUrl}/api/businesses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'VELOURA' }),
+    });
+    assert.equal(bizRes.status, 201);
+    const velouraBiz = await bizRes.json();
+
+    const sampleContextPath = path.resolve(__dirname, '../sample-context.csv');
+    const sampleContextCsv = fs.readFileSync(sampleContextPath, 'utf8');
+
+    const formData = new FormData();
+    formData.append(
+      'file',
+      new Blob([sampleContextCsv], { type: 'text/csv' }),
+      'sample-context.csv'
+    );
+
+    const uploadRes = await fetch(
+      `${baseUrl}/api/businesses/${velouraBiz.id}/context/upload`,
+      { method: 'POST', body: formData }
+    );
+    assert.equal(uploadRes.status, 200);
+    const uploadBody = await uploadRes.json();
+    assert.equal(uploadBody.totalProcessed, 6);
+    assert.equal(uploadBody.insertedCount, 6);
+
+    // 1. Inquiry about delivery fee & timeframe inside/outside Khulna -> retrieves terms_and_conditions & shipping_policy
+    const shipRes = await fetch(
+      `${baseUrl}/api/businesses/${velouraBiz.id}/prompt`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: 'How much is the shipping cost inside and outside Khulna, and how long does delivery take?',
+        }),
+      }
+    );
+    assert.equal(shipRes.status, 200);
+    const shipPrompt = await shipRes.text();
+    assert.ok(shipPrompt.includes('70 BDT'));
+    assert.ok(shipPrompt.includes('120 BDT'));
+    assert.ok(shipPrompt.includes('1 to 3 business days'));
+    assert.ok(shipPrompt.length < 4800);
+
+    // 2. Inquiry about COD, bKash, and SPACES furniture advance -> retrieves payment_policy
+    const payRes = await fetch(
+      `${baseUrl}/api/businesses/${velouraBiz.id}/prompt`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Can I pay with COD or bKash, and what is the advance deposit for SPACES furniture?',
+        }),
+      }
+    );
+    assert.equal(payRes.status, 200);
+    const payPrompt = await payRes.text();
+    assert.ok(payPrompt.includes('Category: payment_policy'));
+    assert.ok(payPrompt.includes('bKash'));
+    assert.ok(payPrompt.includes('10% advance'));
+    assert.ok(payPrompt.length < 4800);
+
+    // 3. Dynamically update the content of an existing (category, title) row and verify the prompt immediately reflects the new content
+    const dynamicUpdateCsv = [
+      'category,title,content',
+      'refund_policy,Refund Eligibility,"Updated dynamic policy: Refund requests must now be submitted within 5 days of delivery via support@velourabd.com and are processed within 10 working days."',
+    ].join('\n');
+    const updateForm = new FormData();
+    updateForm.append(
+      'file',
+      new Blob([dynamicUpdateCsv], { type: 'text/csv' }),
+      'sample-context.csv'
+    );
+    const reuploadRes = await fetch(
+      `${baseUrl}/api/businesses/${velouraBiz.id}/context/upload`,
+      { method: 'POST', body: updateForm }
+    );
+    assert.equal(reuploadRes.status, 200);
+    const reuploadBody = await reuploadRes.json();
+    assert.equal(reuploadBody.updatedCount, 1);
+
+    const refundRes = await fetch(
+      `${baseUrl}/api/businesses/${velouraBiz.id}/prompt`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: 'How many days do I have to request a refund after delivery?',
+        }),
+      }
+    );
+    assert.equal(refundRes.status, 200);
+    const refundPrompt = await refundRes.text();
+    assert.ok(refundPrompt.includes('within 5 days of delivery'));
+    assert.ok(refundPrompt.includes('support@velourabd.com'));
+    assert.ok(!refundPrompt.includes('within 3 days of delivery'));
+  });
 });

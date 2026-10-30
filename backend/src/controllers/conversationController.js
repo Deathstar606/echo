@@ -14,6 +14,8 @@ const {
   updateConversationStatus,
 } = require('../services/conversationService');
 const {
+  extractQueryKeywords,
+  compactDynamicContent,
   retrieveRelevantContextForBusiness,
 } = require('../services/contextRetrievalService');
 const { buildContextualPrompt } = require('../services/promptBuilderService');
@@ -243,10 +245,12 @@ function buildFallbackSupportSuggestion(business, relevantRecords, messageText) 
     : null;
 
   if (topRecord) {
+    const queryKeywords = extractQueryKeywords(messageText);
+    const conciseExcerpt = compactDynamicContent(topRecord.content, queryKeywords, 450);
     return {
       category: topRecord.category || 'general_inquiry',
       suggestions: [
-        `Thank you for reaching out to ${business.name}. Regarding ${topRecord.title.toLowerCase()}: ${topRecord.content} Please let us know how you would like to proceed.`,
+        `Thank you for reaching out to ${business.name}. Regarding ${topRecord.title.toLowerCase()}: ${conciseExcerpt} Please let us know how you would like to proceed.`,
       ],
       missing_information: [],
     };
@@ -511,18 +515,53 @@ async function postCustomerMessageAndGeneratePrompt(req, res, next) {
       (msg) => msg.id !== savedMessage.id
     );
 
-    // 4. Retrieve relevant business context scoped to this business (considering conversation context)
-    const contextSearchText = [
-      ...conversationHistory
-        .filter((msg) => msg.sender_type === 'customer')
-        .map((msg) => msg.content),
-      messageText,
-    ].join(' ');
-
-    const relevantRecords = await retrieveRelevantContextForBusiness(
+    // 4. Retrieve relevant business context scoped to this business.
+    //    Prioritize the latest customer message so topic shifts stay focused and compact,
+    //    while falling back to or blending the last 2 customer turns for short/pronoun follow-ups.
+    let relevantRecords = await retrieveRelevantContextForBusiness(
       business.id,
-      contextSearchText
+      messageText
     );
+
+    const recentCustomerTurns = conversationHistory
+      .filter((msg) => msg.sender_type === 'customer')
+      .slice(-2)
+      .map((msg) => msg.content);
+
+    const hasCoreference = /\b(it|its|that|this|those|these|they|them)\b/i.test(
+      messageText
+    );
+    const isShortFollowUp = messageText.trim().split(/\s+/).length <= 4;
+
+    if (
+      recentCustomerTurns.length > 0 &&
+      (relevantRecords.length === 0 || hasCoreference || isShortFollowUp)
+    ) {
+      const combinedSearchText = [
+        ...recentCustomerTurns,
+        messageText,
+        messageText,
+      ].join(' ');
+      const historyAwareRecords = await retrieveRelevantContextForBusiness(
+        business.id,
+        combinedSearchText
+      );
+      if (relevantRecords.length === 0) {
+        relevantRecords = historyAwareRecords;
+      } else {
+        const seenKeys = new Set(
+          relevantRecords.map((r) => `${r.category}::${r.title}`)
+        );
+        for (const rec of historyAwareRecords) {
+          if (relevantRecords.length >= env.promptTopK) break;
+          const key = `${rec.category}::${rec.title}`;
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            relevantRecords.push(rec);
+          }
+        }
+      }
+    }
 
     // 5. Construct the dynamic prompt with conversation history, latest message, and business context
     const promptText = buildContextualPrompt({
