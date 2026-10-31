@@ -213,7 +213,7 @@ export default function CustomerPortal() {
   const handleSendMessage = async (e) => {
     e.preventDefault();
     const text = draftMessage.trim();
-    if (!text || !conversationId || sendMessageStatus === 'loading') return;
+    if (!text || (!conversationId && !customerId) || sendMessageStatus === 'loading') return;
 
     setPendingMessagePreview(text);
     const resultAction = await dispatch(

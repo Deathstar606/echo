@@ -121,11 +121,11 @@ export const loginAndLoadCustomerConversation = createAsyncThunk(
             ? historyData.conversation.messages
             : [];
       } else {
-        // Customer is valid for this business but has no conversation yet -> create one
-        const newConv = await createCustomerConversation(verifiedCustomerId);
-        conversationId = newConv.conversation_id || newConv.id;
-        conversationStatus = newConv.status || 'open';
-        messages = Array.isArray(newConv.messages) ? newConv.messages : [];
+        // Customer is valid for this business but has no conversation yet.
+        // A conversation is ONLY created when the customer actually sends their first message.
+        conversationId = null;
+        conversationStatus = 'open';
+        messages = [];
       }
 
       try {
@@ -138,6 +138,8 @@ export const loginAndLoadCustomerConversation = createAsyncThunk(
         }
         if (conversationId) {
           localStorage.setItem(STORAGE_KEYS.CONVERSATION_ID, conversationId);
+        } else {
+          localStorage.removeItem(STORAGE_KEYS.CONVERSATION_ID);
         }
       } catch {
         // Ignore localStorage write errors
@@ -200,20 +202,43 @@ export const refreshCustomerConversation = createAsyncThunk(
 
 /**
  * Thunk: Send a customer message via POST /api/businesses/{BUSINESS_ID}/conversations/{conversation_id}/messages.
+ * If the conversation has not been created yet (first message from new customer), lazily creates it first!
  */
 export const submitCustomerMessage = createAsyncThunk(
   'customer/submitCustomerMessage',
-  async ({ conversationId, message }, { rejectWithValue }) => {
+  async ({ conversationId, message }, { getState, rejectWithValue }) => {
     try {
-      const response = await sendCustomerMessage(conversationId, message);
+      let activeConversationId = conversationId;
+
+      // Lazy conversation creation: conversation is created ONLY when customer sends their first message!
+      if (!activeConversationId) {
+        const { customerId } = getState().customer;
+        if (!customerId) {
+          return rejectWithValue({
+            message: 'No active customer session found. Please log in first.',
+          });
+        }
+        const newConv = await createCustomerConversation(customerId);
+        activeConversationId = newConv.conversation_id || newConv.id;
+        try {
+          localStorage.setItem(STORAGE_KEYS.CONVERSATION_ID, activeConversationId);
+        } catch {
+          // Ignore storage write error
+        }
+      }
+
+      const response = await sendCustomerMessage(activeConversationId, message);
       const savedMsg = response.message || {
         id: response.id,
-        conversation_id: response.conversation_id || conversationId,
+        conversation_id: response.conversation_id || activeConversationId,
         sender_type: 'customer',
         content: response.content || message,
         created_at: response.created_at || new Date().toISOString(),
       };
-      return savedMsg;
+      return {
+        ...savedMsg,
+        conversationId: activeConversationId,
+      };
     } catch (err) {
       return rejectWithValue({
         message:
@@ -346,6 +371,9 @@ const customerSlice = createSlice({
       .addCase(submitCustomerMessage.fulfilled, (state, action) => {
         state.sendMessageStatus = 'succeeded';
         const newMsg = action.payload;
+        if (newMsg?.conversationId) {
+          state.conversationId = newMsg.conversationId;
+        }
         const exists = state.messages.some((m) => m.id === newMsg.id);
         if (!exists) {
           state.messages.push(newMsg);

@@ -1,11 +1,17 @@
 const app = require('./app');
 const env = require('./config/env');
 const { getPool } = require('../db');
+const { autoMigrateDatabase } = require('../db/autoMigrate');
 
-const server = app.listen(env.port, env.host, () => {
+const server = app.listen(env.port, env.host, async () => {
   console.log(
     `Echo Support Assistant Backend running at http://${env.host}:${env.port} (${env.nodeEnv})`
   );
+  try {
+    await autoMigrateDatabase();
+  } catch (err) {
+    console.warn('[Server Startup] Auto-migration warning:', err.message);
+  }
 });
 
 async function shutdown(signal) {

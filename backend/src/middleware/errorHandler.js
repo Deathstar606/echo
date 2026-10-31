@@ -78,9 +78,13 @@ function errorHandler(err, req, res, next) {
       });
     }
     if (err.code === '42P01') {
+      const match = err.message ? err.message.match(/relation "([^"]+)" does not exist/i) : null;
+      const missingTable = match ? match[1] : (err.table || null);
       return res.status(500).json({
-        error:
-          'Database tables are not initialized. Please run "npm run db:init" first.',
+        error: missingTable
+          ? `Database table "${missingTable}" is not initialized. Please run "npm run db:init" or upload the CSV to initialize the sheet.`
+          : 'Database tables are not initialized. Please run "npm run db:init" first.',
+        table: missingTable,
       });
     }
     if (

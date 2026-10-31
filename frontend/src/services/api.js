@@ -249,23 +249,19 @@ export async function sendAnnouncement(
 }
 
 /**
- * Phase 2 — 2A. Fetch Products Sheet
- * GET /api/sheets/products?businessId={BUSINESS_ID}
+ * Phase 2 — 2A. Fetch Sheet Rows for any active inventory sheet (products, electronics, grocery, etc.)
+ * GET /api/sheets/{entity}?businessId={BUSINESS_ID}
  */
-export async function fetchProductsSheet() {
+export async function fetchSheetRows(entity = 'products') {
+  const target = String(entity || 'products').trim();
   return request(
-    `/api/sheets/products?businessId=${encodeURIComponent(BUSINESS_ID)}`,
+    `/api/sheets/${encodeURIComponent(target)}?businessId=${encodeURIComponent(
+      BUSINESS_ID
+    )}`,
     {
       method: 'GET',
     }
   );
-}
-
-/**
- * Phase 2 — 2A. Fetch Sheet Rows (Single Products Sheet)
- */
-export async function fetchSheetRows() {
-  return fetchProductsSheet();
 }
 
 /**
@@ -306,16 +302,38 @@ export async function mutateSheet({
 }
 
 /**
- * CSV Upload for Products Sheet
- * POST /api/sheets/products/upload?businessId={BUSINESS_ID}
+ * CSV Upload & Append for Universal Inventory Sheets
+ * POST /api/sheets/{entity}/upload?businessId={BUSINESS_ID}[&mode=append]
+ *
+ * @param {string|File} entity
+ * @param {File} [file]
+ * @param {'replace'|'append'} [mode='replace']
  */
-export async function uploadSheetCsv(_entity, file) {
-  const actualFile = file || _entity;
+export async function uploadSheetCsv(entity, file, mode = 'replace') {
+  let targetEntity = 'products';
+  let actualFile = file;
+  let targetMode = mode;
+
+  if (entity instanceof File || (entity && entity.name && !file)) {
+    actualFile = entity;
+    targetEntity = 'products';
+  } else {
+    targetEntity = String(entity || 'products').trim();
+    actualFile = file;
+  }
+
   const formData = new FormData();
   formData.append('file', actualFile);
+  if (targetMode === 'append') {
+    formData.append('mode', 'append');
+  }
 
   const url = buildApiUrl(
-    `/api/sheets/products/upload?businessId=${encodeURIComponent(BUSINESS_ID)}`
+    `/api/sheets/${encodeURIComponent(
+      targetEntity
+    )}/upload?businessId=${encodeURIComponent(BUSINESS_ID)}${
+      targetMode === 'append' ? '&mode=append' : ''
+    }`
   );
 
   let response;
@@ -336,10 +354,20 @@ export async function uploadSheetCsv(_entity, file) {
   if (!response.ok) {
     throw new ApiError(
       (data && (data.error || data.message)) ||
-        `CSV upload failed with status ${response.status}`,
+        `CSV ${targetMode === 'append' ? 'append' : 'upload'} failed with status ${response.status}`,
       response.status,
       data
     );
   }
   return data;
+}
+
+/**
+ * Appends new rows to the active sheet
+ *
+ * @param {string} entity
+ * @param {File} file
+ */
+export async function appendSheetCsv(entity, file) {
+  return uploadSheetCsv(entity, file, 'append');
 }

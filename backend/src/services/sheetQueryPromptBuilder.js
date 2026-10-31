@@ -1,7 +1,8 @@
 const {
   APPAREL_SIZE_KEYS,
   getSchema,
-  normalizeEntityName,
+  discoverTableSchema,
+  findColumnDef,
   validateFilter,
   validateSort,
   validateMutation,
@@ -14,8 +15,7 @@ const MAX_PROMPT_CATALOG_NAMES = 300;
 const MAX_PROMPT_CATEGORIES = 100;
 
 /**
- * Formats the business's live catalog (product names + distinct categories) for prompt grounding.
- * Values are read from the database at request time; nothing is hardcoded.
+ * Formats live catalog context (names + distinct categories/brands) for prompt grounding.
  *
  * @param {{ names?: string[], categories?: string[] } | null} catalog
  * @returns {string}
@@ -25,17 +25,17 @@ function formatCatalogContext(catalog) {
   const categories = Array.isArray(catalog?.categories) ? catalog.categories : [];
 
   if (names.length === 0 && categories.length === 0) {
-    return 'LIVE CATALOG CONTEXT\n(Catalog names are not available for this request. Copy product names exactly as the user wrote them.)';
+    return 'LIVE CATALOG CONTEXT\n(No catalog entries found for this request. Copy names and filters exactly as user wrote them.)';
   }
 
   const shownNames = names.slice(0, MAX_PROMPT_CATALOG_NAMES);
   const shownCategories = categories.slice(0, MAX_PROMPT_CATEGORIES);
-  const lines = ['LIVE CATALOG CONTEXT (loaded from the database for this business; use only for spelling/grounding)'];
+  const lines = ['LIVE CATALOG CONTEXT (loaded from the database for this business)'];
   if (shownCategories.length > 0) {
-    lines.push(`Distinct "category" values: ${shownCategories.map((c) => JSON.stringify(c)).join(', ')}`);
+    lines.push(`Known category/brand values: ${shownCategories.map((c) => JSON.stringify(c)).join(', ')}`);
   }
   if (shownNames.length > 0) {
-    lines.push(`Product names (${names.length} total${names.length > shownNames.length ? `, first ${shownNames.length} shown` : ''}):`);
+    lines.push(`Item/product names (${names.length} total${names.length > shownNames.length ? `, first ${shownNames.length} shown` : ''}):`);
     for (const n of shownNames) {
       lines.push(`- ${JSON.stringify(n)}`);
     }
@@ -45,12 +45,11 @@ function formatCatalogContext(catalog) {
 
 /**
  * Builds the natural-language prompt instructing Gemini to convert a spreadsheet query/mutation
- * into structured JSON according to the products schema. The prompt is grounded in the business's
- * live catalog (names and categories are injected at request time) and contains no hardcoded
- * product data, so it works for arbitrary product names.
+ * into structured JSON according to the active table's dynamically discovered schema.
  *
  * @param {object} params
- * @param {string} [params.entity='products'] - Must resolve to 'products'
+ * @param {string | object} [params.entity='products'] - Entity name or schema object
+ * @param {object} [params.schema] - Optional resolved schema definition
  * @param {string} params.message - Raw user natural language prompt
  * @param {boolean} [params.isMutation=false] - Whether a mutation is expected
  * @param {string} [params.currentDate] - Current reference date in YYYY-MM-DD
@@ -59,158 +58,126 @@ function formatCatalogContext(catalog) {
  */
 function buildSheetQueryPrompt({
   entity = 'products',
+  schema: explicitSchema = null,
   message,
   isMutation = false,
   currentDate = new Date().toISOString().slice(0, 10),
   catalog = null,
 }) {
-  const schema = getSchema(entity);
-  const sizeKeys = Array.from(APPAREL_SIZE_KEYS);
+  const schema = explicitSchema || getSchema(entity);
+
   const columnsList = Object.entries(schema.columns)
     .filter(([, def]) => !def.readonly || def.virtual)
-    .map(([col, def]) => {
-      let desc = `- "${col}" (${def.type})`;
+    .map(([, def]) => {
+      const colName = def.exactName || def;
+      let desc = `- ${colName} (${def.type})`;
       if (def.description) {
         desc += `: ${def.description}`;
       }
       if (def.allowedValues) {
         desc += ` [allowed values: ${def.allowedValues.map((v) => `"${v}"`).join(', ')}]`;
       }
-      if (def.operators) {
-        desc += ` [operators: ${def.operators.join(', ')}]`;
-      }
       return desc;
     })
     .join('\n');
 
+  // Format representative values block if available
+  const repLines = [];
+  if (schema.representativeValues && Object.keys(schema.representativeValues).length > 0) {
+    for (const [col, vals] of Object.entries(schema.representativeValues)) {
+      if (Array.isArray(vals) && vals.length > 0) {
+        repLines.push(`- ${col}: ${vals.join(', ')}`);
+      }
+    }
+  }
+  const representativeValuesBlock =
+    repLines.length > 0
+      ? `Representative values:\n${repLines.join('\n')}`
+      : '';
+
+  // Check if active table has apparel size column
+  const hasSizeColumn = Boolean(findColumnDef(schema, 'size'));
+  const sizeInstructions = hasSizeColumn
+    ? `\nSPECIAL NESTED SIZE FIELDS\n- "size.<SIZE_KEY>" (integer): Stock for one size key in JSON "size" column. Allowed size keys: ${Array.from(
+        APPAREL_SIZE_KEYS
+      ).join(', ')}. Supports numeric arithmetic.\n- "total_stock" (integer, virtual, filter-only): Sum of stock units across all sizes.\n`
+    : '';
+
   return `ROLE
-You are a precise spreadsheet query and mutation interpreter for a product catalog management system.
+You are a precise spreadsheet query and mutation interpreter for a universal business inventory editor.
 
 OBJECTIVE
-Translate the user's natural language request into a strictly structured JSON query or mutation plan for the "${schema.entity}" table.
+Translate the user's natural language request into a strictly structured JSON query or mutation plan for the active table.
 ${isMutation ? 'Note: The user is invoking the mutation endpoint, so interpret actionable change requests as "update_many", "update", "create", or "delete" operations.' : ''}
 
 CURRENT REFERENCE DATE
 Today's date is: ${currentDate}
 
-ENTITY SCHEMA: "${schema.entity}" (Table: ${schema.tableName})
-Available fields:
+ACTIVE TABLE SCHEMA
+Table: ${schema.tableName}
+
+Available columns:
 ${columnsList}
-- "size.<SIZE_KEY>" (integer): Nested stock count for one size key inside the JSON "size" column. Valid size keys: ${sizeKeys.join(', ')} (e.g., "size.${sizeKeys[0]}"). Supports numeric filter operators and update actions [set, add, subtract, multiply].
-- "total_stock" (integer, virtual, filter-only): Sum of stock units across all sizes in "size".
+${representativeValuesBlock ? `\n${representativeValuesBlock}\n` : ''}${sizeInstructions}
+GENERAL INVENTORY DOMAIN & SEMANTIC COLUMN MAPPING
+Understand the semantic purpose of columns dynamically regardless of how the user or table names them:
+- Product title/name: e.g., "name", "Product_Name", "item_name", "title"
+- Brand, manufacturer, or vendor: e.g., "brand", "Brand_Name", "manufacturer", "make"
+- Supplier or distributor: e.g., "supplier", "Supplier", "vendor", "distributor", "source"
+- Selling price vs. purchase cost (CRITICAL BUSINESS RULE):
+  * Selling price: e.g., "price", "Selling_Price", "Current_Price", "retail_price"
+  * Purchase/unit cost: e.g., "cost", "Unit_Cost", "purchase_price", "wholesale_price"
+  * CRITICAL RULE: Never modify purchase/unit cost when the user asks to discount, put on sale, adjust price, or change pricing, unless the user explicitly mentions "cost" or "unit cost".
+- Inventory quantity or stock: e.g., "stock", "Stock_Qty", "Quantity", "qty", "inventory_count", "units_available"
+- Reorder threshold: e.g., "reorder_level", "Reorder_Level", "restock_point", "min_stock"
+- Storage location: e.g., "warehouse", "Warehouse", "Warehouse_Location", "aisle", "bin", "location"
+- Category, department, or section: e.g., "category", "Department", "type", "group"
+- Expiration or shelf life: e.g., "expiry_date", "Expiry_Date", "expiration", "best_before", "use_by"
+- SKU, barcode, or identifier: e.g., "sku", "item_code", "Batch_No", "barcode", "serial_number"
+- Status flags: e.g., "best", "status", "Status", "is_clearance", "active"
 
-FIELD CONVENTIONS
-- "name": Free-text product title. Names are arbitrary user data and may contain any words, punctuation, or trailing periods.
-- "category": Free-text category. Use the distinct values from LIVE CATALOG CONTEXT when the user refers to a category (map plural/colloquial wording such as "all <category>s" to the closest listed value with operator "equals").
-- "best": Boolean best-seller / "best value" flag.
-- "color": Comma-separated colors. Filter a specific color with {"field": "color", "operator": "contains", "value": "<Color>"}.
-- "discount": Percentage discount stored as a number from 0 to 100 (25 means 25%).
-- "ordered": Integer count of orders placed.
-- "size": JSON string mapping size labels to stock counts, e.g. '{"${sizeKeys[0]}":2,"${sizeKeys[1]}":4}'. "available in size <KEY>" -> {"field": "size", "operator": "contains", "value": "<KEY>"}.
-- "price": Numeric price.
+DISCOUNT CONVENTIONS & ARITHMETIC RULES
+1. "Put a 10% discount on all products from Asus":
+   - If the active table has an explicit discount column (e.g., "discount"), update that column.
+   - If the active table has a selling price column (e.g., "Current_Price" or "Selling_Price") but NO separate discount column, reduce the selling price by 10%:
+     {"field": "<SellingPriceColumn>", "action": "subtract", "value": 10, "unit": "percentage"}
+2. "Set/Change/Update/Mark X to/as Y" -> {"action": "set", "value": Y}
+3. "Increase/Add/Raise X by Y" -> "add"; "Reduce/Decrease/Lower X by Y" -> "subtract"
+   - Percentage adjustments: "unit": "percentage" (for prices/costs/quantities) or "percentage_points" (for discount columns)
+   - Plain amounts: "unit": "absolute"
+4. "Multiply/Double/Triple X" -> {"action": "multiply", "value": factor}
 
-${formatCatalogContext(catalog)}
+NAME MATCHING RULES
+1. When user refers to a specific product/item, emit {"field": "<NameColumn>", "operator": "equals", "value": "<name>"}.
+2. NEVER return "clarification_needed" merely because a product name seems unknown or absent from context; copy the user's name verbatim.
 
-PRODUCT NAME RULES (CRITICAL)
-1. You are NOT the authority on whether a product exists. The backend resolves product names against the database (case-, punctuation- and spacing-insensitive, partial-name aware).
-2. NEVER return "clarification_needed" because a product name seems unknown, misspelled, or absent from LIVE CATALOG CONTEXT. NEVER answer "not found" or "did you mean".
-3. When the user refers to a specific product by name, emit {"field": "name", "operator": "equals", "value": "<name>"}. If a catalog name in LIVE CATALOG CONTEXT clearly refers to the same product (differs only by case, punctuation, a trailing period, or spacing), copy that catalog name exactly; otherwise copy the user's wording verbatim.
-4. Never substitute a different product that merely shares some words with what the user wrote.
-5. Multiple named products ("A and B") -> one {"field": "name", "operator": "equals"} filter per product with "filter_logic": "OR".
+AMBIGUITY & CLARIFICATION RULES
+- Return "status": "clarification_needed" when:
+  * The requested target column cannot be resolved from the active schema (e.g. asking to change warranty on a grocery table that has no warranty column).
+  * The request is missing the change value, direction, or target scope.
+  * The request is fundamentally ambiguous.
 
-FILTERING & LOGIC RULES
-- Allowed operators: "equals", "not_equals", "contains", "not_contains", "starts_with", "ends_with", "in", "greater_than", "less_than", "greater_than_or_equal", "less_than_or_equal", "between", "relative_days_ago", "this_month".
-- Combine multiple filters with "filter_logic": "AND" by default. Use "OR" ONLY when the user explicitly asks for alternatives ("X or Y") or names several distinct products.
-- If a bulk mutation explicitly targets ALL products with no condition, set "target_filters": [] and "match_all": true.
-- Conditions such as "if it isn't already set" may be expressed as an extra filter on the field being changed (e.g., {"field": "best", "operator": "equals", "value": false}).
+OUTPUT FORMAT REQUIREMENTS
+- Return valid JSON only.
+- You MUST use the EXACT column names as listed under "Available columns" in the ACTIVE TABLE SCHEMA above.
 
-MUTATION CONTRACT ("update_many" / "update" / "delete" / "create")
-- "operation": "update_many" (conditional/bulk/arithmetic updates) or "update" (a single named product)
-- "filter_logic": "AND" | "OR"
-- "match_all": boolean (true only when targeting every product with no filters)
-- "target_filters": [{"field": "...", "operator": "...", "value": ...}]
-- "updates": [{"field": "<column or size.<KEY>>", "action": "set" | "add" | "subtract" | "multiply", "value": <number | boolean | string>, "unit": "absolute" | "percentage" | "percentage_points"}]
-- When the same change applies to several sizes ("sizes XL and M"), emit ONE update entry PER size key (e.g., "size.XL" and "size.M").
-
-ARITHMETIC & PERCENTAGE SEMANTICS (CRITICAL)
-1. "Set/Change/Update X to Y", or "Increase/Reduce X ... to Y" -> {"action": "set", "value": Y}. The preposition "to" means the final value.
-2. "Increase/Add/Raise X by Y" -> "add"; "Reduce/Decrease/Lower X by Y" -> "subtract".
-   - "discount" changed by N% -> {"field": "discount", "action": "add" | "subtract", "value": N, "unit": "percentage_points"} (e.g., 25 -> 30).
-   - "price" changed by N% -> {"field": "price", "action": "add" | "subtract", "value": N, "unit": "percentage"} (multiplies by 1 ± N/100).
-   - "price" changed by a plain amount -> "unit": "absolute".
-   - Size stock changed by N units -> {"field": "size.<KEY>", "action": "add" | "subtract", "value": N, "unit": "absolute"}.
-3. "Multiply/Double/Triple X" -> {"action": "multiply", "value": factor}.
-
-AMBIGUITY & VALIDATION RULES
-- Return "status": "clarification_needed" ONLY when the request is missing the change amount/value or direction, missing which sizes to change for a stock change, has no identifiable target scope, or references a column that does not exist in the schema (e.g., "warehouse", "supplier", "weight").
-- If the user gives an explicit value on a valid column — even an out-of-range one (discount > 100, negative stock or price) — still output the structured mutation with "status": "ok"; the backend validator rejects invalid values deterministically.
-
-OUTPUT FORMAT (Return valid JSON only; the angle-bracket values below are placeholders, not real data)
-Example A (named product, multiple sizes):
-User: "Increase stock of <Product Name> for sizes ${sizeKeys[2]} and ${sizeKeys[0]} by 2"
+JSON MUTATION CONTRACT ("update_many" / "update" / "delete" / "create"):
 {
   "status": "ok",
-  "message": "Increase ${sizeKeys[2]} and ${sizeKeys[0]} stock of <Product Name> by 2",
-  "entity": "products",
-  "operation": "update",
+  "message": "<brief description>",
+  "entity": "${schema.entity}",
+  "operation": "update_many",
   "filter_logic": "AND",
   "match_all": false,
-  "target_filters": [{"field": "name", "operator": "equals", "value": "<Product Name>"}],
+  "target_filters": [
+    {"field": "<ExactColumn>", "operator": "equals" | "greater_than" | "less_than" | ..., "value": ...}
+  ],
   "updates": [
-    {"field": "size.${sizeKeys[2]}", "action": "add", "value": 2, "unit": "absolute"},
-    {"field": "size.${sizeKeys[0]}", "action": "add", "value": 2, "unit": "absolute"}
+    {"field": "<ExactColumn>", "action": "set" | "add" | "subtract" | "multiply", "value": ..., "unit": "absolute" | "percentage" | "percentage_points"}
   ]
 }
 
-Example B (conditional bulk arithmetic):
-User: "Reduce the price of products with a discount of 25% or more by 200"
-{
-  "status": "ok",
-  "message": "Reduce price by 200 for products with discount >= 25",
-  "entity": "products",
-  "operation": "update_many",
-  "filter_logic": "AND",
-  "match_all": false,
-  "target_filters": [{"field": "discount", "operator": "greater_than_or_equal", "value": 25}],
-  "updates": [{"field": "price", "action": "subtract", "value": 200, "unit": "absolute"}]
-}
-
-Example C (all products):
-User: "Increase the stock of size ${sizeKeys[0]} by 5 units for all products"
-{
-  "status": "ok",
-  "message": "Increase size ${sizeKeys[0]} stock by 5 for all products",
-  "entity": "products",
-  "operation": "update_many",
-  "filter_logic": "AND",
-  "match_all": true,
-  "target_filters": [],
-  "updates": [{"field": "size.${sizeKeys[0]}", "action": "add", "value": 5, "unit": "absolute"}]
-}
-
-Example D (read query):
-{
-  "status": "ok",
-  "message": "",
-  "entity": "products",
-  "operation": "filter",
-  "filter_logic": "AND",
-  "filters": [{"field": "best", "operator": "equals", "value": true}],
-  "sort": [],
-  "limit": null
-}
-
-Example E (clarification — missing value):
-User: "Update the discount of <Product Name>"
-{
-  "status": "clarification_needed",
-  "message": "What new discount percentage would you like to set for <Product Name>?",
-  "entity": "products",
-  "operation": null,
-  "filters": [],
-  "sort": [],
-  "limit": null
-}
+${formatCatalogContext(catalog)}
 
 USER MESSAGE:
 <user_message>
@@ -248,12 +215,13 @@ function isHardConstraintValidationError(err) {
 /**
  * Validates and normalizes the parsed JSON interpretation returned by the LLM.
  *
- * @param {string} [entity='products']
+ * @param {string | object} entityOrSchema
  * @param {object} parsed
  * @returns {object}
  */
-function normalizeInterpretedQuery(entity = 'products', parsed) {
-  const normalizedEntity = normalizeEntityName(entity || 'products');
+function normalizeInterpretedQuery(entityOrSchema, parsed) {
+  const schema = getSchema(entityOrSchema);
+  const normalizedEntity = schema.entity;
 
   if (!parsed || typeof parsed !== 'object') {
     return {
@@ -289,7 +257,7 @@ function normalizeInterpretedQuery(entity = 'products', parsed) {
     operation === 'create'
   ) {
     try {
-      const validatedMut = validateMutation(normalizedEntity, {
+      const validatedMut = validateMutation(schema, {
         operation,
         filter_logic: parsed.filter_logic || parsed.logical_operator || 'AND',
         match_all: Boolean(parsed.match_all),
@@ -334,7 +302,7 @@ function normalizeInterpretedQuery(entity = 'products', parsed) {
 
   for (const f of rawFilters) {
     try {
-      validatedFilters.push(validateFilter(normalizedEntity, f));
+      validatedFilters.push(validateFilter(schema, f));
     } catch (err) {
       return {
         status: 'clarification_needed',
@@ -350,7 +318,7 @@ function normalizeInterpretedQuery(entity = 'products', parsed) {
 
   let validatedSort = [];
   try {
-    validatedSort = validateSort(normalizedEntity, parsed.sort || []);
+    validatedSort = validateSort(schema, parsed.sort || []);
   } catch {
     validatedSort = [];
   }
@@ -384,15 +352,15 @@ function normalizeInterpretedQuery(entity = 'products', parsed) {
 
 /**
  * High-level service function:
- * Converts natural-language request into a validated query or clarification response.
+ * Dynamically discovers the active table schema, resolves catalog context if applicable,
+ * prompts the LLM, and validates the interpreted result against the active schema.
  *
  * @param {object} params
- * @param {string} [params.entity='products'] - Must resolve to 'products'
+ * @param {string | object} [params.entity='products'] - Active table / entity name
  * @param {string} params.message - user natural language prompt
  * @param {boolean} [params.isMutation=false]
  * @param {string} [params.currentDate]
- * @param {string} [params.businessId] - When provided, the business's live product names and
- *   categories are loaded and injected into the prompt for grounding.
+ * @param {string} [params.businessId]
  * @returns {Promise<object>}
  */
 async function interpretNaturalLanguageQuery({
@@ -402,37 +370,49 @@ async function interpretNaturalLanguageQuery({
   currentDate,
   businessId,
 }) {
-  const normalizedEntity = normalizeEntityName(entity || 'products');
-
   if (typeof message !== 'string' || !message.trim()) {
     throw new AppError('Message is required and must be a non-empty string.', 400);
   }
 
+  // 1. Dynamically discover the schema of the active table
+  const schema = await discoverTableSchema(entity, businessId);
+
+  // 2. Load catalog names if businessId is present and table has a name column
   let catalog = null;
   if (businessId) {
     try {
-      const rows = await loadCatalogNames(businessId, normalizedEntity);
-      const names = [...new Set(rows.map((r) => r.name).filter(Boolean))];
-      const categories = [
-        ...new Set(rows.map((r) => (r.category ? String(r.category).trim() : '')).filter(Boolean)),
-      ].sort();
-      catalog = { names, categories };
-    } catch (err) {
-      // Catalog grounding is best-effort; the backend name resolver still guarantees matching.
-      console.warn('Could not load catalog context for sheet prompt:', err.message);
+      const rows = await loadCatalogNames(businessId, schema.entity);
+      if (rows && rows.length > 0) {
+        const names = [...new Set(rows.map((r) => r.name).filter(Boolean))];
+        const categories = [
+          ...new Set(
+            rows
+              .map((r) => (r.category ? String(r.category).trim() : ''))
+              .filter(Boolean)
+          ),
+        ].sort();
+        catalog = { names, categories };
+      }
+    } catch {
+      // Catalog grounding is best-effort
     }
   }
 
+  // 3. Build the prompt with the active schema injected
   const promptText = buildSheetQueryPrompt({
-    entity: normalizedEntity,
+    schema,
+    entity: schema.entity,
     message: message.trim(),
     isMutation,
     currentDate,
     catalog,
   });
 
+  // 4. Send to Gemini for interpretation
   const rawAiResult = await generateAiSheetInterpretation(promptText);
-  return normalizeInterpretedQuery(normalizedEntity, rawAiResult);
+
+  // 5. Normalize and validate against the active table schema
+  return normalizeInterpretedQuery(schema, rawAiResult);
 }
 
 module.exports = {

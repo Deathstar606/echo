@@ -276,7 +276,12 @@ const companySlice = createSlice({
       .addCase(loadCompanyConversations.fulfilled, (state, action) => {
         state.inboxStatus = 'succeeded';
         state.inboxError = null;
-        const list = action.payload.conversations;
+        // Company inquiry panel strictly shows conversations with customer messages
+        const list = (action.payload.conversations || []).filter(
+          (c) =>
+            (Array.isArray(c.messages) && c.messages.length > 0) ||
+            Boolean(c.last_message || c.snippet)
+        );
         state.conversations = list;
 
         // If no conversation is selected yet, auto-select the most recent one

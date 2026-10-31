@@ -1,189 +1,279 @@
-# Natural-Language Spreadsheet Querying & Manipulation User Manual
+# Universal Business Inventory Editor — User Manual
 
-This manual details the architecture, schema, endpoints, natural-language query capabilities, conditional bulk mutations, arithmetic transformations, nested size stock manipulation, and safety safeguards for the single-sheet `products` catalog (`backend/products.csv`) in the Echo backend.
+This manual documents the architecture, dynamic schema discovery, natural-language query and mutation interpreter, API endpoints, semantic inventory conventions, and transactional safeguards of the **Universal Business Inventory Editor** in the Echo backend.
+
+The system is fully generalized to understand and manipulate arbitrary business inventory sheets with distinct column names, structures, and data types without relying on a fixed products schema.
 
 ---
 
-## 1. Overview & Architecture
+## 1. System Overview & Architecture
 
-The natural-language spreadsheet pipeline converts free-form user instructions into validated, parameterized SQL operations on PostgreSQL:
+The Universal Business Inventory Editor converts free-form natural language instructions into validated, parameterized PostgreSQL queries and transactional mutations for any active business inventory table:
 
 ```
-User Request → Gemini JSON Plan → Schema & Constraint Validation → Preview (Diff + Hash) → User Confirmation → Transactional Execution
+User Request (NL Message)
+       │
+       ▼
+Dynamic Schema Discovery (discoverTableSchema)
+  • Column names & PostgreSQL data types
+  • Read-only vs. modifiable fields
+  • Representative values & distinct categories
+       │
+       ▼
+Gemini Universal Interpreter (buildSheetQueryPrompt)
+  • Injected ACTIVE TABLE SCHEMA context block
+  • Domain semantic mapping (Selling Price vs. Cost, Stock, Brand, Supplier, etc.)
+  • Outputs structured JSON mutation plan or "clarification_needed"
+       │
+       ▼
+Schema & Constraint Validation (validateMutation / validateFilter)
+  • Case-insensitive column matching
+  • Type coercion & numeric bound enforcement
+       │
+       ▼
+Two-Stage Mutation Pipeline (sheetMutationService)
+  • If confirm = false: previewMutation generates before/after diffs & SHA-256 preview_hash
+  • If confirm = true: executeMutation acquires row locks (SELECT ... FOR UPDATE),
+    executes parameterized SQL arithmetic in a PostgreSQL transaction, and commits
 ```
 
-The system is organized into four core spreadsheet services plus context retrieval:
-1. **`sheetSchemaService.js`**: Canonical schema definition for the single `products` table (`name`, `category`, `description`, `best`, `color`, `discount`, `ordered`, `images`, `size`, `price`), plus the virtual `total_stock` field and nested `size.<KEY>` stock fields (`size.M`, `size.L`, `size.XL`, `size.XXL`, `size.XXXL`). Enforces field whitelists, operator compatibility, arithmetic action rules, and numeric bounds.
-2. **`sheetQueryPromptBuilder.js`**: Builds a compact, schema-aware prompt and normalizes the LLM's structured JSON output (`filter`, `update`, `update_many`, `delete`, `create`, or `clarification_needed`).
-3. **`sheetQueryService.js`**: Builds and executes parameterized `SELECT` queries supporting `AND` / `OR` filter logic, comma-separated `color` matching, virtual `total_stock` summation across JSON `size` entries, and per-size `size.<KEY>` stock filtering.
-4. **`sheetMutationService.js`**: Implements two-stage mutations (`previewMutation` when `confirm: false` and `executeMutation` when `confirm: true`) with per-row arithmetic preview, deterministic `preview_hash` verification, row-level `SELECT ... FOR UPDATE` locking, database-side SQL arithmetic, and transactional rollback on error.
-5. **`contextRetrievalService.js`**: Grounds customer support inquiries directly in the live `products` table.
+---
+
+## 2. Dynamic Schema Discovery (`sheetSchemaService.js`)
+
+Before generating a Gemini prompt or executing an operation, the backend inspects the active sheet selected by the user:
+
+1. **Table Introspection**:
+   - Queries PostgreSQL's `information_schema.columns` for `column_name`, `data_type`, and nullability.
+   - Maps database types (`varchar`, `text`, `numeric`, `integer`, `boolean`, `date`, `uuid`) to internal normalized types (`string`, `number`, `integer`, `boolean`, `date`, `uuid`).
+2. **Writable vs. System Fields**:
+   - Primary key (`id`), tenant isolation (`business_id`), and audit timestamps (`created_at`, `updated_at`) are classified as `readonly: true` / `modifiable: false`.
+   - Domain inventory fields are marked `modifiable: true` and `queryable: true`.
+3. **Representative Value Sampling**:
+   - Samples rows from the active table (`SELECT * FROM <table> WHERE business_id = $1 LIMIT 15`) to gather distinct non-null values for categorical columns (e.g. `Warehouse: Dhaka, Chittagong`, `Brand_Name: Asus, Dell, HP`, `Supplier: Acme, NorthStar`).
+4. **Injection into LLM Context**:
+   - On every query and mutation request, an `ACTIVE TABLE SCHEMA` block is dynamically injected into the prompt:
+     ```text
+     ACTIVE TABLE SCHEMA
+     Table: electronics_inventory
+
+     Available columns:
+     - Product_Name (string)
+     - Brand_Name (string)
+     - Model (string)
+     - Current_Price (number)
+     - Stock_Qty (integer)
+     - Warehouse (string)
+     - Reorder_Level (integer)
+     - Warranty_Months (integer)
+
+     Representative values:
+     - Warehouse: Dhaka, Chittagong
+     - Brand_Name: Asus, Dell, HP, Lenovo
+     ```
 
 ---
 
-## 2. Supported Schema: `products` (`backend/products.csv`)
+## 3. Universal Semantic Inventory Mapping
 
-| Field | Type | Modifiable | Bounds / Allowed Values | Supported Filter Operators | Supported Update Actions |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| `id` | UUID | No | Primary Key | `equals`, `not_equals`, `in` | Read-only |
-| `business_id` | UUID | No | Scoped Business ID | System-enforced (`WHERE business_id = $1`) | Read-only |
-| `name` | String | Yes | Non-empty string | `equals`, `not_equals`, `contains`, `not_contains`, `starts_with`, `ends_with`, `in` | `set` |
-| `category` | String | Yes | Common: `shirt`, `polo`, `full shirt`, `luxury shirt`, `luxury polo`, `summer shirt` | `equals`, `not_equals`, `contains`, `not_contains`, `starts_with`, `ends_with`, `in` | `set` |
-| `description` | Text | Yes | Product details, fabric, fit, sizing | `contains`, `not_contains`, `equals`, `not_equals` | `set` |
-| `best` | Boolean | Yes | `true` or `false` | `equals`, `not_equals` | `set` |
-| `color` | String | Yes | Comma-separated colors (e.g. `White, Black`) | `equals`, `not_equals`, `contains`, `not_contains`, `in` | `set` |
-| `discount` | Numeric(5,2) | Yes | `0 <= discount <= 100` | `equals`, `not_equals`, `greater_than`, `greater_than_or_equal`, `less_than`, `less_than_or_equal`, `between` | `set`, `add`, `subtract`, `multiply` |
-| `ordered` | Integer | Yes | `ordered >= 0` (integer) | `equals`, `not_equals`, `greater_than`, `greater_than_or_equal`, `less_than`, `less_than_or_equal`, `between` | `set`, `add`, `subtract`, `multiply` |
-| `images` | Text | Yes | Image URLs or status text | `contains`, `not_contains`, `equals` | `set` |
-| `size` | Text (JSON) | Yes | JSON map of size to stock (`{"M":2,"L":4,"XL":2,"XXL":2}`) | `equals`, `not_equals`, `contains`, `not_contains`, `in` | `set` |
-| `size.<KEY>` | Integer (Nested) | Yes | `KEY` in `M`, `L`, `XL`, `XXL`, `XXXL`; value `>= 0` | `equals`, `not_equals`, `greater_than`, `greater_than_or_equal`, `less_than`, `less_than_or_equal`, `between` | `set`, `add`, `subtract`, `multiply` |
-| `total_stock` | Integer (Virtual) | No | Sum of all size counts in `size` JSON (`>= 0`) | `equals`, `not_equals`, `greater_than`, `greater_than_or_equal`, `less_than`, `less_than_or_equal`, `between` | Filter-only |
-| `price` | Numeric(10,2) | Yes | `price >= 0` | `equals`, `not_equals`, `greater_than`, `greater_than_or_equal`, `less_than`, `less_than_or_equal`, `between` | `set`, `add`, `subtract`, `multiply` |
-| `created_at` | Timestamptz | No | ISO timestamp | `equals`, `greater_than`, `less_than`, `between`, `relative_days_ago`, `this_month` | Read-only |
+The interpreter recognizes general inventory concepts dynamically regardless of how individual columns are named:
+
+| Inventory Concept | Common Column Variations | Semantic Behavior & Rules |
+| :--- | :--- | :--- |
+| **Product / Item Name** | `name`, `Product_Name`, `item_name`, `title` | Text identifying the item. Resolved case-insensitively and partial-name aware. |
+| **Brand / Manufacturer** | `brand`, `Brand_Name`, `manufacturer`, `make` | Manufacturer or brand filter/update. |
+| **Supplier / Distributor** | `supplier`, `Supplier`, `vendor`, `distributor` | Source entity supplying the product. |
+| **Selling Price** | `price`, `Selling_Price`, `Current_Price`, `retail_price` | Customer-facing price. Targeted when user asks to discount, change price, or put on sale. |
+| **Purchase / Unit Cost** | `cost`, `Unit_Cost`, `purchase_price`, `wholesale_price` | **CRITICAL BUSINESS RULE**: Never modified when user asks to discount or adjust price, unless user explicitly mentions *"cost"* or *"unit cost"*. |
+| **Inventory Quantity / Stock** | `stock`, `Stock_Qty`, `Quantity`, `qty`, `inventory_count` | Available stock count. Supports integer addition, subtraction, and set. |
+| **Reorder Threshold** | `reorder_level`, `Reorder_Level`, `restock_point`, `min_stock` | Threshold below which items need reordering. |
+| **Storage Location** | `warehouse`, `Warehouse`, `Warehouse_Location`, `aisle`, `bin` | Storage facility or warehouse name. |
+| **Category / Department** | `category`, `Department`, `type`, `group` | Classification group. |
+| **Expiration Date** | `expiry_date`, `Expiry_Date`, `expiration`, `best_before` | Shelf life cutoff. Filterable by date comparisons (`<`, `>`, `between`). |
+| **SKU / Identifier** | `sku`, `item_code`, `Batch_No`, `barcode` | Unique SKU or manufacturing batch code. |
+| **Status Flags** | `best`, `status`, `Status`, `is_clearance`, `active` | Boolean or categorical status indicators (e.g. `'clearance'`, `'in_stock'`). |
+
+### 3.1 Discount Conventions
+- **Table with Explicit Discount Column** (e.g. `products`): Updating discount modifies the `discount` column using `percentage_points` (e.g. `20% + 5% = 25%`).
+- **Table with Selling Price Column Only** (e.g. `electronics_inventory`): When user asks to *"Put a 10% discount on all products from Asus"*, the system reduces the selling price column (`Current_Price`) by 10% (`action: "subtract", value: 10, unit: "percentage"`).
+
+### 3.2 Ambiguity Guardrails
+- If a user asks to modify a field that does not exist in the active table (e.g. requesting a *"warranty"* change on `grocery_inventory`), the system returns `status: "clarification_needed"`.
+- If required parameters (value, direction, or target) are missing, the system prompts for clarification instead of making arbitrary assumptions.
 
 ---
 
-## 3. Mutation JSON Contract & Percentage Semantics
+## 4. Multi-Schema Verification & 11 Core Demonstrations
 
-### 3.1 Structured Mutation Plan (`update_many` / `update`)
+The system was verified across three diverse inventory domains:
 
+### Schema A: Apparel (`products` table)
+Columns: `name`, `category`, `best`, `color`, `discount`, `ordered`, `images`, `size`, `price`
+
+| # | Prompt | Operation | Filters | Updates |
+| :--- | :--- | :--- | :--- | :--- |
+| **1** | *"Increase the price of Stripe Shirt by $10."* | `update` | `name = 'Stripe Shirt'` | `price` add `10` (absolute) |
+| **2** | *"Mark all summer shirts as best sellers."* | `update_many` | `category = 'summer shirt'` | `best` set `true` |
+| **3** | *"Increase the stock of size XL by 3 for all black shirts."* | `update_many` | `color CONTAINS 'Black'` | `size.XL` add `3` (absolute) |
+
+### Schema B: Electronics (`electronics_inventory` table)
+Columns: `Product_Name`, `Brand_Name`, `Model`, `Current_Price`, `Stock_Qty`, `Warehouse`, `Reorder_Level`, `Warranty_Months`
+
+| # | Prompt | Operation | Filters | Updates |
+| :--- | :--- | :--- | :--- | :--- |
+| **4** | *"Put a 10% discount on all products from Asus."* | `update_many` | `Brand_Name = 'Asus'` | `Current_Price` subtract `10` (percentage) |
+| **5** | *"Increase the reorder level to 20 for products with less than 10 units in stock."* | `update_many` | `Stock_Qty < 10` | `Reorder_Level` set `20` (absolute) |
+| **6** | *"Set the warranty period to 24 months for all Dell laptops."* | `update_many` | `Brand_Name = 'Dell'` AND `Model CONTAINS 'Laptop'` | `Warranty_Months` set `24` (absolute) |
+| **7** | *"Increase the price of all products stored in Dhaka warehouse by 5%."* | `update_many` | `Warehouse = 'Dhaka'` | `Current_Price` add `5` (percentage) |
+
+### Schema C: Grocery (`grocery_inventory` table)
+Columns: `Item_Name`, `Supplier`, `Unit_Cost`, `Selling_Price`, `Expiry_Date`, `Batch_No`, `Quantity`, `Warehouse_Location`, `Status`
+
+| # | Prompt | Operation | Filters | Updates |
+| :--- | :--- | :--- | :--- | :--- |
+| **8** | *"Reduce the selling price of products from supplier Acme by 50."* | `update_many` | `Supplier = 'Acme'` | `Selling_Price` subtract `50` (absolute). *(`Unit_Cost` untouched)* |
+| **9** | *"Mark items expiring before January 1, 2027 as clearance."* | `update_many` | `Expiry_Date < '2027-01-01'` | `Status` set `'clearance'` |
+| **10** | *"Increase the quantity of products in warehouse Dhaka by 15 units."* | `update_many` | `Warehouse_Location = 'Dhaka'` | `Quantity` add `15` (absolute) |
+| **11** | *"Reduce the unit cost of products from supplier NorthStar by 5%."* | `update_many` | `Supplier = 'NorthStar'` | `Unit_Cost` subtract `5` (percentage). *(`Selling_Price` untouched)* |
+
+---
+
+## 5. API Reference
+
+All endpoints accept a business identifier via URL parameter (`:businessId`), query string (`?businessId=...`), request body (`business_id`), or default to `684a8863-5094-4c8b-9b15-c50c06335b7f`.
+
+### 5.1 Import Inventory CSV (Upload CSV & Add Rows)
+- **Replace / Upload CSV**: `POST /api/sheets/:entity/upload` or `POST /api/sheets/upload`
+  - **Content-Type**: `multipart/form-data` with key `file`
+  - **Behavior**: Auto-detects table schema (apparel products, electronics inventory, grocery inventory, or dynamic schema). Atomically clears existing rows for that business in the table and imports valid CSV rows.
+- **Add Rows (Append Mode)**: `POST /api/sheets/:entity/append` or `POST /api/sheets/append` (or `?mode=append`)
+  - **Content-Type**: `multipart/form-data` with key `file`
+  - **Behavior**: Strictly validates that uploaded CSV headers match the exact column names of the active sheet. Appends rows without deleting existing business records.
+- **Response**:
+  ```json
+  {
+    "message": "Successfully appended 3 row(s) to Electronics Inventory.",
+    "business_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+    "entity": "electronics_inventory",
+    "displayName": "Electronics Inventory",
+    "source_file": "new_laptops.csv",
+    "mode": "append",
+    "total_rows": 3,
+    "imported_count": 3,
+    "rejected_count": 0,
+    "errors": []
+  }
+  ```
+
+### 5.2 List Sheet Rows
+- **Endpoint**: `GET /api/sheets/:entity` or `GET /api/sheets/products`
+- **Response**:
+  ```json
+  {
+    "status": "ok",
+    "entity": "electronics_inventory",
+    "business_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+    "count": 6,
+    "rows": [ ... ]
+  }
+  ```
+
+### 5.3 Natural-Language Query
+- **Endpoint**: `POST /api/sheets/query` (or `POST /api/sheets/:entity/query`)
+- **Body**:
+  ```json
+  {
+    "entity": "grocery_inventory",
+    "message": "Show products from supplier Acme with selling price above 100"
+  }
+  ```
+- **Response**:
+  ```json
+  {
+    "status": "ok",
+    "interpretedQuery": {
+      "entity": "grocery_inventory",
+      "operation": "filter",
+      "filters": [
+        { "field": "Supplier", "operator": "equals", "value": "Acme" },
+        { "field": "Selling_Price", "operator": "greater_than", "value": 100 }
+      ]
+    },
+    "rows": [ ... ],
+    "count": 1
+  }
+  ```
+
+### 5.4 Natural-Language Mutation (Preview & Confirm)
+- **Endpoint**: `POST /api/sheets/mutate` (or `POST /api/sheets/:entity/mutate`)
+
+#### Step 1: Preview (`confirm: false`)
 ```json
 {
-  "status": "ok",
-  "message": "Reduce price by 200 for products with discount >= 25%",
-  "entity": "products",
+  "entity": "electronics_inventory",
+  "message": "Put a 10% discount on all products from Asus.",
+  "confirm": false
+}
+```
+**Response**:
+```json
+{
+  "status": "preview",
   "operation": "update_many",
-  "filter_logic": "AND",
-  "match_all": false,
-  "target_filters": [
-    {
-      "field": "discount",
-      "operator": "greater_than_or_equal",
-      "value": 25
-    }
+  "entity": "electronics_inventory",
+  "confirmation_required": true,
+  "affected_count": 2,
+  "preview_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "proposed_updates": [
+    { "field": "Current_Price", "action": "subtract", "value": 10, "unit": "percentage" }
   ],
-  "updates": [
+  "diff": [
     {
-      "field": "price",
-      "action": "subtract",
-      "value": 200,
-      "unit": "absolute"
+      "id": "22222222-2222-4222-8222-222222222221",
+      "name": "ROG Strix G16",
+      "before": { "Current_Price": 1350 },
+      "after": { "Current_Price": 1215 }
+    },
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "name": "Zenbook 14",
+      "before": { "Current_Price": 1100 },
+      "after": { "Current_Price": 990 }
     }
   ]
 }
 ```
 
-- **Backward Compatibility**: Legacy single-record payloads using `"operation": "update"` and `"changes": { "price": 1450, "best": true }` continue to work and are automatically normalized into `updates`.
-- **Targeting All Products**: When a bulk operation explicitly applies to every product in the catalog (e.g., *"Increase the stock of size M by 5 units for all products"*), `"match_all": true` with `"target_filters": []` is permitted. Unfiltered mutations without `"match_all": true` are rejected for safety.
-- **Compound Filters (`AND` / `OR`)**: Multiple `target_filters` are combined with `AND` by default, or `OR` when `"filter_logic": "OR"` is specified (while always keeping `business_id = $1` enforced at the top level).
-
-### 3.2 Arithmetic & Percentage Semantics
-
-| User Intent / Phrasing | Field | Action | Value | Unit | Resulting Calculation |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| *"Set the discount of products priced higher than 1500 to 10%."* | `discount` | `set` | `10` | `absolute` | `discount = 10` |
-| *"Increase the discount of products currently discounted by less than 15% to 20%."* | `discount` | `set` | `20` | `absolute` | `discount = 20` (preposition *"to 20%"* sets target value) |
-| *"Increase the discount of all summer shirts by 5%."* | `discount` | `add` | `5` | `percentage_points` | `discount = discount + 5` (e.g. `25 -> 30`) |
-| *"Reduce the price of products with a discount of 25% or more by 200."* | `price` | `subtract` | `200` | `absolute` | `price = price - 200` |
-| *"Increase the price of all luxury shirts by 10%."* | `price` | `add` | `10` | `percentage` | `price = ROUND(price * 1.10, 2)` |
-| *"Increase the stock of size M by 5 units for all products."* | `size.M` | `add` | `5` | `absolute` | `size.M = COALESCE(size.M, 0) + 5` inside JSON `size` |
-| *"Set the stock of size XL to zero for products priced above 1800."* | `size.XL` | `set` | `0` | `absolute` | `size.XL = 0` inside JSON `size` |
-
----
-
-## 4. Supported Natural-Language Mutation Examples
-
-1. **Conditional Boolean Flag Update**:
-   - *"Set the best value of products ordered 2 times or more to true if it isn't already set."*
-   - Filters `ordered >= 2` (and `best = false`), sets `best = true`.
-2. **Price-Filtered Discount Assignment**:
-   - *"Set the discount of products priced higher than 1500 to 10%."*
-   - Filters `price > 1500`, sets `discount = 10`.
-3. **Category-Filtered Percentage-Point Discount Increase**:
-   - *"Increase the discount of all summer shirts by 5%."*
-   - Filters `category = "summer shirt"`, adds `5` percentage points to `discount`.
-4. **Discount-Filtered Absolute Price Reduction**:
-   - *"Reduce the price of products with a discount of 25% or more by 200."*
-   - Filters `discount >= 25`, subtracts `200` from `price`.
-5. **Multi-Condition Category + Color Update**:
-   - *"Set the discount of all white shirts to 15%."*
-   - Filters `category = "shirt"` AND `color CONTAINS "White"`, sets `discount = 15`.
-6. **Category-Wide Price Assignment**:
-   - *"Set the price of all shirts to 1790."*
-   - Filters `category = "shirt"`, sets `price = 1790`.
-7. **Threshold-Filtered Target Discount Assignment**:
-   - *"Increase the discount of products currently discounted by less than 15% to 20%."*
-   - Filters `discount < 15`, sets `discount = 20`.
-8. **Total Inventory (`total_stock`) Filtered Update**:
-   - *"Set the best value to true for products with at least 15 units in total across all sizes."*
-   - Filters `total_stock >= 15` (summed across all keys in `size` JSON), sets `best = true`.
-9. **Catalog-Wide Nested Size Stock Addition**:
-   - *"Increase the stock of size M by 5 units for all products."*
-   - Sets `match_all: true`, adds `5` to `size.M` in each product's JSON `size` map (initializing `M` to `0 + 5 = 5` if `M` was absent).
-10. **Conditional Nested Size Stock Reset**:
-    - *"Set the stock of size XL to zero for products priced above 1800."*
-    - Filters `price > 1800`, sets `size.XL = 0` in each matching product's JSON `size` map.
-
----
-
-## 5. Two-Stage Preview & Confirmation Workflow
-
-### Stage 1: Preview (`confirm: false`)
-`POST /api/sheets/mutate` (or `POST /api/sheets/mutation` / `POST /api/businesses/:businessId/sheets/mutate`)
-
-**Request Body**:
+#### Step 2: Confirmation (`confirm: true`)
 ```json
 {
-  "entity": "products",
-  "message": "Increase the discount of all summer shirts by 5%.",
-  "confirm": false
-}
-```
-
-**Response (`200 OK`)**:
-- Does **not** modify the database.
-- Resolves all matching rows for the business, computes the exact `before` and `after` values for every affected row, validates per-row constraints (e.g., ensuring `discount + 5 <= 100` and `price - 200 >= 0`), and returns:
-  - `status`: `"preview"`
-  - `affected_count`: number of matching rows
-  - `preview_hash`: deterministic SHA-256 hash of the target row IDs and their `before`/`after` values
-  - `diff`: array of `{ id, name, before, after, changes }`
-  - `target_rows`: current matching rows
-
-### Stage 2: Confirmed Execution (`confirm: true`)
-
-**Request Body**:
-```json
-{
-  "entity": "products",
-  "message": "Increase the discount of all summer shirts by 5%.",
+  "entity": "electronics_inventory",
+  "message": "Put a 10% discount on all products from Asus.",
   "confirm": true,
-  "preview_hash": "a1b2c3d4e5f60718"
+  "preview_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}
+```
+**Response**:
+```json
+{
+  "status": "success",
+  "operation": "update_many",
+  "entity": "electronics_inventory",
+  "affected_count": 2,
+  "message": "Successfully updated 2 electronics_inventory record(s).",
+  "updated_rows": [ ... ]
 }
 ```
 
-**Response (`200 OK`)**:
-- Runs inside a PostgreSQL transaction (`BEGIN` ... `SELECT ... FOR UPDATE` ... `UPDATE` ... `COMMIT`).
-- If `preview_hash` (or `expected_preview_hash`) is supplied and the underlying rows changed since the preview was generated, rejects with `409 Conflict` so stale previews never overwrite newer data.
-- Re-validates per-row constraints against the locked rows and executes parameterized SQL updates.
-- Returns `status: "success"`, `affected_count`, `updated_rows`, and `diff`.
-
 ---
 
-## 6. Ambiguity Handling, Common Errors & Limitations
+## 6. Safety & Integrity Safeguards
 
-1. **Ambiguous Requests or Missing Values (`200 OK` with `status: "clarification_needed"`)**:
-   - Example: *"Update the discount of OpenWeave Shirt."* (missing target discount value).
-   - Example: *"Find products by warehouse location."* (references a column that does not exist in `products.csv`).
-2. **Constraint Violations (`400 Bad Request`)**:
-   - Setting or computing `discount > 100` or `discount < 0`.
-   - Setting or computing `price < 0`, `ordered < 0`, or `size.<KEY> < 0` (negative stock).
-   - Attempting arithmetic (`add`, `subtract`, `multiply`) on non-numeric fields (`name`, `category`, `best`, `color`, `description`, `images`).
-   - Using an unsupported size key outside `M, L, XL, XXL, XXXL`.
-3. **Zero Matching Records (`200 OK` with `status: "not_found"`)**:
-   - When valid filters match `0` products for the business, returns `status: "not_found"` and `affected_count: 0` without modifying any data.
-4. **Stale Preview (`409 Conflict`)**:
-   - Returned when `confirm: true` includes a `preview_hash` that no longer matches current database state.
-5. **Known Limitations**:
-   - Only the single `products` table (seeded from `backend/products.csv`) is supported.
-   - Nested size stock operations support the standard apparel size keys (`M`, `L`, `XL`, `XXL`, `XXXL`).
-   - Arithmetic operations update columns across rows independently; cross-row aggregations (such as setting a product's price equal to the average price of all products) are not supported.
+1. **Deterministic Preview Hash (`preview_hash`)**:
+   - Computes a SHA-256 digest over the target rows and their before/after states. If any target row is modified between preview and confirmation, execution is rejected with HTTP 409 Conflict.
+2. **Pessimistic Row Locking (`FOR UPDATE`)**:
+   - Target rows are locked inside an explicit PostgreSQL transaction (`withTransaction`) before applying arithmetic updates, preventing concurrent race conditions.
+3. **SQL Injection Prevention**:
+   - LLMs are never permitted to generate raw SQL. All filtering and update clauses use parameterized placeholders (`$1, $2, ...`) and strictly validated column names.
+4. **Post-Update Invariant Verification**:
+   - Returned rows are checked to ensure no numerical field violates its schema boundaries (e.g. `Current_Price >= 0`, `Stock_Qty >= 0`, `discount` between 0 and 100).

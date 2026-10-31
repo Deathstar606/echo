@@ -1,9 +1,10 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { motion } from "framer-motion";
 import {
   FileSpreadsheet,
   Upload,
+  PlusCircle,
   Sparkles,
   Search,
   AlertCircle,
@@ -22,6 +23,7 @@ import {
   previewSheetMutation,
   applySheetMutation,
   importSheetCsvFile,
+  appendSheetCsvFile,
   setSheetNlPrompt,
   clearSheetFiltersAndFeedback,
   discardMutationPreview,
@@ -73,6 +75,57 @@ const BASE_SAMPLE_PROMPTS = [
   },
 ];
 
+const ELECTRONICS_SAMPLE_PROMPTS = [
+  {
+    type: "query",
+    label: "Laptops in Dhaka warehouse",
+    text: "Show all products in warehouse Dhaka.",
+  },
+  {
+    type: "query",
+    label: "Dell laptops < 1500",
+    text: "Find Dell laptops with Current_Price below 1500.",
+  },
+  {
+    type: "query",
+    label: "Low stock items",
+    text: "Show products with Stock_Qty below 10.",
+  },
+  {
+    type: "mutation",
+    label: "Increase Dell laptops price by $50",
+    text: "Increase the Current_Price of Dell laptops by $50.",
+  },
+  {
+    type: "mutation",
+    label: "Increase stock of Asus ROG by 5",
+    text: "Increase the Stock_Qty of Asus ROG Strix G16 by 5.",
+  },
+];
+
+const GROCERY_SAMPLE_PROMPTS = [
+  {
+    type: "query",
+    label: "Products from Acme",
+    text: "Show all products from supplier Acme.",
+  },
+  {
+    type: "query",
+    label: "Items in Dhaka warehouse",
+    text: "List items in warehouse Dhaka.",
+  },
+  {
+    type: "mutation",
+    label: "Reduce NorthStar cost by 5%",
+    text: "Reduce the unit cost of products from supplier NorthStar by 5%.",
+  },
+  {
+    type: "mutation",
+    label: "Increase Dhaka quantity by 15",
+    text: "Increase the quantity of products in warehouse Dhaka by 15 units.",
+  },
+];
+
 function looksLikeMutationInstruction(text) {
   const lower = String(text || "")
     .trim()
@@ -86,20 +139,49 @@ function formatCellValue(col, value) {
   if (value === null || value === undefined || value === "") {
     return "—";
   }
-  if (col === "price") {
-    const num = Number(value);
-    return Number.isFinite(num) ? `${num}` : String(value);
-  }
-  if (col === "discount") {
-    const num = Number(value);
-    return Number.isFinite(num) ? `${num}%` : String(value);
-  }
-  if (col === "best") {
+  const lowerCol = String(col).toLowerCase();
+
+  if (typeof value === "boolean" || lowerCol === "best") {
     return value === true || String(value).toLowerCase() === "true"
       ? "True"
       : "False";
   }
-  if (col === "size") {
+
+  if (
+    lowerCol.includes("price") ||
+    lowerCol.includes("cost") ||
+    lowerCol.includes("rate")
+  ) {
+    const num = Number(value);
+    return Number.isFinite(num) ? `${num}` : String(value);
+  }
+
+  if (
+    lowerCol.includes("discount") ||
+    lowerCol.includes("percentage") ||
+    lowerCol.includes("pct")
+  ) {
+    const num = Number(value);
+    return Number.isFinite(num) ? `${num}%` : String(value);
+  }
+
+  if (
+    lowerCol.includes("qty") ||
+    lowerCol.includes("quantity") ||
+    lowerCol.includes("level") ||
+    lowerCol.includes("ordered") ||
+    lowerCol.includes("months")
+  ) {
+    const num = Number(value);
+    return Number.isFinite(num) ? `${num}` : String(value);
+  }
+
+  if (lowerCol.includes("date") || lowerCol.includes("time")) {
+    const d = String(value).slice(0, 10);
+    return d || String(value);
+  }
+
+  if (lowerCol === "size") {
     const raw = String(value);
     try {
       const parsed = JSON.parse(raw);
@@ -113,11 +195,13 @@ function formatCellValue(col, value) {
     }
     return raw;
   }
-  if (col === "description") {
+
+  if (lowerCol.includes("desc")) {
     const str = String(value).replace(/\s+/g, " ").trim();
     return str.length > 90 ? `${str.slice(0, 90)}...` : str;
   }
-  if (col === "images") {
+
+  if (lowerCol.includes("image")) {
     const urls = String(value)
       .split(",")
       .map((s) => s.trim())
@@ -125,13 +209,20 @@ function formatCellValue(col, value) {
     if (urls.length === 0) return "—";
     return `${urls.length} image(s)`;
   }
+
   return String(value);
 }
 
 export default function SheetManagementPanel() {
   const dispatch = useDispatch();
+  const [clientAppendError, setClientAppendError] = useState(null);
+
   const {
-    rowsByEntity,
+    activeEntity = "products",
+    activeDisplayName = "Products",
+    activeFileName = "products.csv",
+    activeColumns = [],
+    rowsByEntity = {},
     sheetLoadStatus,
     sheetLoadError,
     nlPrompt,
@@ -147,25 +238,107 @@ export default function SheetManagementPanel() {
     csvUploadStatus,
     csvUploadMessage,
     csvUploadError,
+    csvAppendStatus,
+    csvAppendMessage,
+    csvAppendError,
   } = useSelector((state) => state.sheets);
 
-  // Load products sheet on mount
+  // Load active sheet on mount
   useEffect(() => {
-    dispatch(loadSheetRows("products"));
-  }, [dispatch]);
+    dispatch(loadSheetRows(activeEntity));
+  }, [dispatch, activeEntity]);
 
-  const activeRows = rowsByEntity.products || [];
-  const samplePrompts =
-    activeRows.length > 0 && activeRows[0]?.name
-      ? [
-          ...BASE_SAMPLE_PROMPTS,
-          {
-            type: "mutation",
-            label: `Increase ${activeRows[0].name} (XL & M) stock by 2`,
-            text: `Increase stock of product ${activeRows[0].name} for sizes XL and M by 2.`,
-          },
-        ]
-      : BASE_SAMPLE_PROMPTS;
+  const activeRows = rowsByEntity[activeEntity] || [];
+
+  // Determine dynamic table columns from the active sheet
+  const displayedColumns = useMemo(() => {
+    if (Array.isArray(activeColumns) && activeColumns.length > 0) {
+      return activeColumns;
+    }
+    if (activeRows.length > 0) {
+      const keys = Object.keys(activeRows[0]).filter(
+        (k) =>
+          !["id", "business_id", "created_at", "updated_at"].includes(
+            k.toLowerCase(),
+          ),
+      );
+      if (keys.length > 0) return keys;
+    }
+    if (activeEntity === "electronics_inventory") {
+      return [
+        "Product_Name",
+        "Brand_Name",
+        "Model",
+        "Current_Price",
+        "Stock_Qty",
+        "Warehouse",
+        "Reorder_Level",
+        "Warranty_Months",
+      ];
+    }
+    if (activeEntity === "grocery_inventory") {
+      return [
+        "Item_Name",
+        "Supplier",
+        "Unit_Cost",
+        "Selling_Price",
+        "Expiry_Date",
+        "Batch_No",
+        "Quantity",
+        "Warehouse_Location",
+        "Stock",
+      ];
+    }
+    return PRODUCT_COLUMNS;
+  }, [activeRows, activeColumns, activeEntity]);
+
+  // Dynamic sample prompts according to active entity
+  const samplePrompts = useMemo(() => {
+    let base = BASE_SAMPLE_PROMPTS;
+    if (activeEntity === "electronics_inventory") {
+      base = ELECTRONICS_SAMPLE_PROMPTS;
+    } else if (activeEntity === "grocery_inventory") {
+      base = GROCERY_SAMPLE_PROMPTS;
+    }
+
+    if (activeRows.length > 0) {
+      const first = activeRows[0];
+      const itemName = first.name || first.Product_Name || first.Item_Name;
+      if (itemName) {
+        if (first.size) {
+          return [
+            ...base,
+            {
+              type: "mutation",
+              label: `Increase ${itemName} (XL & M) stock by 2`,
+              text: `Increase stock of product ${itemName} for sizes XL and M by 2.`,
+            },
+          ];
+        }
+        if (first.Current_Price !== undefined) {
+          return [
+            ...base,
+            {
+              type: "mutation",
+              label: `Increase price of ${itemName} by 20`,
+              text: `Increase the Current_Price of ${itemName} by 20.`,
+            },
+          ];
+        }
+        if (first.Selling_Price !== undefined) {
+          return [
+            ...base,
+            {
+              type: "mutation",
+              label: `Increase price of ${itemName} by 10`,
+              text: `Increase the Selling_Price of ${itemName} by 10.`,
+            },
+          ];
+        }
+      }
+    }
+    return base;
+  }, [activeEntity, activeRows]);
 
   const matchedIdsSet = new Set(
     Array.isArray(queryResult?.matchedIds) ? queryResult.matchedIds : [],
@@ -181,7 +354,7 @@ export default function SheetManagementPanel() {
 
     await dispatch(
       runSheetQuery({
-        entity: "products",
+        entity: activeEntity,
         message: text,
       }),
     );
@@ -196,7 +369,7 @@ export default function SheetManagementPanel() {
 
     await dispatch(
       previewSheetMutation({
-        entity: "products",
+        entity: activeEntity,
         message: text,
       }),
     );
@@ -228,19 +401,62 @@ export default function SheetManagementPanel() {
     const messageToConfirm = mutationPreview.promptUsed || nlPrompt.trim();
     await dispatch(
       applySheetMutation({
-        entity: "products",
+        entity: activeEntity,
         message: messageToConfirm,
       }),
     );
   };
 
-  // CSV Upload Handler
+  // "Upload CSV" (Replaces sheet records or loads a new sheet structure)
   const handleCsvFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setClientAppendError(null);
+
     await dispatch(
       importSheetCsvFile({
-        entity: "products",
+        entity: activeEntity,
+        file,
+      }),
+    );
+    e.target.value = "";
+  };
+
+  // "Add Rows" (Appends new rows to existing active CSV sheet with strict column validation)
+  const handleAppendRowsUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setClientAppendError(null);
+
+    // Client-side pre-validation: check that new rows have the same columns as active sheet
+    try {
+      const text = await file.slice(0, 4096).text();
+      const firstLine = text.split(/\r?\n/)[0] || "";
+      const uploadedHeaders = firstLine
+        .split(",")
+        .map((h) => h.replace(/^["']|["']$/g, "").trim().toLowerCase())
+        .filter(Boolean);
+
+      const missingCols = displayedColumns.filter(
+        (col) => !uploadedHeaders.includes(col.toLowerCase()),
+      );
+
+      if (missingCols.length > 0) {
+        setClientAppendError(
+          `Invalid CSV headers for append. Uploaded row columns do not match active sheet (${activeDisplayName || activeEntity}). Missing column(s): ${missingCols.join(
+            ", ",
+          )}. Expected columns: ${displayedColumns.join(", ")}.`,
+        );
+        e.target.value = "";
+        return;
+      }
+    } catch {
+      // If client-side slice fails, continue to server-side validation
+    }
+
+    await dispatch(
+      appendSheetCsvFile({
+        entity: activeEntity,
         file,
       }),
     );
@@ -251,7 +467,9 @@ export default function SheetManagementPanel() {
     sheetLoadStatus === "loading" ||
     queryStatus === "loading" ||
     mutationPreviewStatus === "loading" ||
-    mutationApplyStatus === "loading";
+    mutationApplyStatus === "loading" ||
+    csvUploadStatus === "loading" ||
+    csvAppendStatus === "loading";
 
   return (
     <motion.div
@@ -268,7 +486,7 @@ export default function SheetManagementPanel() {
         gap: "16px",
       }}
     >
-      {/* Left Main Card: Live Products Spreadsheet Area */}
+      {/* Left Main Card: Live Universal Spreadsheet Area */}
       <div
         className="portal-card"
         style={{ padding: 0, overflow: "hidden", gap: 0 }}
@@ -284,7 +502,7 @@ export default function SheetManagementPanel() {
           >
             <FileSpreadsheet size={18} color="var(--primary-indigo)" />
             <span className="inquiry-card-title">
-              Product Catalog Sheet (products.csv)
+              {activeFileName || `${activeEntity}.csv`}
             </span>
           </div>
 
@@ -296,6 +514,7 @@ export default function SheetManagementPanel() {
               flexWrap: "wrap",
             }}
           >
+            {/* Upload CSV Button */}
             <label
               className="btn-warm-outlined"
               style={{
@@ -303,27 +522,50 @@ export default function SheetManagementPanel() {
                 fontSize: "12.5px",
                 padding: "6px 12px",
               }}
-              title="Upload a products.csv file to replace the product catalog"
+              title="Upload a CSV file to replace records or switch active sheet"
             >
               <Upload size={14} />
-              {csvUploadStatus === "loading"
-                ? "Uploading..."
-                : "Upload products.csv"}
+              {csvUploadStatus === "loading" ? "Uploading..." : "Upload CSV"}
               <input
                 type="file"
                 accept=".csv"
-                disabled={csvUploadStatus === "loading"}
+                disabled={isBusy}
                 onChange={handleCsvFileUpload}
                 style={{ display: "none" }}
               />
             </label>
 
+            {/* Add Rows Button */}
+            <label
+              className="btn-warm-outlined"
+              style={{
+                cursor: "pointer",
+                fontSize: "12.5px",
+                padding: "6px 12px",
+                borderColor: "var(--primary-indigo)",
+                color: "var(--primary-indigo)",
+                fontWeight: 600,
+              }}
+              title="Upload new rows to the existing CSV file. New rows must match the columns of the active sheet."
+            >
+              <PlusCircle size={14} />
+              {csvAppendStatus === "loading" ? "Adding Rows..." : "Add Rows"}
+              <input
+                type="file"
+                accept=".csv"
+                disabled={isBusy}
+                onChange={handleAppendRowsUpload}
+                style={{ display: "none" }}
+              />
+            </label>
+
+            {/* Refresh Sheet */}
             <button
               type="button"
               className="icon-action-btn"
               disabled={sheetLoadStatus === "loading"}
-              onClick={() => dispatch(loadSheetRows("products"))}
-              title="Refresh products sheet from database"
+              onClick={() => dispatch(loadSheetRows(activeEntity))}
+              title={`Refresh ${activeDisplayName || activeEntity} sheet from database`}
             >
               <RefreshCw
                 size={15}
@@ -341,36 +583,15 @@ export default function SheetManagementPanel() {
             gap: "14px",
           }}
         >
-          {/* Sheet Header Info */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              flexWrap: "wrap",
-              gap: "12px",
-            }}
-          >
+          {/* Clear Row Highlights when active filter is applied */}
+          {hasActiveQueryFilter && (
             <div
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: "10px",
-                flexWrap: "wrap",
+                justifyContent: "flex-end",
               }}
             >
-              <span style={{ fontWeight: 600, fontSize: "13px" }}>
-                Active Sheet:
-              </span>
-              <span
-                className="target-toggle-btn active"
-                style={{ cursor: "default" }}
-              >
-                📦 Products ({activeRows.length})
-              </span>
-            </div>
-
-            {hasActiveQueryFilter && (
               <button
                 type="button"
                 className="btn-warm-outlined"
@@ -380,14 +601,21 @@ export default function SheetManagementPanel() {
                 <RotateCcw size={13} />
                 Clear Row Highlights ({matchedIdsSet.size} matched)
               </button>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Status & Feedback Banners */}
           {sheetLoadError && (
             <div className="alert-banner error">
               <AlertCircle size={16} style={{ flexShrink: 0 }} />
               <span>{sheetLoadError}</span>
+            </div>
+          )}
+
+          {clientAppendError && (
+            <div className="alert-banner error">
+              <AlertCircle size={16} style={{ flexShrink: 0 }} />
+              <span>{clientAppendError}</span>
             </div>
           )}
 
@@ -398,10 +626,24 @@ export default function SheetManagementPanel() {
             </div>
           )}
 
+          {csvAppendError && (
+            <div className="alert-banner error">
+              <AlertCircle size={16} style={{ flexShrink: 0 }} />
+              <span>{csvAppendError}</span>
+            </div>
+          )}
+
           {csvUploadMessage && (
             <div className="alert-banner success">
               <CheckCircle2 size={16} style={{ flexShrink: 0 }} />
               <span>{csvUploadMessage}</span>
+            </div>
+          )}
+
+          {csvAppendMessage && (
+            <div className="alert-banner success">
+              <CheckCircle2 size={16} style={{ flexShrink: 0 }} />
+              <span>{csvAppendMessage}</span>
             </div>
           )}
 
@@ -440,7 +682,7 @@ export default function SheetManagementPanel() {
               <SlidersHorizontal size={15} color="var(--primary-indigo)" />
               <span style={{ fontWeight: 600, fontSize: "13px" }}>
                 {!queryResult
-                  ? `Showing all ${activeRows.length} product record(s) from database.`
+                  ? `Showing all ${activeRows.length} record(s) from ${activeDisplayName || activeEntity}.`
                   : queryResult.status === "clarification_needed"
                     ? `Clarification Needed: ${queryResult.message}`
                     : queryResult.count === 0
@@ -461,7 +703,7 @@ export default function SheetManagementPanel() {
             </span>
           </div>
 
-          {/* Spreadsheet Table */}
+          {/* Universal Spreadsheet Table */}
           <div className="sheet-table-wrap">
             {sheetLoadStatus === "loading" && activeRows.length === 0 ? (
               <div
@@ -477,7 +719,7 @@ export default function SheetManagementPanel() {
                   className="spin"
                   style={{ margin: "0 auto 8px auto" }}
                 />
-                <div>Loading product records from PostgreSQL...</div>
+                <div>Loading {activeDisplayName || activeEntity} records...</div>
               </div>
             ) : activeRows.length === 0 ? (
               <div
@@ -488,16 +730,15 @@ export default function SheetManagementPanel() {
                   fontSize: "13.5px",
                 }}
               >
-                No product records found for this business. Click{" "}
-                <strong>Upload products.csv</strong> above to import your
-                catalog.
+                No records found in {activeDisplayName || activeEntity}. Click{" "}
+                <strong>Upload CSV</strong> above to import your sheet.
               </div>
             ) : (
               <table className="sheet-table">
                 <thead>
                   <tr>
                     <th style={{ width: "54px" }}>#</th>
-                    {PRODUCT_COLUMNS.map((col) => (
+                    {displayedColumns.map((col) => (
                       <th key={col}>{col.replace(/_/g, " ")}</th>
                     ))}
                   </tr>
@@ -529,7 +770,7 @@ export default function SheetManagementPanel() {
                             </span>
                           )}
                         </td>
-                        {PRODUCT_COLUMNS.map((col) => (
+                        {displayedColumns.map((col) => (
                           <td
                             key={col}
                             title={
@@ -568,7 +809,7 @@ export default function SheetManagementPanel() {
               borderRadius: "999px",
             }}
           >
-            PRODUCTS
+            {(activeDisplayName || activeEntity).toUpperCase()}
           </span>
         </div>
 
@@ -592,7 +833,13 @@ export default function SheetManagementPanel() {
             value={nlPrompt}
             onChange={(e) => dispatch(setSheetNlPrompt(e.target.value))}
             disabled={isBusy}
-            placeholder='e.g. "Show all best-selling products." or "Increase the discount of all summer shirts by 5%."'
+            placeholder={
+              activeEntity === "electronics_inventory"
+                ? 'e.g. "Show laptops in warehouse Dhaka." or "Increase Current_Price of Dell laptops by $50."'
+                : activeEntity === "grocery_inventory"
+                  ? 'e.g. "Show items from supplier Acme." or "Reduce Unit_Cost of NorthStar products by 5%."'
+                  : 'e.g. "Show all best-selling products." or "Increase the discount of all summer shirts by 5%."'
+            }
           />
 
           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
@@ -674,7 +921,7 @@ export default function SheetManagementPanel() {
               color: "var(--text-secondary)",
             }}
           >
-            Quick Sample Prompts (products.csv):
+            Quick Sample Prompts ({activeEntity}.csv):
           </span>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
             {samplePrompts.map((sample) => (
@@ -818,6 +1065,12 @@ export default function SheetManagementPanel() {
                       const changedFields = Object.keys(
                         mutationPreview.proposed_changes || {},
                       );
+                      const displayTitle =
+                        rowDiff.name ||
+                        rowDiff.Product_Name ||
+                        rowDiff.Item_Name ||
+                        rowDiff.id ||
+                        `Row ${i + 1}`;
                       return (
                         <div
                           key={rowDiff.id || i}
@@ -830,7 +1083,7 @@ export default function SheetManagementPanel() {
                           }}
                         >
                           <div style={{ fontWeight: 700, marginBottom: "4px" }}>
-                            {rowDiff.name}
+                            {displayTitle}
                           </div>
                           {changedFields.map((field) => {
                             const beforeVal =

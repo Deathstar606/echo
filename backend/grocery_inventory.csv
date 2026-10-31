@@ -1,0 +1,6 @@
+Item_Name,Supplier,Unit_Cost,Selling_Price,Expiry_Date,Batch_No,Quantity,Warehouse_Location,Stock
+Organic Whole Milk,Acme,40.00,75.00,2026-11-15,BAT-001,50,Dhaka,true
+Cheddar Cheese Block,Acme,120.00,210.00,2026-12-20,BAT-002,30,Chittagong,true
+Greek Yogurt Tub,NorthStar,55.00,95.00,2027-04-10,BAT-003,45,Dhaka,false 
+Salted Butter Pack,NorthStar,80.00,140.00,2026-10-25,BAT-004,25,Chittagong,ture
+Almond Milk Carton,FreshFarms,65.00,110.00,2027-08-30,BAT-005,40,Dhaka,false

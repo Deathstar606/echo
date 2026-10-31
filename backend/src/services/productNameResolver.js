@@ -1,31 +1,23 @@
 const { query } = require('../../db');
-const { getSchema } = require('./sheetSchemaService');
+const { getSchema, findColumnDef } = require('./sheetSchemaService');
 
 /**
- * Deterministic, catalog-driven product name resolution.
+ * Deterministic, catalog-driven product/item name resolution.
  *
- * Product names are arbitrary user data (any language, punctuation, casing, trailing
- * periods, apostrophes, hyphens, etc.). Neither the LLM nor the SQL layer should require
- * the user to type a name byte-for-byte. This module resolves `name` filters produced by
- * the interpreter against the business's live catalog before SQL is built:
- *
- *   1. Normalized exact match  (case-, punctuation-, and trailing-period-insensitive)
+ * Resolves product/item name filters produced by the interpreter against the business's
+ * live catalog before SQL is built:
+ *   1. Normalized exact match (case-, punctuation-, and trailing-period-insensitive)
  *   2. Unique token containment (all words the user typed appear in exactly one product
- *                               name, or exactly one full product name appears inside
- *                               what the user typed)
+ *      name, or exactly one full product name appears inside what the user typed)
  *   3. Otherwise → clarification with real "did you mean" suggestions computed from the
  *      business's catalog (never from hardcoded data).
- *
- * No product names are hardcoded anywhere in this module.
  */
 
 const NAME_EQUALITY_OPERATORS = new Set(['equals', 'not_equals']);
 const NAME_SUBSTRING_OPERATORS = new Set(['contains', 'not_contains', 'starts_with', 'ends_with']);
 
 /**
- * Normalizes a product name for comparison: Unicode-folds, lowercases, strips diacritics,
- * removes apostrophes (so "Men's" == "Mens"), converts any other punctuation to spaces,
- * and collapses whitespace.
+ * Normalizes a product/item name for comparison.
  *
  * @param {string} value
  * @returns {string}
@@ -50,8 +42,7 @@ function tokenize(normalized) {
 }
 
 /**
- * Character-bigram Dice similarity (0..1) on normalized strings, used only to rank
- * "did you mean" suggestions.
+ * Character-bigram Dice similarity (0..1) on normalized strings.
  */
 function diceSimilarity(a, b) {
   const x = a.replace(/\s+/g, '');
@@ -77,7 +68,7 @@ function diceSimilarity(a, b) {
 }
 
 /**
- * Loads the distinct product names (and categories) for a business.
+ * Loads distinct product/item names (and category/brand) for a business.
  *
  * @param {string} businessId
  * @param {string} [entity='products']
@@ -85,14 +76,53 @@ function diceSimilarity(a, b) {
  */
 async function loadCatalogNames(businessId, entity = 'products') {
   const schema = getSchema(entity);
-  const result = await query(
-    `SELECT name, category FROM ${schema.tableName} WHERE business_id = $1 ORDER BY name ASC;`,
-    [businessId]
-  );
-  return result.rows.map((r) => ({
-    name: r.name,
-    category: r.category ?? null,
-  }));
+  const nameColDef =
+    schema.columns.name ||
+    schema.columns.product_name ||
+    schema.columns.product_model ||
+    schema.columns.item_name ||
+    schema.columns.title ||
+    schema.columns.model ||
+    Object.values(schema.columns).find(
+      (c) => c.modifiable && c.type === 'string' && /name|model|item|title/i.test(c.exactName)
+    ) ||
+    Object.values(schema.columns).find((c) => c.modifiable && c.type === 'string');
+
+  if (!nameColDef) return [];
+  const exactNameCol = nameColDef.exactName || 'name';
+
+  const catColDef =
+    schema.columns.category ||
+    schema.columns.brand_name ||
+    schema.columns.vendor ||
+    schema.columns.supplier ||
+    Object.values(schema.columns).find(
+      (c) =>
+        c.modifiable &&
+        c.type === 'string' &&
+        /category|brand|vendor|supplier/i.test(c.exactName)
+    );
+  const exactCatCol = catColDef ? catColDef.exactName : null;
+
+  const selectCols = exactCatCol
+    ? `"${exactNameCol}", "${exactCatCol}"`
+    : `"${exactNameCol}"`;
+
+  try {
+    const safeTableName = String(schema.tableName || 'products').replace(/[^a-z0-9_]/gi, '_');
+    const result = await query(
+      `SELECT ${selectCols} FROM "${safeTableName}" WHERE business_id = $1 ORDER BY "${exactNameCol}" ASC;`,
+      [businessId]
+    );
+    return result.rows.map((r) => ({
+      name: r[exactNameCol] ?? r[exactNameCol.toLowerCase()] ?? r.name,
+      category: exactCatCol
+        ? (r[exactCatCol] ?? r[exactCatCol.toLowerCase()] ?? r.category ?? null)
+        : null,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -103,7 +133,7 @@ async function loadCatalogNames(businessId, entity = 'products') {
 function buildNameIndex(catalog) {
   const entries = [];
   const seen = new Set();
-  for (const item of catalog) {
+  for (const item of catalog || []) {
     const name = item?.name;
     if (typeof name !== 'string' || !name.trim() || seen.has(name)) continue;
     seen.add(name);
@@ -141,81 +171,124 @@ function suggestNames(index, rawValue, limit = 3) {
  *          | { status: 'not_found', suggestions: string[] }}
  */
 function resolveProductName(index, rawValue) {
-  const normalized = normalizeProductName(rawValue);
-  if (!normalized) {
+  const rawClean = String(rawValue ?? '').trim();
+  if (!rawClean) {
     return { status: 'not_found', suggestions: [] };
   }
 
-  // 1. Normalized exact match (punctuation / case / whitespace / apostrophe insensitive)
-  const exact = index.filter((e) => e.normalized === normalized);
-  if (exact.length > 0) {
-    return { status: 'resolved', names: exact.map((e) => e.name), strategy: 'normalized_exact' };
+  // 1. Byte-for-byte exact match
+  const byteExact = index.find((e) => e.name === rawClean);
+  if (byteExact) {
+    return { status: 'resolved', names: [byteExact.name], strategy: 'exact' };
   }
 
-  const queryTokens = tokenize(normalized);
-
-  // 2a. Every word the user typed appears in the product name (user typed a shorter form)
-  const userSubsetOfProduct = index.filter((e) => queryTokens.every((t) => e.tokens.has(t)));
-  if (userSubsetOfProduct.length === 1) {
-    return { status: 'resolved', names: [userSubsetOfProduct[0].name], strategy: 'token_subset' };
+  // 2. Normalized exact match
+  const normQuery = normalizeProductName(rawClean);
+  const normExact = index.filter((e) => e.normalized === normQuery);
+  if (normExact.length === 1) {
+    return { status: 'resolved', names: [normExact[0].name], strategy: 'normalized_exact' };
+  }
+  if (normExact.length > 1) {
+    return { status: 'ambiguous', candidates: normExact.map((e) => e.name) };
   }
 
-  // 2b. The full product name appears inside what the user typed (user added extra words).
-  //     Prefer the longest such product name so "X Shirt for Men" beats "X Shirt".
-  const productInsideUser = index
-    .filter((e) => e.tokens.size > 0 && [...e.tokens].every((t) => queryTokens.includes(t)))
-    .sort((a, b) => b.tokens.size - a.tokens.size);
-  if (
-    productInsideUser.length === 1 ||
-    (productInsideUser.length > 1 && productInsideUser[0].tokens.size > productInsideUser[1].tokens.size)
-  ) {
-    return { status: 'resolved', names: [productInsideUser[0].name], strategy: 'token_superset' };
+  // 3. Normalized containment (query inside catalog name or vice-versa)
+  const queryTokens = tokenize(normQuery);
+  const substringMatches = index.filter(
+    (e) => e.normalized.includes(normQuery) || (normQuery.length >= 4 && normQuery.includes(e.normalized))
+  );
+
+  if (substringMatches.length === 1) {
+    return { status: 'resolved', names: [substringMatches[0].name], strategy: 'normalized_substring' };
   }
 
-  if (userSubsetOfProduct.length > 1) {
-    return { status: 'ambiguous', candidates: userSubsetOfProduct.map((e) => e.name).slice(0, 8) };
+  // 4. Token subset matching (e.g. "Granular Texture Turtleneck Shirt" vs "Granular Texture Turtleneck Shirt for Men")
+  if (queryTokens.length >= 2) {
+    const tokenSubsetMatches = index.filter((e) => {
+      const matchCount = queryTokens.filter((t) => e.tokens.has(t)).length;
+      return matchCount === queryTokens.length || (e.tokens.size >= 2 && matchCount === e.tokens.size);
+    });
+    if (tokenSubsetMatches.length === 1) {
+      return { status: 'resolved', names: [tokenSubsetMatches[0].name], strategy: 'token_subset' };
+    }
+    if (tokenSubsetMatches.length > 1) {
+      const suggestions = suggestNames(index, rawClean, 3);
+      return { status: 'ambiguous', candidates: tokenSubsetMatches.map((e) => e.name), suggestions };
+    }
   }
 
-  return { status: 'not_found', suggestions: suggestNames(index, rawValue) };
+  if (substringMatches.length > 1) {
+    const suggestions = suggestNames(index, rawClean, 3);
+    return { status: 'ambiguous', candidates: substringMatches.map((e) => e.name), suggestions };
+  }
+
+  const suggestions = suggestNames(index, rawClean, 3);
+  return { status: 'not_found', suggestions };
 }
 
 /**
- * Resolves all `name` filters in a filter list against the business's live catalog.
- *
- * - equals / not_equals: replaced with the exact stored name (or `in` / `not_in`-style
- *   expansion if several stored names normalize identically).
- * - contains / starts_with / ends_with / not_contains: evaluated with normalized matching
- *   and rewritten to an exact `in` list of stored names when that finds matches the raw
- *   SQL ILIKE would miss because of punctuation differences.
+ * Resolves name filters produced by the LLM against the business's live catalog.
  *
  * @param {object} params
  * @param {string} params.businessId
- * @param {Array<{ field: string, operator: string, value: any }>} params.filters
+ * @param {Array<object>} params.filters
  * @param {string} [params.entity='products']
- * @param {Array} [params.catalog] - optional preloaded catalog (for tests/batching)
+ * @param {Array} [params.catalog]
  * @returns {Promise<{ status: 'ok', filters: Array, resolutions: Array }
  *                  | { status: 'clarification_needed', message: string, suggestions: string[] }>}
  */
 async function resolveNameFilters({ businessId, filters, entity = 'products', catalog }) {
   const list = Array.isArray(filters) ? filters : [];
-  const hasNameFilter = list.some(
-    (f) => f && String(f.field || '').toLowerCase() === 'name' && typeof f.value === 'string'
-  );
+  const schema = getSchema(entity);
+
+  // Identify if any filter targets a name-like column
+  const nameColDef =
+    schema.columns.name ||
+    schema.columns.product_name ||
+    schema.columns.item_name ||
+    schema.columns.title;
+  const exactNameCol = nameColDef ? nameColDef.exactName || 'name' : null;
+
+  const hasNameFilter = list.some((f) => {
+    if (!f || typeof f.value !== 'string') return false;
+    const fLower = String(f.field || '').toLowerCase();
+    return (
+      fLower === 'name' ||
+      fLower === 'product_name' ||
+      fLower === 'item_name' ||
+      (exactNameCol && fLower === exactNameCol.toLowerCase())
+    );
+  });
+
   if (!hasNameFilter) {
     return { status: 'ok', filters: list, resolutions: [] };
   }
 
-  const index = buildNameIndex(catalog || (await loadCatalogNames(businessId, entity)));
+  const catalogRows = catalog || (await loadCatalogNames(businessId, entity));
+  const index = buildNameIndex(catalogRows);
+
+  // If no catalog names in DB for this business/table, keep filters verbatim
+  if (index.length === 0) {
+    return { status: 'ok', filters: list, resolutions: [] };
+  }
+
   const resolvedFilters = [];
   const resolutions = [];
 
   for (const filter of list) {
-    const field = String(filter?.field || '').toLowerCase();
-    if (field !== 'name' || typeof filter.value !== 'string') {
+    const fieldLower = String(filter?.field || '').toLowerCase();
+    const isTargetNameCol =
+      fieldLower === 'name' ||
+      fieldLower === 'product_name' ||
+      fieldLower === 'item_name' ||
+      (exactNameCol && fieldLower === exactNameCol.toLowerCase());
+
+    if (!isTargetNameCol || typeof filter.value !== 'string') {
       resolvedFilters.push(filter);
       continue;
     }
 
+    const targetFieldName = exactNameCol || filter.field;
     const operator = filter.operator;
 
     if (NAME_EQUALITY_OPERATORS.has(operator)) {
@@ -223,29 +296,28 @@ async function resolveNameFilters({ businessId, filters, entity = 'products', ca
       if (outcome.status === 'resolved') {
         resolutions.push({ requested: filter.value, resolved: outcome.names, strategy: outcome.strategy });
         if (outcome.names.length === 1) {
-          resolvedFilters.push({ ...filter, value: outcome.names[0] });
+          resolvedFilters.push({ ...filter, field: targetFieldName, value: outcome.names[0] });
         } else if (operator === 'equals') {
-          resolvedFilters.push({ field: 'name', operator: 'in', value: outcome.names });
+          resolvedFilters.push({ field: targetFieldName, operator: 'in', value: outcome.names });
         } else {
           for (const n of outcome.names) {
-            resolvedFilters.push({ field: 'name', operator: 'not_equals', value: n });
+            resolvedFilters.push({ field: targetFieldName, operator: 'not_equals', value: n });
           }
         }
         continue;
       }
 
       if (operator === 'not_equals') {
-        // Excluding a product that does not exist excludes nothing; keep the filter as-is.
-        resolvedFilters.push(filter);
+        resolvedFilters.push({ ...filter, field: targetFieldName });
         continue;
       }
 
       if (outcome.status === 'ambiguous') {
         return {
           status: 'clarification_needed',
-          message: `The product name "${filter.value}" matches multiple products: ${outcome.candidates
+          message: `The name "${filter.value}" matches multiple records: ${outcome.candidates
             .map((c) => `"${c}"`)
-            .join(', ')}. Which product did you mean?`,
+            .join(', ')}. Which one did you mean?`,
           suggestions: outcome.candidates,
         };
       }
@@ -255,7 +327,7 @@ async function resolveNameFilters({ businessId, filters, entity = 'products', ca
         : '';
       return {
         status: 'clarification_needed',
-        message: `No product named "${filter.value}" exists in this business's catalog.${suggestionText}`,
+        message: `No record matching "${filter.value}" exists in this catalog.${suggestionText}`,
         suggestions: outcome.suggestions,
       };
     }
@@ -263,7 +335,7 @@ async function resolveNameFilters({ businessId, filters, entity = 'products', ca
     if (NAME_SUBSTRING_OPERATORS.has(operator)) {
       const needle = normalizeProductName(filter.value);
       if (!needle) {
-        resolvedFilters.push(filter);
+        resolvedFilters.push({ ...filter, field: targetFieldName });
         continue;
       }
       const test = (e) => {
@@ -275,10 +347,10 @@ async function resolveNameFilters({ businessId, filters, entity = 'products', ca
 
       if (operator === 'not_contains') {
         if (matched.length === 0) {
-          resolvedFilters.push(filter);
+          resolvedFilters.push({ ...filter, field: targetFieldName });
         } else {
           for (const n of matched) {
-            resolvedFilters.push({ field: 'name', operator: 'not_equals', value: n });
+            resolvedFilters.push({ field: targetFieldName, operator: 'not_equals', value: n });
           }
         }
         continue;
@@ -288,16 +360,16 @@ async function resolveNameFilters({ businessId, filters, entity = 'products', ca
         resolutions.push({ requested: filter.value, resolved: matched, strategy: `normalized_${operator}` });
         resolvedFilters.push(
           matched.length === 1
-            ? { field: 'name', operator: 'equals', value: matched[0] }
-            : { field: 'name', operator: 'in', value: matched }
+            ? { field: targetFieldName, operator: 'equals', value: matched[0] }
+            : { field: targetFieldName, operator: 'in', value: matched }
         );
       } else {
-        resolvedFilters.push(filter);
+        resolvedFilters.push({ ...filter, field: targetFieldName });
       }
       continue;
     }
 
-    resolvedFilters.push(filter);
+    resolvedFilters.push({ ...filter, field: targetFieldName });
   }
 
   return { status: 'ok', filters: resolvedFilters, resolutions };
