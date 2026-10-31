@@ -1,0 +1,6 @@
+Product_Model,Vendor,Cost_Price,Retail_Price,Collection_Season,SKU,Units_In_Stock,Distribution_Center,Is_Available
+Classic Quilted Shoulder Bag,Bellavita Leather,1200.00,2499.00,SS-2026,HB-QST-001,18,Dhaka Central,true
+Saffiano Leather Tote,ModaSole,1850.00,3800.00,AW-2026,HB-SFT-002,25,Chittagong Port,true
+Minimalist Vegan Crossbody,UrbanEco Studio,750.00,1550.00,SS-2026,HB-VXC-003,0,Dhaka Central,false
+Croc-Embossed Evening Clutch,Atelier Luxe,980.00,2100.00,AW-2026,HB-CEC-004,12,Sylhet Depot,true
+Canvas Everyday Satchel,CraftHouse Goods,550.00,1150.00,SS-2026,HB-CES-005,0,Chittagong Port,false

@@ -1,0 +1,11 @@
+Shoe_Model,Brand,Category,Size_Range_EU,Colorway,Cost_Price,Retail_Price,Stock_Quantity,Warehouse_Hub,In_Stock
+Pegasus Glide Runner,Nike,Running,40-45,Black/White,3500.00,6800.00,24,Dhaka Central,true
+Ultraboost Pace,Adidas,Running,39-44,Core Black,4200.00,8200.00,18,Chittagong Port,true
+Classic Leather Oxford,Clarks,Formal,41-45,Dark Brown,2900.00,5600.00,12,Dhaka Central,true
+Suede Penny Loafer,Apex,Casual,40-44,Tan,1800.00,3500.00,0,Sylhet Depot,false
+Chuck 70 High-Top,Converse,Canvas Sneaker,38-43,Optical White,1500.00,2900.00,30,Chittagong Port,true
+Gel-Venture Trail,Asics,Trail Running,41-46,Olive Green,3800.00,7400.00,15,Dhaka Central,true
+Chelsea Heritage Boot,Bay Emporium,Boots,40-44,Matte Black,2600.00,4990.00,8,Dhaka Central,true
+Club C Court Sneaker,Reebok,Lifestyle,39-44,Chalk White/Green,2100.00,4200.00,0,Khulna Hub,false
+Speedcross Off-Road,Salomon,Trail Running,41-45,Slate Grey,4600.00,8900.00,10,Chittagong Port,true
+Boston Suede Mule,Birkenstock,Comfort Casual,37-43,Taupe,2400.00,4800.00,16,Dhaka Central,true

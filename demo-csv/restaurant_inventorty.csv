@@ -1,0 +1,16 @@
+Ingredient_Name,Category,Supplier,Package_Unit,Unit_Cost,Current_Stock,Reorder_Level,Storage_Zone,Expiry_Date,In_Stock
+Boneless Chicken Breast,Meat & Poultry,Bengal Meat,1 kg,320.00,45,15,Deep Freezer,2026-11-10,true
+Basmati Rice,Dry Goods,Pran Agro,25 kg Sack,2400.00,10,3,Dry Pantry,2027-06-30,true
+Roma Tomatoes,Produce,Green Valley Farms,1 kg,65.00,28,10,Walk-in Cooler,2026-11-05,true
+Heavy Cream 35%,Dairy,Arla Foods,1 L Carton,550.00,16,6,Walk-in Cooler,2026-11-22,true
+Extra Virgin Olive Oil,Oils & Sauces,Olitalia,5 L Tin,4200.00,5,2,Dry Pantry,2027-04-15,true
+Tiger Prawns (Large),Seafood,Bay Marine Supplies,1 kg,850.00,0,8,Deep Freezer,2026-11-14,false
+Mozzarella Cheese Block,Dairy,Dairy Crest,2 kg Block,1650.00,12,4,Walk-in Cooler,2026-12-08,true
+Fresh Baby Spinach,Produce,FreshLeaf Farms,1 kg,120.00,0,5,Walk-in Cooler,2026-11-03,false
+Beef Tenderloin Cut,Meat & Poultry,Bengal Meat,1 kg,980.00,18,5,Deep Freezer,2026-11-18,true
+Yellow Onions,Produce,Green Valley Farms,50 kg Sack,2200.00,4,2,Dry Pantry,2026-12-15,true
+Unsalted Butter,Dairy,NorthStar Dairy,1 kg,760.00,20,6,Walk-in Cooler,2026-12-02,true
+Spaghetti Pasta,Dry Goods,Barilla Imports,5 kg Box,1100.00,14,4,Dry Pantry,2027-10-25,true
+Atlantic Salmon Fillet,Seafood,Bay Marine Supplies,1 kg,1450.00,7,3,Deep Freezer,2026-11-12,true
+Fresh Sweet Basil,Produce,FreshLeaf Farms,Bunch (250g),45.00,0,6,Walk-in Cooler,2026-11-04,false
+White Truffle Oil,Oils & Sauces,Olitalia,250 ml Bottle,1850.00,3,1,Dry Pantry,2027-08-15,true

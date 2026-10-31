@@ -1,0 +1,6 @@
+Item_Name,Supplier,Unit_Cost,Selling_Price,Expiry_Date,Batch_No,Quantity,Warehouse_Location,Stock
+Red Velvet Cake (1kg),SweetBake Supplies,450.00,850.00,2026-11-05,CK-101,15,Dhaka,true
+Dark Chocolate Fudge Cake,CocoaCraft,520.00,950.00,2026-11-04,CK-102,20,Chittagong,true
+Vanilla Bean Sponge Cake,SweetBake Supplies,350.00,650.00,2026-11-03,CK-103,0,Dhaka,false
+Blueberry Cheesecake Slice,Artisan Bakery Co,180.00,320.00,2026-11-02,CK-104,35,Chittagong,true
+Salted Caramel Torte,Artisan Bakery Co,480.00,890.00,2026-11-06,CK-105,0,Dhaka,false
