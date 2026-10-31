@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   FileSpreadsheet,
   Upload,
@@ -16,6 +16,8 @@ import {
   Loader2,
   Edit3,
   AlertTriangle,
+  Info,
+  X,
 } from "lucide-react";
 import {
   loadSheetRows,
@@ -24,9 +26,11 @@ import {
   applySheetMutation,
   importSheetCsvFile,
   appendSheetCsvFile,
+  insertSingleSheetRow,
   setSheetNlPrompt,
   clearSheetFiltersAndFeedback,
   discardMutationPreview,
+  clearRowInsertState,
 } from "../store/sheetSlice";
 
 const PRODUCT_COLUMNS = [
@@ -241,7 +245,15 @@ export default function SheetManagementPanel() {
     csvAppendStatus,
     csvAppendMessage,
     csvAppendError,
+    rowInsertStatus,
+    rowInsertMessage,
+    rowInsertError,
   } = useSelector((state) => state.sheets);
+
+  const [isAddRowModalOpen, setIsAddRowModalOpen] = useState(false);
+  const [newRowData, setNewRowData] = useState({});
+  const [addRowError, setAddRowError] = useState(null);
+  const [addRowSuccessToast, setAddRowSuccessToast] = useState(null);
 
   // Load active sheet on mount
   useEffect(() => {
@@ -463,13 +475,56 @@ export default function SheetManagementPanel() {
     e.target.value = "";
   };
 
+  const handleOpenAddRowModal = () => {
+    const initialValues = {};
+    for (const col of displayedColumns) {
+      initialValues[col] = col.toLowerCase() === "best" ? "false" : "";
+    }
+    setNewRowData(initialValues);
+    setAddRowError(null);
+    dispatch(clearRowInsertState());
+    setIsAddRowModalOpen(true);
+  };
+
+  const handleRowFieldChange = (col, value) => {
+    setNewRowData((prev) => ({
+      ...prev,
+      [col]: value,
+    }));
+  };
+
+  const handleAddRowSubmit = async (e) => {
+    e.preventDefault();
+    setAddRowError(null);
+
+    const hasValues = Object.entries(newRowData).some(
+      ([_, val]) => String(val ?? "").trim() !== "",
+    );
+    if (!hasValues) {
+      setAddRowError("Please enter at least one column value.");
+      return;
+    }
+
+    try {
+      const res = await dispatch(
+        insertSingleSheetRow({ entity: activeEntity, row: newRowData }),
+      ).unwrap();
+      setIsAddRowModalOpen(false);
+      setAddRowSuccessToast(res?.message || "Row added successfully.");
+      setTimeout(() => setAddRowSuccessToast(null), 4000);
+    } catch (err) {
+      setAddRowError(err?.message || "Failed to add row to active sheet.");
+    }
+  };
+
   const isBusy =
     sheetLoadStatus === "loading" ||
     queryStatus === "loading" ||
     mutationPreviewStatus === "loading" ||
     mutationApplyStatus === "loading" ||
     csvUploadStatus === "loading" ||
-    csvAppendStatus === "loading";
+    csvAppendStatus === "loading" ||
+    rowInsertStatus === "loading";
 
   return (
     <motion.div
@@ -493,15 +548,15 @@ export default function SheetManagementPanel() {
       >
         <div className="inquiry-card-header">
           <div
+            className="liquid-glass-pill"
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "10px",
-              flexWrap: "wrap",
+              padding: "4px 10px",
+              borderRadius: "8px",
+              gap: "8px",
             }}
           >
-            <FileSpreadsheet size={18} color="var(--primary-indigo)" />
-            <span className="inquiry-card-title">
+            <FileSpreadsheet size={16} color="var(--primary-indigo)" />
+            <span className="inquiry-card-title" style={{ fontSize: "13.5px" }}>
               {activeFileName || `${activeEntity}.csv`}
             </span>
           </div>
@@ -535,8 +590,9 @@ export default function SheetManagementPanel() {
               />
             </label>
 
-            {/* Add Rows Button */}
-            <label
+            {/* Add Row Button (Dynamic columns for current active table) */}
+            <button
+              type="button"
               className="btn-warm-outlined"
               style={{
                 cursor: "pointer",
@@ -546,18 +602,13 @@ export default function SheetManagementPanel() {
                 color: "var(--primary-indigo)",
                 fontWeight: 600,
               }}
-              title="Upload new rows to the existing CSV file. New rows must match the columns of the active sheet."
+              disabled={isBusy}
+              onClick={handleOpenAddRowModal}
+              title={`Add a new row with dynamic columns to the active sheet (${activeDisplayName || activeEntity})`}
             >
               <PlusCircle size={14} />
-              {csvAppendStatus === "loading" ? "Adding Rows..." : "Add Rows"}
-              <input
-                type="file"
-                accept=".csv"
-                disabled={isBusy}
-                onChange={handleAppendRowsUpload}
-                style={{ display: "none" }}
-              />
-            </label>
+              Add Row
+            </button>
 
             {/* Refresh Sheet */}
             <button
@@ -651,6 +702,13 @@ export default function SheetManagementPanel() {
             <div className="alert-banner success">
               <CheckCircle2 size={16} style={{ flexShrink: 0 }} />
               <span>{mutationApplySuccessMessage}</span>
+            </div>
+          )}
+
+          {addRowSuccessToast && (
+            <div className="alert-banner success">
+              <CheckCircle2 size={16} style={{ flexShrink: 0 }} />
+              <span>{addRowSuccessToast}</span>
             </div>
           )}
 
@@ -800,11 +858,11 @@ export default function SheetManagementPanel() {
             <span>AI Workspace</span>
           </div>
           <span
+            className="liquid-glass-pill"
             style={{
               fontSize: "10.5px",
               fontWeight: 700,
               color: "var(--primary-indigo)",
-              backgroundColor: "var(--accent-lavender-bg)",
               padding: "2px 8px",
               borderRadius: "999px",
             }}
@@ -921,8 +979,30 @@ export default function SheetManagementPanel() {
               color: "var(--text-secondary)",
             }}
           >
-            Quick Sample Prompts ({activeEntity}.csv):
+            Quick Sample Suggestions:
           </span>
+
+          {/* User Notice: Suggestions are only for base products.csv */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "6px",
+              padding: "7px 10px",
+              backgroundColor: "rgba(217, 119, 6, 0.08)",
+              border: "1px solid rgba(217, 119, 6, 0.28)",
+              borderRadius: "6px",
+              fontSize: "11.5px",
+              color: "#92400e",
+              lineHeight: 1.4,
+            }}
+          >
+            <Info size={13} style={{ flexShrink: 0, marginTop: "2px" }} />
+            <span>
+              <strong>Notice:</strong> These sample suggestions and queries are only for the base <code>products.csv</code> catalog.
+            </span>
+          </div>
+
           <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
             {samplePrompts.map((sample) => (
               <button
@@ -1173,6 +1253,242 @@ export default function SheetManagementPanel() {
           )}
         </div>
       </div>
+
+      {/* Dynamic Add Row Modal for Current Active Table */}
+      <AnimatePresence>
+        {isAddRowModalOpen && (
+          <motion.div
+            className="modal-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            onClick={() => setIsAddRowModalOpen(false)}
+          >
+            <motion.div
+              className="modal-card liquid-glass-modal"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                maxWidth: "560px",
+                maxHeight: "88vh",
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginBottom: "4px",
+                }}
+              >
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: "8px" }}
+                >
+                  <div
+                    className="brand-logo-box"
+                    style={{ width: 28, height: 28, fontSize: 14 }}
+                  >
+                    +
+                  </div>
+                  <div>
+                    <h3
+                      style={{ fontSize: "15.5px", fontWeight: 700, margin: 0 }}
+                    >
+                      Add New Row
+                    </h3>
+                    <span
+                      style={{
+                        fontSize: "11.5px",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      Active Table:{" "}
+                      <strong>{activeDisplayName || activeEntity}</strong> (
+                      {activeFileName || `${activeEntity}.csv`})
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="icon-action-btn"
+                  onClick={() => setIsAddRowModalOpen(false)}
+                  aria-label="Close modal"
+                >
+                  <X size={17} />
+                </button>
+              </div>
+
+              <p
+                style={{
+                  fontSize: "12px",
+                  color: "var(--text-secondary)",
+                  margin: "0 0 10px 0",
+                  lineHeight: 1.4,
+                }}
+              >
+                Enter column information for the current active table. Column
+                fields are dynamically loaded based on the schema of{" "}
+                <code>{activeDisplayName || activeEntity}</code>.
+              </p>
+
+              {addRowError && (
+                <div
+                  className="alert-banner error"
+                  style={{ fontSize: "12px", padding: "8px 12px" }}
+                >
+                  <AlertCircle size={14} style={{ flexShrink: 0 }} />
+                  <span>{addRowError}</span>
+                </div>
+              )}
+
+              <form
+                onSubmit={handleAddRowSubmit}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "12px",
+                  overflowY: "auto",
+                  paddingRight: "4px",
+                  maxHeight: "calc(88vh - 180px)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                    gap: "12px",
+                  }}
+                >
+                  {displayedColumns.map((col) => {
+                    const lower = col.toLowerCase();
+                    const isBoolean =
+                      lower === "best" ||
+                      lower.endsWith("_bool") ||
+                      lower === "stock";
+                    const isNumeric =
+                      lower.includes("price") ||
+                      lower.includes("discount") ||
+                      lower.includes("cost") ||
+                      lower.includes("ordered") ||
+                      lower.includes("qty") ||
+                      lower.includes("months") ||
+                      lower.includes("warranty");
+                    const isLongText = lower === "description";
+
+                    return (
+                      <div
+                        key={col}
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "4px",
+                          gridColumn: isLongText ? "1 / -1" : "auto",
+                        }}
+                      >
+                        <label
+                          style={{
+                            fontSize: "12px",
+                            fontWeight: 600,
+                            color: "var(--text-primary)",
+                            textTransform: "capitalize",
+                          }}
+                        >
+                          {col.replace(/_/g, " ")}
+                        </label>
+                        {isBoolean ? (
+                          <select
+                            className="form-input"
+                            value={newRowData[col] ?? "false"}
+                            onChange={(e) =>
+                              handleRowFieldChange(col, e.target.value)
+                            }
+                            style={{ fontSize: "12.5px", padding: "7px 10px" }}
+                          >
+                            <option value="false">false</option>
+                            <option value="true">true</option>
+                          </select>
+                        ) : isLongText ? (
+                          <textarea
+                            rows={2}
+                            className="form-input"
+                            value={newRowData[col] ?? ""}
+                            placeholder={`Enter ${col.replace(/_/g, " ")}...`}
+                            onChange={(e) =>
+                              handleRowFieldChange(col, e.target.value)
+                            }
+                            style={{
+                              fontSize: "12.5px",
+                              padding: "7px 10px",
+                              resize: "vertical",
+                            }}
+                          />
+                        ) : (
+                          <input
+                            type={isNumeric ? "number" : "text"}
+                            step={isNumeric ? "any" : undefined}
+                            className="form-input"
+                            value={newRowData[col] ?? ""}
+                            placeholder={`Enter ${col.replace(/_/g, " ")}...`}
+                            onChange={(e) =>
+                              handleRowFieldChange(col, e.target.value)
+                            }
+                            style={{ fontSize: "12.5px", padding: "7px 10px" }}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    gap: "8px",
+                    marginTop: "8px",
+                    paddingTop: "12px",
+                    borderTop: "1px solid var(--border-warm)",
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="btn-warm-outlined"
+                    onClick={() => setIsAddRowModalOpen(false)}
+                    disabled={rowInsertStatus === "loading"}
+                    style={{ fontSize: "12.5px", padding: "7px 14px" }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn-primary-indigo"
+                    disabled={rowInsertStatus === "loading"}
+                    style={{ fontSize: "12.5px", padding: "7px 16px" }}
+                  >
+                    {rowInsertStatus === "loading" ? (
+                      <>
+                        <Loader2 size={13} className="spin" />
+                        Adding Row...
+                      </>
+                    ) : (
+                      <>
+                        <PlusCircle size={14} />
+                        Add Row
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

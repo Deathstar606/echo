@@ -580,20 +580,21 @@ export default function CustomerPortal() {
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <span
+                className="liquid-glass-pill"
                 style={{
                   padding: '3px 10px',
                   borderRadius: '999px',
-                  fontSize: '11.5px',
+                  fontSize: '11px',
                   fontWeight: 700,
-                  backgroundColor:
-                    conversationStatus === 'open'
-                      ? 'var(--status-success-bg)'
-                      : 'var(--status-error-bg)',
                   color:
                     conversationStatus === 'open'
                       ? 'var(--status-success)'
                       : 'var(--status-error)',
                   textTransform: 'uppercase',
+                  border:
+                    conversationStatus === 'open'
+                      ? '1px solid rgba(16, 185, 129, 0.35)'
+                      : '1px solid rgba(239, 68, 68, 0.35)',
                 }}
               >
                 {conversationStatus || 'open'}
@@ -754,13 +755,14 @@ export default function CustomerPortal() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
           >
             <motion.div
-              className="modal-card"
-              initial={{ opacity: 0, scale: 0.94, y: 12 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.94, y: 12 }}
-              transition={{ duration: 0.2 }}
+              className="modal-card liquid-glass-modal"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <div

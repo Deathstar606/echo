@@ -1559,4 +1559,69 @@ describe('Universal Business Inventory Editor — Dynamic Discovery & Multi-Sche
       assert.strictEqual(row.status, undefined);
     }
   });
+
+  it('38. Dynamically inserts single rows with arbitrary columns to active sheet (products and shoe_inventory)', async () => {
+    // 1. Insert a row to products
+    const addProductRes = await fetch(`${baseUrl}/api/sheets/products/row?businessId=${businessId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        row: {
+          name: 'Oxford Silk Tuxedo Shirt',
+          category: 'Formal',
+          price: 1850,
+          discount: 10,
+          color: 'Midnight Blue',
+          best: true,
+        },
+      }),
+    });
+    assert.equal(addProductRes.status, 201);
+    const addProductBody = await addProductRes.json();
+    assert.equal(addProductBody.entity, 'products');
+    assert.ok(addProductBody.count >= 1);
+
+    // 2. Upload shoe_inventory CSV
+    const shoeCsv = [
+      'product name,brand,category,price',
+      'Air Jordan 1,Nike,Sneakers,180',
+      'Ultraboost Light,Adidas,Running,190',
+    ].join('\n');
+
+    const shoeForm = new FormData();
+    shoeForm.append('file', new Blob([shoeCsv], { type: 'text/csv' }), 'shoe_inventory.csv');
+    const uploadShoeRes = await fetch(`${baseUrl}/api/sheets/upload?businessId=${businessId}`, {
+      method: 'POST',
+      body: shoeForm,
+    });
+    assert.equal(uploadShoeRes.status, 200);
+
+    // 3. Insert a single new row to shoe_inventory with dynamic columns
+    const addShoeRes = await fetch(`${baseUrl}/api/sheets/shoe_inventory/row?businessId=${businessId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        row: {
+          'product name': 'Clifton 9',
+          brand: 'Hoka',
+          category: 'Road Running',
+          price: 145,
+        },
+      }),
+    });
+    assert.equal(addShoeRes.status, 201);
+    const addShoeBody = await addShoeRes.json();
+    assert.equal(addShoeBody.entity, 'shoe_inventory');
+    assert.equal(addShoeBody.count, 3);
+
+    // 4. Verify the row was appended to shoe_inventory
+    const getShoeRes = await fetch(`${baseUrl}/api/sheets/shoe_inventory?businessId=${businessId}`);
+    assert.equal(getShoeRes.status, 200);
+    const getShoeBody = await getShoeRes.json();
+    assert.equal(getShoeBody.rows.length, 3);
+    const hokaRow = getShoeBody.rows.find((r) => r.brand === 'Hoka');
+    assert.ok(hokaRow, 'Hoka shoe row must be present');
+    assert.equal(hokaRow.product_name || hokaRow['product name'], 'Clifton 9');
+    assert.equal(hokaRow.price, 145);
+  });
 });

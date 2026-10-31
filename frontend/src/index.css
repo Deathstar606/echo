@@ -180,10 +180,13 @@ button:disabled {
 .mode-switcher-pills {
   display: inline-flex;
   align-items: center;
-  background-color: var(--bg-parchment-deep);
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
   padding: 3px;
-  border-radius: 8px;
-  border: 1px solid var(--border-warm);
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), inset 0 1px 1px rgba(255, 255, 255, 0.9);
 }
 
 .mode-switch-link {
@@ -204,18 +207,25 @@ button:disabled {
 }
 
 .mode-switch-link.active {
-  background-color: var(--bg-card);
-  color: var(--primary-indigo);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  background-color: #ffffff;
+  color: var(--primary-indigo-dark);
+  box-shadow: 0 2px 6px rgba(57, 70, 211, 0.12), inset 0 1px 1px rgba(255, 255, 255, 0.95);
 }
 
 .api-status-indicator {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
+  gap: 7px;
+  font-size: 12.5px;
   font-weight: 500;
   color: #2c313a;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(10px) saturate(160%);
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03), inset 0 1px 1px rgba(255, 255, 255, 0.85);
 }
 
 .api-status-dot {
@@ -305,11 +315,14 @@ button:disabled {
 }
 
 .workspace-tab-btn.active {
-  background-color: var(--accent-lavender-bg);
+  background: rgba(234, 237, 254, 0.88);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   color: #161b26;
   font-weight: 700;
   border-color: var(--accent-lavender-border);
   border-bottom: 3px solid var(--primary-indigo);
+  box-shadow: 0 -2px 6px rgba(57, 70, 211, 0.04), inset 0 1px 1px rgba(255, 255, 255, 0.85);
 }
 
 /* =========================================================================
@@ -913,17 +926,40 @@ button:disabled {
   box-shadow: 0 0 0 3px rgba(57, 70, 211, 0.14);
 }
 
-/* Modal Overlay */
+/* Circular Rotation & Fluid Loading Animations */
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.spin,
+.animate-spin {
+  animation: spin 0.85s linear infinite !important;
+  display: inline-block;
+  transform-origin: center center;
+  will-change: transform;
+}
+
+/* Modal Overlay & Hardware Compositor Stability */
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background-color: rgba(22, 25, 32, 0.58);
-  backdrop-filter: blur(3px);
+  background-color: rgba(15, 23, 42, 0.46);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 16px;
   z-index: 1000;
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  will-change: opacity;
 }
 
 .modal-card {
@@ -937,6 +973,76 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  /* Prevent layer-rebuild and sub-pixel snapping flicker after animation */
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  transform-style: preserve-3d;
+  will-change: transform, opacity;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Liquid Glass Elements (Frosted Specular Glassmorphism) */
+.liquid-glass-modal {
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(252, 250, 246, 0.90) 100%
+  ) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.85) !important;
+  box-shadow:
+    0 24px 64px rgba(28, 32, 38, 0.18),
+    0 1px 1px 0 rgba(255, 255, 255, 0.95) inset,
+    0 -1px 1px 0 rgba(0, 0, 0, 0.04) inset !important;
+  position: relative;
+  overflow: hidden;
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  transform-style: preserve-3d;
+  will-change: transform, opacity;
+}
+
+.liquid-glass-modal::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.95),
+    transparent
+  );
+  pointer-events: none;
+}
+
+.liquid-glass-card {
+  background: rgba(255, 255, 255, 0.72) !important;
+  backdrop-filter: blur(14px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(160%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.7) !important;
+  box-shadow:
+    0 4px 16px rgba(28, 32, 38, 0.04),
+    0 1px 1px 0 rgba(255, 255, 255, 0.8) inset !important;
+  border-radius: 8px;
+}
+
+.liquid-glass-pill {
+  background: rgba(255, 255, 255, 0.75) !important;
+  backdrop-filter: blur(12px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(160%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.8) !important;
+  box-shadow:
+    0 2px 6px rgba(28, 32, 38, 0.04),
+    0 1px 1px 0 rgba(255, 255, 255, 0.9) inset !important;
+  display: inline-flex;
+  align-items: center;
 }
 
 .id-display-box {
@@ -1026,7 +1132,9 @@ button:disabled {
   background-color: #eef1ff;
 }
 
-/* Responsive Breakpoints */
+/* =========================================================================
+   Responsive Breakpoints & Small-Screen Optimization
+   ========================================================================= */
 @media (max-width: 1120px) {
   .company-workspace-main {
     grid-template-columns: 1fr;
@@ -1040,11 +1148,55 @@ button:disabled {
 
 @media (max-width: 768px) {
   .top-header {
-    padding: 12px 16px;
+    padding: 10px 14px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .top-header > div:first-child {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .header-right-cluster {
+    width: 100%;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .mode-switcher-pills {
+    width: 100%;
+    display: flex;
+    justify-content: stretch;
+  }
+
+  .mode-switch-link {
+    flex: 1;
+    justify-content: center;
+    padding: 6px 8px;
+    font-size: 11.5px;
+    white-space: nowrap;
   }
 
   .company-workspace-main {
-    padding: 12px 14px;
+    padding: 10px 12px;
+    gap: 12px;
+  }
+
+  .inquiry-tabs-bar {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    width: 100%;
+    padding: 4px;
+    gap: 6px;
+  }
+
+  .inquiry-tab-btn {
+    white-space: nowrap;
+    font-size: 12px;
+    padding: 6px 12px;
+    flex-shrink: 0;
   }
 
   .inquiry-split-body {
@@ -1054,10 +1206,90 @@ button:disabled {
   .inbox-column {
     border-right: none;
     border-bottom: 1px solid var(--border-warm);
-    max-height: 260px;
+    max-height: 250px;
   }
 
   .thread-column {
     min-height: 420px;
+  }
+
+  .reply-composer-bar {
+    padding: 10px 12px;
+  }
+
+  .reply-composer-form {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .reply-input {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .btn-reply-send {
+    align-self: flex-end;
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Sheet Management Panel Responsiveness */
+  .sheet-panel-card {
+    border-radius: var(--radius-md);
+  }
+
+  .sheet-table-wrap {
+    width: 100%;
+    max-width: 100vw;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .sheet-table th,
+  .sheet-table td {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .copilot-side-card {
+    padding: 16px;
+  }
+
+  .modal-card {
+    padding: 18px 14px;
+    max-width: 95vw;
+  }
+
+  .id-display-box {
+    font-size: 12px;
+    padding: 8px 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .brand-title {
+    font-size: 18px;
+  }
+
+  .beta-pill {
+    display: none;
+  }
+
+  .api-status-indicator {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+
+  .api-status-indicator span:last-child {
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .inquiry-card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
   }
 }

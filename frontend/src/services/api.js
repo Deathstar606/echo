@@ -371,3 +371,23 @@ export async function uploadSheetCsv(entity, file, mode = 'replace') {
 export async function appendSheetCsv(entity, file) {
   return uploadSheetCsv(entity, file, 'append');
 }
+
+/**
+ * Inserts a single new row with dynamic columns into the active table in PostgreSQL.
+ * POST /api/sheets/{entity}/row?businessId={BUSINESS_ID}
+ *
+ * @param {string} entity
+ * @param {object} row
+ */
+export async function addSheetRow(entity = 'products', row = {}) {
+  const targetEntity = String(entity || 'products').trim();
+  return request(
+    `/api/sheets/${encodeURIComponent(targetEntity)}/row?businessId=${encodeURIComponent(
+      BUSINESS_ID
+    )}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ row }),
+    }
+  );
+}

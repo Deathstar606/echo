@@ -25,6 +25,7 @@ import {
   Users,
   Calendar,
   AlertTriangle,
+  Info,
 } from 'lucide-react';
 import {
   loadCompanyConversations,
@@ -526,6 +527,25 @@ export default function CompanyDashboard() {
                       Choose a customer thread from the left inbox to review
                       messages and AI-suggested responses.
                     </p>
+                    <div
+                      style={{
+                        marginTop: '14px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        backgroundColor: 'var(--accent-lavender-bg)',
+                        border: '1px solid var(--accent-lavender-border)',
+                        fontSize: '11.5px',
+                        color: 'var(--text-secondary)',
+                      }}
+                    >
+                      <Info size={13} color="var(--primary-indigo)" style={{ flexShrink: 0 }} />
+                      <span>
+                        Customer support chat assistant only has knowledge of the base <code>products.csv</code> catalog.
+                      </span>
+                    </div>
                   </div>
                 ) : (
                   <>
@@ -573,6 +593,26 @@ export default function CompanyDashboard() {
                           <Video size={16} />
                         </button>
                       </div>
+                    </div>
+
+                    {/* Notice: Customer support chat only has knowledge of base products.csv */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '8px 16px',
+                        backgroundColor: 'var(--accent-lavender-bg)',
+                        borderBottom: '1px solid var(--border-warm)',
+                        fontSize: '11.5px',
+                        color: 'var(--text-secondary)',
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      <Info size={14} color="var(--primary-indigo)" style={{ flexShrink: 0 }} />
+                      <span>
+                        <strong>Customer Support Scope:</strong> Customer support chat only has knowledge of the base <code>products.csv</code> catalog.
+                      </span>
                     </div>
 
                     {callPlaceholderNotice && (
@@ -1037,11 +1077,10 @@ export default function CompanyDashboard() {
               {/* Valid Draft & Interpreted Audience Preview */}
               {announcementDraft && !isClarificationNeeded && (
                 <div
-                  className="ai-suggestion-box"
+                  className="ai-suggestion-box liquid-glass-card"
                   style={{
                     padding: '12px',
                     gap: '8px',
-                    backgroundColor: '#f8fafc',
                     borderColor: 'var(--accent-lavender-border)',
                   }}
                 >
@@ -1282,15 +1321,22 @@ export default function CompanyDashboard() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
             onClick={() => setShowAnnouncementHistoryModal(false)}
           >
             <motion.div
-              className="modal-card"
-              style={{ maxWidth: '680px', maxHeight: '85vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              transition={{ duration: 0.18 }}
+              className="modal-card liquid-glass-modal"
+              style={{
+                maxWidth: '680px',
+                maxHeight: '85vh',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
               onClick={(e) => e.stopPropagation()}
             >
               <div
@@ -1389,11 +1435,9 @@ export default function CompanyDashboard() {
                     return (
                       <div
                         key={ann.id}
+                        className="liquid-glass-card"
                         style={{
                           padding: '12px 14px',
-                          borderRadius: '8px',
-                          backgroundColor: 'var(--bg-subtle-warm)',
-                          border: '1px solid var(--border-warm)',
                           display: 'flex',
                           flexDirection: 'column',
                           gap: '6px',

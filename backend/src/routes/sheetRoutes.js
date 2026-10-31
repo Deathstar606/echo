@@ -5,6 +5,7 @@ const {
   getProductsList,
   querySpreadsheet,
   mutateSpreadsheet,
+  insertSheetRow,
 } = require('../controllers/sheetController');
 
 const router = express.Router({ mergeParams: true });
@@ -15,6 +16,7 @@ router.post('/products/append', uploadSingleCsv, (req, res, next) => {
   req.query.mode = 'append';
   return uploadProducts(req, res, next);
 });
+router.post('/products/row', insertSheetRow);
 router.get('/products', getProductsList);
 
 // Default endpoints
@@ -23,6 +25,7 @@ router.post('/append', uploadSingleCsv, (req, res, next) => {
   req.query.mode = 'append';
   return uploadProducts(req, res, next);
 });
+router.post('/row', insertSheetRow);
 router.get('/', getProductsList);
 
 // Universal natural-language query endpoint
@@ -38,6 +41,7 @@ router.post('/:entity/append', uploadSingleCsv, (req, res, next) => {
   req.query.mode = 'append';
   return uploadProducts(req, res, next);
 });
+router.post('/:entity/row', insertSheetRow);
 router.get('/:entity', getProductsList);
 router.post('/:entity/query', querySpreadsheet);
 router.post('/:entity/mutate', mutateSpreadsheet);

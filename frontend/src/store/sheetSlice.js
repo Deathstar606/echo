@@ -4,6 +4,7 @@ import {
   querySheet,
   mutateSheet,
   uploadSheetCsv,
+  addSheetRow,
 } from '../services/api';
 
 /**
@@ -161,6 +162,30 @@ export const appendSheetCsvFile = createAsyncThunk(
   }
 );
 
+/**
+ * Thunk: Insert a single new row with dynamic columns into the active table.
+ */
+export const insertSingleSheetRow = createAsyncThunk(
+  'sheets/insertSingleSheetRow',
+  async ({ entity, row }, { getState, dispatch, rejectWithValue }) => {
+    try {
+      const targetEntity =
+        entity || getState().sheets?.activeEntity || 'products';
+      const data = await addSheetRow(targetEntity, row);
+      const activeEntity = data.entity || targetEntity;
+      await dispatch(loadSheetRows(activeEntity));
+      return {
+        ...data,
+        entity: activeEntity,
+      };
+    } catch (err) {
+      return rejectWithValue({
+        message: err.message || 'Failed to add row to sheet.',
+      });
+    }
+  }
+);
+
 const initialState = {
   activeEntity: 'products',
   activeDisplayName: 'Products',
@@ -195,6 +220,11 @@ const initialState = {
   csvAppendStatus: 'idle',
   csvAppendMessage: null,
   csvAppendError: null,
+
+  // Dynamic Row Insert state
+  rowInsertStatus: 'idle',
+  rowInsertMessage: null,
+  rowInsertError: null,
 };
 
 const sheetSlice = createSlice({
@@ -227,6 +257,11 @@ const sheetSlice = createSlice({
       state.mutationPreview = null;
       state.mutationPreviewError = null;
       state.mutationPreviewStatus = 'idle';
+    },
+    clearRowInsertState(state) {
+      state.rowInsertStatus = 'idle';
+      state.rowInsertError = null;
+      state.rowInsertMessage = null;
     },
   },
   extraReducers: (builder) => {
@@ -427,6 +462,26 @@ const sheetSlice = createSlice({
         state.csvAppendStatus = 'failed';
         state.csvAppendError =
           action.payload?.message || 'Failed to append CSV rows.';
+      })
+
+      // Dynamic Single Row Insert
+      .addCase(insertSingleSheetRow.pending, (state) => {
+        state.rowInsertStatus = 'loading';
+        state.rowInsertError = null;
+        state.rowInsertMessage = null;
+      })
+      .addCase(insertSingleSheetRow.fulfilled, (state, action) => {
+        state.rowInsertStatus = 'succeeded';
+        state.rowInsertMessage =
+          action.payload?.message || 'Row added successfully.';
+        if (action.payload?.displayName) {
+          state.activeDisplayName = action.payload.displayName;
+        }
+      })
+      .addCase(insertSingleSheetRow.rejected, (state, action) => {
+        state.rowInsertStatus = 'failed';
+        state.rowInsertError =
+          action.payload?.message || 'Failed to add row to sheet.';
       });
   },
 });
@@ -436,6 +491,7 @@ export const {
   setSheetNlPrompt,
   clearSheetFiltersAndFeedback,
   discardMutationPreview,
+  clearRowInsertState,
 } = sheetSlice.actions;
 
 export default sheetSlice.reducer;

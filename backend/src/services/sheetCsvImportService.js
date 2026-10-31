@@ -861,4 +861,5 @@ module.exports = {
   importProductsToDatabase,
   parseAndValidateSheetCsv,
   importSheetRecordsToDatabase,
+  parseCsvBoolean,
 };

@@ -7,6 +7,7 @@ const {
   importProductsToDatabase,
   parseAndValidateSheetCsv,
   importSheetRecordsToDatabase,
+  parseCsvBoolean,
 } = require('../services/sheetCsvImportService');
 const { getAllRows, executeSpreadsheetQuery } = require('../services/sheetQueryService');
 const { interpretNaturalLanguageQuery } = require('../services/sheetQueryPromptBuilder');
@@ -14,7 +15,9 @@ const { executeMutation } = require('../services/sheetMutationService');
 const {
   normalizeEntityName,
   discoverTableSchema,
+  registerTableSchema,
   ensureTableExists,
+  findColumnDef,
 } = require('../services/sheetSchemaService');
 const AppError = require('../utils/AppError');
 
@@ -388,9 +391,151 @@ async function mutateSpreadsheet(req, res, next) {
   }
 }
 
+/**
+ * POST /api/sheets/:entity/row
+ * POST /api/sheets/row
+ * POST /api/businesses/:businessId/sheets/:entity/row
+ *
+ * Adds a single row with dynamic columns to the active table.
+ * Body: { row: { [column]: value } } or { [column]: value }
+ */
+async function insertSheetRow(req, res, next) {
+  try {
+    const business = await resolveBusiness(req);
+    const rawEntity = req.params.entity || req.query.entity || req.body?.entity || 'products';
+    const entity = normalizeEntityName(rawEntity);
+
+    const bodyRow = req.body?.row || req.body?.data || req.body;
+    if (!bodyRow || typeof bodyRow !== 'object' || Array.isArray(bodyRow)) {
+      throw new AppError('Field "row" must be an object containing column values.', 400);
+    }
+
+    // Filter out metadata fields and internal keys
+    const cleanRowInput = {};
+    for (const [key, val] of Object.entries(bodyRow)) {
+      if (['entity', 'row', 'data', 'business_id', 'businessId', 'confirm'].includes(key)) {
+        continue;
+      }
+      if (!['id', 'business_id', 'created_at', 'updated_at'].includes(key.toLowerCase())) {
+        cleanRowInput[key] = val;
+      }
+    }
+
+    if (Object.keys(cleanRowInput).length === 0) {
+      throw new AppError('Cannot insert an empty row. Please provide at least one column value.', 400);
+    }
+
+    let schema;
+    try {
+      schema = await discoverTableSchema(entity, business.id);
+    } catch {
+      // Create and register schema on the fly from the submitted row columns
+      const colDefs = {};
+      for (const k of Object.keys(cleanRowInput)) {
+        colDefs[k.toLowerCase()] = {
+          exactName: k,
+          type: typeof cleanRowInput[k] === 'number' ? 'number' : 'string',
+        };
+      }
+      schema = {
+        entity,
+        tableName: entity,
+        displayName: entity.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+        columns: colDefs,
+      };
+      registerTableSchema(schema);
+    }
+
+    await ensureTableExists(schema);
+
+    let insertedCount = 0;
+    if (entity === 'products') {
+      const bestParsed = parseCsvBoolean(cleanRowInput.best);
+      const discountVal =
+        cleanRowInput.discount !== undefined && cleanRowInput.discount !== ''
+          ? Number(cleanRowInput.discount)
+          : 0;
+      const orderedVal =
+        cleanRowInput.ordered !== undefined && cleanRowInput.ordered !== ''
+          ? Number(cleanRowInput.ordered)
+          : 0;
+      const priceVal =
+        cleanRowInput.price !== undefined && cleanRowInput.price !== ''
+          ? Number(cleanRowInput.price)
+          : 0;
+
+      const productRecord = {
+        name:
+          cleanRowInput.name ||
+          cleanRowInput['product name'] ||
+          cleanRowInput['item name'] ||
+          'Unnamed Product',
+        category: cleanRowInput.category || null,
+        description: cleanRowInput.description || null,
+        best: bestParsed.valid ? bestParsed.value : false,
+        color: cleanRowInput.color || null,
+        discount: Number.isNaN(discountVal) ? 0 : discountVal,
+        ordered: Number.isNaN(orderedVal) ? 0 : orderedVal,
+        images: cleanRowInput.images || null,
+        size:
+          typeof cleanRowInput.size === 'object'
+            ? JSON.stringify(cleanRowInput.size)
+            : cleanRowInput.size || null,
+        price: Number.isNaN(priceVal) ? 0 : priceVal,
+      };
+
+      insertedCount = await importProductsToDatabase(business.id, [productRecord], {
+        mode: 'append',
+      });
+    } else {
+      // Dynamic table: match columns to schema
+      const record = {};
+      for (const [colKey, rawVal] of Object.entries(cleanRowInput)) {
+        const found = findColumnDef(schema, colKey);
+        const colDef = found ? found.colDef : null;
+        const physicalName = found ? found.exactName : colKey;
+        if (rawVal === '' || rawVal === null || rawVal === undefined) {
+          record[physicalName] = null;
+        } else if (
+          colDef &&
+          (colDef.type === 'number' ||
+            colDef.type === 'integer' ||
+            colDef.type === 'decimal')
+        ) {
+          const num = Number(rawVal);
+          record[physicalName] = Number.isNaN(num) ? rawVal : num;
+        } else if (colDef && colDef.type === 'boolean') {
+          const b = parseCsvBoolean(rawVal);
+          record[physicalName] = b.valid ? b.value : rawVal;
+        } else {
+          record[physicalName] = rawVal;
+        }
+      }
+
+      insertedCount = await importSheetRecordsToDatabase(business.id, schema, [record], {
+        mode: 'append',
+      });
+    }
+
+    const rows = await getAllRows(entity, business.id);
+
+    return res.status(201).json({
+      message: `Successfully added row to ${schema.displayName || entity}.`,
+      entity,
+      displayName: schema.displayName || entity,
+      insertedCount,
+      count: rows.length,
+      rows,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   uploadProducts,
   getProductsList,
   querySpreadsheet,
   mutateSpreadsheet,
+  insertSheetRow,
 };
