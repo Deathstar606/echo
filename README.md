@@ -127,17 +127,30 @@ In the forthcoming production release, this hardcoded identifier will be replace
 
 ## 🐳 Docker Quickstart
 
-Run the entire full-stack application (both Frontend and Backend containers) with a single command using Docker Compose:
+Run the entire full-stack application (both Frontend and Backend containers) with a single command using Docker Compose directly from the active [`generalized-sheet-manupilation`](https://github.com/Deathstar606/echo/tree/generalized-sheet-manupilation) branch of the [**Deathstar606/echo**](https://github.com/Deathstar606/echo) repository:
 
 ```bash
-git clone <Repo-URL> && cd <Repo-Name>
-# Place the provided .env file inside the ./backend directory
+# 1. Clone repository on the generalized-sheet-manupilation branch:
+git clone -b generalized-sheet-manupilation https://github.com/Deathstar606/echo.git
+cd echo
+
+# 2. Place your environment configuration file inside the ./backend directory:
+cp .env.example ./backend/.env
+
+# 3. Launch the full-stack container environment:
 docker compose up
 ```
 
 ### Local Access URLs:
 - **Frontend Application**: [http://localhost:5173](http://localhost:5173)
 - **Backend API**: [http://localhost:3000](http://localhost:3000) (Health check: [http://localhost:3000/api/health](http://localhost:3000/api/health))
+
+> [!TIP]
+> **Convenience Demo Customer ID**:
+> To immediately test the customer chat interface without registering a new customer, visit [http://localhost:5173/customer](http://localhost:5173/customer), select **Continue with Existing Customer ID**, and use:
+> ```text
+> 48244777-c7a4-4e30-be4b-fe1104e443b8
+> ```
 
 To run containers in detached mode (background):
 ```bash
@@ -166,15 +179,12 @@ Follow these steps to clone the repository, switch to the active development bra
 
 ### Step 1: Clone the Repository & Check Out the Branch
 
-Clone the repository and make sure to check out the **generalized sheet** branch (`generalized-sheet-manupilation`):
+Clone the [**Deathstar606/echo**](https://github.com/Deathstar606/echo) repository and check out the active [`generalized-sheet-manupilation`](https://github.com/Deathstar606/echo/tree/generalized-sheet-manupilation) branch:
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-username/Echo.git
-cd Echo
-
-# Check out the active generalized sheet branch
-git checkout generalized-sheet-manupilation
+# Clone the repository directly on the generalized-sheet-manupilation branch:
+git clone -b generalized-sheet-manupilation https://github.com/Deathstar606/echo.git
+cd echo
 ```
 
 ---
@@ -257,6 +267,7 @@ The top navigation header includes a live **API Health Indicator** (`Connected t
 
 ### 1. Customer Portal (`http://localhost:5173/customer`)
 - Designed for end-customers to submit inquiries and receive prompt answers.
+- **Convenience Demo Customer ID**: `48244777-c7a4-4e30-be4b-fe1104e443b8` (enter this ID under *Continue with Existing Customer ID* to instantly enter an active session).
 - **Registration**: Enter name and email to receive a secure, one-time Customer ID.
 - **Resuming Session**: Use saved Customer ID or click "Resume Saved Browser Session" to load chat history.
 - **Knowledge Scope**: Pre-trained on `customer.csv` and `products.csv` (Veloura luxury apparel, pricing, discounts, returns, logistics).

@@ -92,6 +92,10 @@ If you reload the page, switch devices, or return for a new inquiry:
 2. In the **Continue with Existing Customer ID** card:
    - **Option 1 (One-Click Resume)**: If you are on the same browser where you registered, click **Resume Saved Browser Session**. The portal immediately reads your stored ID from `localStorage` and loads your thread.
    - **Option 2 (Manual ID Entry)**: Paste your saved Customer ID UUID into the input field and click **Continue with Customer ID**.
+   - **Option 3 (Convenience Demo Customer ID)**: For instant testing and evaluation without creating a new user, you can use the pre-configured Demo Customer ID:
+     ```text
+     48244777-c7a4-4e30-be4b-fe1104e443b8
+     ```
 3. The portal validates your ID against the backend database, authenticates your session against the business, and displays your persistent conversation history.
 4. If you need to switch accounts, click **Switch Customer** in the portal header at any time.
 
