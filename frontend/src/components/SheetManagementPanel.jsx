@@ -18,6 +18,7 @@ import {
   AlertTriangle,
   Info,
   X,
+  ArrowRightLeft,
 } from "lucide-react";
 import {
   loadSheetRows,
@@ -528,25 +529,17 @@ export default function SheetManagementPanel() {
 
   return (
     <motion.div
+      className="sheet-management-workspace"
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
-      style={{
-        maxWidth: "1600px",
-        width: "100%",
-        margin: "0 auto",
-        padding: "16px 24px 28px 24px",
-        display: "grid",
-        gridTemplateColumns: "minmax(0, 2.2fr) minmax(350px, 1fr)",
-        gap: "16px",
-      }}
     >
       {/* Left Main Card: Live Universal Spreadsheet Area */}
       <div
-        className="portal-card"
+        className="portal-card sheet-panel-card sheet-table-card"
         style={{ padding: 0, overflow: "hidden", gap: 0 }}
       >
-        <div className="inquiry-card-header">
+        <div className="inquiry-card-header sheet-card-header">
           <div
             className="liquid-glass-pill"
             style={{
@@ -562,12 +555,7 @@ export default function SheetManagementPanel() {
           </div>
 
           <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              flexWrap: "wrap",
-            }}
+            className="sheet-toolbar-actions"
           >
             {/* Upload CSV Button */}
             <label
@@ -626,14 +614,7 @@ export default function SheetManagementPanel() {
           </div>
         </div>
 
-        <div
-          style={{
-            padding: "18px 20px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "14px",
-          }}
-        >
+        <div className="sheet-card-body">
           {/* Clear Row Highlights when active filter is applied */}
           {hasActiveQueryFilter && (
             <div
@@ -736,7 +717,7 @@ export default function SheetManagementPanel() {
                     : "1px solid var(--border-warm)",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
               <SlidersHorizontal size={15} color="var(--primary-indigo)" />
               <span style={{ fontWeight: 600, fontSize: "13px" }}>
                 {!queryResult
@@ -746,6 +727,10 @@ export default function SheetManagementPanel() {
                     : queryResult.count === 0
                       ? `0 records matched "${queryResult.promptUsed}". Full sheet remains visible below.`
                       : `Highlighted ${queryResult.count} matching record(s) for "${queryResult.promptUsed}".`}
+              </span>
+              <span className="sheet-scroll-hint-pill">
+                <ArrowRightLeft size={11} />
+                Scroll table horizontally (↔)
               </span>
             </div>
             <span

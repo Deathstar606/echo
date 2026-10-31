@@ -57,15 +57,41 @@ export default function TopHeader() {
               to="/customer"
               className={`mode-switch-link ${isCustomerRoute ? 'active' : ''}`}
             >
-              <MessageSquare size={14} />
-              Customer Panel
+              {isCustomerRoute && (
+                <motion.div
+                  layoutId="active-mode-switch-indicator"
+                  className="liquid-glass-tab-slider"
+                  transition={{
+                    type: 'spring',
+                    stiffness: 420,
+                    damping: 32,
+                  }}
+                />
+              )}
+              <span className="mode-switch-label">
+                <MessageSquare size={14} />
+                Customer Panel
+              </span>
             </Link>
             <Link
               to="/company"
               className={`mode-switch-link ${isCompanyRoute ? 'active' : ''}`}
             >
-              <LayoutDashboard size={14} />
-              Company Inquiry Panel
+              {isCompanyRoute && (
+                <motion.div
+                  layoutId="active-mode-switch-indicator"
+                  className="liquid-glass-tab-slider"
+                  transition={{
+                    type: 'spring',
+                    stiffness: 420,
+                    damping: 32,
+                  }}
+                />
+              )}
+              <span className="mode-switch-label">
+                <LayoutDashboard size={14} />
+                Company Inquiry Panel
+              </span>
             </Link>
           </nav>
         </div>

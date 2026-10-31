@@ -255,7 +255,7 @@ export default function CompanyDashboard() {
     Boolean(announcementDraft?.clarification_needed);
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%', minWidth: 0 }}>
       {/* Top Navigation Tabs (Matches Wireframe: 1. [Active] Customer Inquiry | 2. Sheet Management) */}
       <div className="workspace-nav-bar">
         <button
@@ -265,11 +265,24 @@ export default function CompanyDashboard() {
           }`}
           onClick={() => setActiveTab('inquiry')}
         >
-          <span>
-            1. {activeTab === 'inquiry' ? '[Active] ' : ''}
+          {activeTab === 'inquiry' && (
+            <motion.div
+              layoutId="active-workspace-tab-indicator"
+              className="liquid-glass-tab-slider-indigo"
+              transition={{
+                type: 'spring',
+                stiffness: 420,
+                damping: 32,
+              }}
+            />
+          )}
+          <span className="workspace-tab-label">
+            <span>
+              1. {activeTab === 'inquiry' ? '[Active] ' : ''}
+            </span>
+            <Download size={15} color="var(--primary-indigo)" />
+            <span>Customer Inquiry</span>
           </span>
-          <Download size={15} color="var(--primary-indigo)" />
-          <span>Customer Inquiry</span>
         </button>
 
         <button
@@ -279,11 +292,24 @@ export default function CompanyDashboard() {
           }`}
           onClick={() => setActiveTab('sheets')}
         >
-          <span>
-            2. {activeTab === 'sheets' ? '[Active] ' : ''}
+          {activeTab === 'sheets' && (
+            <motion.div
+              layoutId="active-workspace-tab-indicator"
+              className="liquid-glass-tab-slider-indigo"
+              transition={{
+                type: 'spring',
+                stiffness: 420,
+                damping: 32,
+              }}
+            />
+          )}
+          <span className="workspace-tab-label">
+            <span>
+              2. {activeTab === 'sheets' ? '[Active] ' : ''}
+            </span>
+            <BarChart3 size={15} color="#16a34a" />
+            <span>Sheet Management</span>
           </span>
-          <BarChart3 size={15} color="#16a34a" />
-          <span>Sheet Management</span>
         </button>
       </div>
 
