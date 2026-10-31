@@ -17,7 +17,8 @@ MaxiText AI Studio is a full-stack, AI-driven workspace prototype engineered to 
 - [Architecture & Tech Stack](#-architecture--tech-stack)
 - [Hardcoded Business ID & Production Roadmap](#-hardcoded-business-id--production-roadmap)
 - [Announcement Broadcasts & Live Demo Email Notice](#-announcement-broadcasts--live-demo-email-notice)
-- [Step-by-Step Installation & Setup](#-step-by-step-installation--setup)
+- [Docker Quickstart](#-docker-quickstart)
+- [Step-by-Step Installation & Setup (Manual)](#-step-by-step-installation--setup-manual)
 - [Local vs. Hosted Backend Configuration](#-local-vs-hosted-backend-configuration)
 - [Two Distinct Workspaces](#-two-distinct-workspaces)
 - [Running Automated Tests](#-running-automated-tests)
@@ -124,7 +125,34 @@ In the forthcoming production release, this hardcoded identifier will be replace
 
 ---
 
-## 🚀 Step-by-Step Installation & Setup
+## 🐳 Docker Quickstart
+
+Run the entire full-stack application (both Frontend and Backend containers) with a single command using Docker Compose:
+
+```bash
+git clone <Repo-URL> && cd <Repo-Name>
+# Place the provided .env file inside the ./backend directory
+docker compose up
+```
+
+### Local Access URLs:
+- **Frontend Application**: [http://localhost:5173](http://localhost:5173)
+- **Backend API**: [http://localhost:3000](http://localhost:3000) (Health check: [http://localhost:3000/api/health](http://localhost:3000/api/health))
+
+To run containers in detached mode (background):
+```bash
+docker compose up -d --build
+```
+
+To view logs or stop the stack:
+```bash
+docker compose logs -f
+docker compose down
+```
+
+---
+
+## 🚀 Step-by-Step Installation & Setup (Manual)
 
 Follow these steps to clone the repository, switch to the active development branch, and run the backend and frontend locally.
 
