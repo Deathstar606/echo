@@ -20,8 +20,8 @@ import {
   isNonEmptyString,
 } from './sheetValidationService';
 
-// Ambient declaration for CommonJS require interop across serverless build environments (e.g. Vercel)
-declare const require: any;
+// Ambient declaration for CommonJS require interop without requiring @types/node in compilerOptions
+declare function require(name: string): any;
 
 // Legacy CommonJS modules
 const {
