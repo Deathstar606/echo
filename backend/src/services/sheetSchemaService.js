@@ -147,6 +147,10 @@ const ENTITY_SCHEMAS = {
       size: {
         exactName: 'size',
         type: 'string',
+        storageType: 'text',
+        nestedMap: true,
+        nestedValueType: 'integer',
+        description: 'JSON object mapping each size key to its stock quantity',
         required: false,
         queryable: true,
         modifiable: true,
@@ -568,9 +572,13 @@ function findColumnDef(schema, fieldName) {
   return null;
 }
 
+function quoteIdentifier(identifier) {
+  return `"${String(identifier).replace(/"/g, '""')}"`;
+}
+
 /**
  * Parses a nested size field specifier such as "size.M", "size.XL", or { field: "size", size_key: "M" }.
- * Returns uppercase size key if valid, or null if not a nested size reference.
+ * Returns a normalized nested key, or null if this is not a nested reference.
  *
  * @param {string} rawField
  * @param {string} [explicitSizeKey]
@@ -580,7 +588,7 @@ function resolveNestedSizeKey(rawField, explicitSizeKey) {
   let candidateKey = null;
   const dotMatch = String(rawField || '')
     .trim()
-    .match(/^size\.([a-z0-9_]+)$/i);
+    .match(/^[^.]+\.([a-z0-9_-]+)$/i);
 
   if (dotMatch) {
     candidateKey = dotMatch[1].toUpperCase();
@@ -597,16 +605,38 @@ function resolveNestedSizeKey(rawField, explicitSizeKey) {
     return null;
   }
 
-  if (!APPAREL_SIZE_KEYS.has(candidateKey)) {
-    throw new AppError(
-      `Unsupported apparel size key "${candidateKey}". Allowed size keys: ${Array.from(
-        APPAREL_SIZE_KEYS
-      ).join(', ')}.`,
-      400
-    );
-  }
-
   return candidateKey;
+}
+
+function isNestedMapColumn(colDef, fieldName) {
+  return Boolean(
+    colDef?.nestedMap ||
+    colDef?.type === 'json' ||
+    String(fieldName || '').toLowerCase() === 'size'
+  );
+}
+
+function resolveNestedMapReference(schema, rawField, explicitKey) {
+  const fieldInput = String(rawField || '').trim();
+  const nestedMatch = fieldInput.match(/^([^.]+)\.([a-z0-9_-]+)$/i);
+  const baseField = nestedMatch ? nestedMatch[1] : fieldInput;
+  const nestedKey = nestedMatch
+    ? nestedMatch[2]
+    : explicitKey === undefined || explicitKey === null
+      ? null
+      : String(explicitKey).trim();
+  if (!nestedKey || !/^[a-z0-9_-]+$/i.test(nestedKey)) return null;
+
+  const match = findColumnDef(schema, baseField);
+  if (!match || !isNestedMapColumn(match.colDef, match.exactName)) return null;
+  return {
+    field: match.exactName,
+    key:
+      match.exactName.toLowerCase() === 'size'
+        ? nestedKey.toUpperCase()
+        : nestedKey,
+    colDef: match.colDef,
+  };
 }
 
 /**
@@ -614,6 +644,7 @@ function resolveNestedSizeKey(rawField, explicitSizeKey) {
  */
 function mapPgDataType(pgType) {
   const t = String(pgType || '').toLowerCase();
+  if (t === 'json' || t === 'jsonb') return 'json';
   if (t.includes('int') || t.includes('serial')) return 'integer';
   if (
     t.includes('num') ||
@@ -664,55 +695,65 @@ async function discoverTableSchema(tableName, businessId) {
   }
   const normName = normalizeEntityName(tableName);
 
-  // If already discovered or built-in, retrieve baseline
-  let schema = REGISTERED_SCHEMAS.get(normName) || ENTITY_SCHEMAS[normName];
+  const schema = REGISTERED_SCHEMAS.get(normName) || ENTITY_SCHEMAS[normName];
+  let discoveredColumns = null;
+  try {
+    const colRes = await query(
+      `
+        SELECT column_name, data_type, udt_name, is_nullable
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND LOWER(table_name) = LOWER($1)
+        ORDER BY ordinal_position;
+      `,
+      [normName]
+    );
 
-  // If not known in pre-registered map, introspect PostgreSQL information_schema
-  if (!schema) {
-    try {
-      const colRes = await query(
-        `
-          SELECT column_name, data_type, is_nullable
-          FROM information_schema.columns
-          WHERE table_schema = 'public' AND LOWER(table_name) = LOWER($1)
-          ORDER BY ordinal_position;
-        `,
-        [normName]
-      );
+    if (colRes.rows && colRes.rows.length > 0) {
+      discoveredColumns = {};
+      for (const row of colRes.rows) {
+        const rawCol = row.column_name;
+        const lowerCol = rawCol.toLowerCase();
+        const baseline = schema ? findColumnDef(schema, rawCol) : null;
+        const columnKey = baseline ? baseline.key : lowerCol;
+        const colType = mapPgDataType(row.udt_name || row.data_type);
+        const isSystem = ['id', 'business_id', 'created_at', 'updated_at'].includes(lowerCol);
+        discoveredColumns[columnKey] = {
+          ...(baseline ? baseline.colDef : {}),
+          exactName: rawCol,
+          type: colType,
+          storageType: row.udt_name || row.data_type,
+          required: row.is_nullable === 'NO' || Boolean(baseline?.colDef.required),
+          readonly: isSystem || Boolean(baseline?.colDef.readonly),
+          modifiable: !isSystem && baseline?.colDef.modifiable !== false,
+          queryable: baseline?.colDef.queryable !== false,
+          sortable:
+            baseline?.colDef.sortable !== undefined
+              ? baseline.colDef.sortable
+              : lowerCol !== 'images' && lowerCol !== 'description',
+          operators: baseline?.colDef.operators || getOperatorsForType(colType),
+          nestedMap:
+            Boolean(baseline?.colDef.nestedMap) ||
+            colType === 'json' ||
+            ['json', 'jsonb'].includes(String(row.udt_name || '').toLowerCase()),
+        };
+      }
+    }
+  } catch (err) {
+    console.warn(`Could not introspect information_schema for table "${normName}":`, err.message);
+  }
 
-      if (colRes.rows && colRes.rows.length > 0) {
-        const columns = {};
-        for (const row of colRes.rows) {
-          const rawCol = row.column_name;
-          const lowerCol = rawCol.toLowerCase();
-          const colType = mapPgDataType(row.data_type);
-          const isSystem = ['id', 'business_id', 'created_at', 'updated_at'].includes(lowerCol);
-
-          columns[lowerCol] = {
-            exactName: rawCol,
-            type: colType,
-            readonly: isSystem,
-            modifiable: !isSystem,
-            queryable: true,
-            sortable: lowerCol !== 'images' && lowerCol !== 'description',
-            operators: getOperatorsForType(colType),
-          };
-        }
-
-        schema = {
+  const resolvedSchema =
+    schema || (discoveredColumns
+      ? {
           entity: normName,
           tableName: normName,
           displayName: normName.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-          columns,
+          columns: discoveredColumns,
           representativeValues: {},
-        };
-      }
-    } catch (err) {
-      console.warn(`Could not introspect information_schema for table "${normName}":`, err.message);
-    }
-  }
+        }
+      : null);
 
-  if (!schema) {
+  if (!resolvedSchema) {
     throw new AppError(
       `Table or entity "${tableName}" does not exist. Available tables: ${Array.from(
         new Set([...Object.keys(ENTITY_SCHEMAS), ...REGISTERED_SCHEMAS.keys()])
@@ -723,42 +764,104 @@ async function discoverTableSchema(tableName, businessId) {
 
   // Deep clone so enrichment doesn't mutate canonical static prototypes
   const dynamicSchema = {
-    ...schema,
-    columns: { ...schema.columns },
-    representativeValues: { ...(schema.representativeValues || {}) },
+    ...resolvedSchema,
+    columns: Object.fromEntries(
+      Object.entries(
+        discoveredColumns
+          ? {
+              ...discoveredColumns,
+              ...Object.fromEntries(
+                Object.entries(resolvedSchema.columns).filter(([, def]) => def.virtual)
+              ),
+            }
+          : resolvedSchema.columns
+      ).map(([key, def]) => [key, { ...def }])
+    ),
+    representativeValues: Object.fromEntries(
+      Object.entries(resolvedSchema.representativeValues || {}).map(([key, values]) => [
+        key,
+        Array.isArray(values) ? [...values] : values,
+      ])
+    ),
   };
 
   // If businessId is provided and representative values are sparse, query a sample of rows
   if (businessId) {
     try {
+      const sampleColumns = Object.values(dynamicSchema.columns)
+        .filter((colDef) => colDef.modifiable && !colDef.virtual)
+        .map((colDef) => quoteIdentifier(colDef.exactName));
       const sampleRes = await query(
-        `SELECT * FROM ${dynamicSchema.tableName} WHERE business_id = $1 LIMIT 15;`,
+        `SELECT ${sampleColumns.length > 0 ? sampleColumns.join(', ') : '*'} FROM ${quoteIdentifier(dynamicSchema.tableName)} WHERE business_id = $1 LIMIT 5;`,
         [businessId]
       );
       if (sampleRes.rows && sampleRes.rows.length > 0) {
         for (const colDef of Object.values(dynamicSchema.columns)) {
-          if (colDef.type === 'string' && colDef.modifiable) {
-            const exactCol = colDef.exactName;
-            const distinctVals = [
-              ...new Set(
-                sampleRes.rows
-                  .map((r) => r[exactCol] ?? r[exactCol.toLowerCase()])
-                  .filter((v) => v !== undefined && v !== null && String(v).trim() !== '')
-              ),
-            ].slice(0, 5);
-
-            if (distinctVals.length > 0 && !dynamicSchema.representativeValues[exactCol]) {
-              dynamicSchema.representativeValues[exactCol] = distinctVals;
+          if (!colDef.modifiable || colDef.virtual) continue;
+          const exactCol = colDef.exactName;
+          const values = sampleRes.rows
+            .map((r) => r[exactCol] ?? r[exactCol.toLowerCase()])
+            .filter((v) => v !== undefined && v !== null && String(v).trim() !== '');
+          const jsonSample = values
+            .map((value) => {
+              if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+              if (typeof value !== 'string' || !value.trim().startsWith('{')) return null;
+              try {
+                const parsed = JSON.parse(value);
+                return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+                  ? parsed
+                  : null;
+              } catch {
+                return null;
+              }
+            })
+            .find(Boolean);
+          if (jsonSample) {
+            colDef.nestedMap = true;
+            const numericSamples = Object.values(jsonSample).filter(
+              (value) => typeof value === 'number'
+            );
+            if (
+              numericSamples.length === Object.keys(jsonSample).length &&
+              numericSamples.length > 0
+            ) {
+              colDef.nestedValueType = numericSamples.every(Number.isInteger)
+                ? 'integer'
+                : 'number';
             }
+            colDef.nestedStructure = Object.fromEntries(
+              Object.entries(jsonSample)
+                .slice(0, 8)
+                .map(([key, value]) => [
+                  key,
+                  value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value,
+                ])
+            );
+            continue;
+          }
+          if (exactCol.toLowerCase() === 'description' || exactCol.toLowerCase() === 'images') {
+            continue;
+          }
+          const distinctVals = [...new Set(values.map((v) =>
+            typeof v === 'string' ? v.slice(0, 60) : String(v)
+          ))].slice(0, 3);
+          if (distinctVals.length > 0 && !dynamicSchema.representativeValues[exactCol]) {
+            dynamicSchema.representativeValues[exactCol] = distinctVals;
           }
         }
       }
-    } catch {
-      // Best-effort sample query; fallback gracefully if table has no rows or query fails
+    } catch (err) {
+      console.warn(`Could not sample representative values for table "${dynamicSchema.tableName}":`, err.message);
     }
   }
 
-  REGISTERED_SCHEMAS.set(normName, dynamicSchema);
+  REGISTERED_SCHEMAS.set(normName, {
+    ...dynamicSchema,
+    representativeValues: {},
+    columns: Object.fromEntries(
+      Object.entries(dynamicSchema.columns).map(([key, def]) => [key, { ...def }])
+    ),
+  });
   return dynamicSchema;
 }
 
@@ -1137,59 +1240,64 @@ function validateFilter(entityOrSchema, filter) {
 
   const rawFieldInput = String(filter.field ?? '').trim();
 
-  // If table has a "size" column, support nested size stock filters: size.XL, size.M
-  if (findColumnDef(schema, 'size')) {
-    const nestedSizeKey = resolveNestedSizeKey(rawFieldInput, filter.size_key);
-    if (nestedSizeKey) {
-      const operator = normalizeOperator(filter.operator);
-      if (!NUMERIC_OPERATORS.includes(operator)) {
+  const nestedReference = resolveNestedMapReference(
+    schema,
+    rawFieldInput,
+    filter.nested_key ?? filter.size_key
+  );
+  if (nestedReference) {
+    const operator = normalizeOperator(filter.operator);
+    if (!NUMERIC_OPERATORS.includes(operator)) {
+      throw new AppError(
+        `Operator "${operator}" is not supported for nested map field "${nestedReference.field}.${nestedReference.key}". Supported operators: ${NUMERIC_OPERATORS.join(', ')}.`,
+        400
+      );
+    }
+
+    let normalizedValue = filter.value;
+    if (operator === 'between') {
+      if (!Array.isArray(normalizedValue) || normalizedValue.length !== 2) {
         throw new AppError(
-          `Operator "${operator}" is not supported for nested size stock field "size.${nestedSizeKey}". Supported operators: ${NUMERIC_OPERATORS.join(', ')}.`,
+          `Operator "between" on "${nestedReference.field}.${nestedReference.key}" requires an array of two numbers [min, max].`,
           400
         );
       }
-
-      let normalizedValue = filter.value;
-      if (operator === 'between') {
-        if (!Array.isArray(normalizedValue) || normalizedValue.length !== 2) {
-          throw new AppError(
-            `Operator "between" on "size.${nestedSizeKey}" requires an array of two numbers [min, max].`,
-            400
-          );
-        }
-        const num0 = parseCleanNumber(normalizedValue[0]);
-        const num1 = parseCleanNumber(normalizedValue[1]);
-        if (!Number.isFinite(num0) || !Number.isFinite(num1)) {
-          throw new AppError(
-            `Values in "between" filter for "size.${nestedSizeKey}" must be valid numbers.`,
-            400
-          );
-        }
-        normalizedValue = [Math.round(num0), Math.round(num1)];
-      } else {
-        const num = parseCleanNumber(normalizedValue);
-        if (!Number.isFinite(num)) {
-          throw new AppError(
-            `Field "size.${nestedSizeKey}" expects a valid number, got "${filter.value}".`,
-            400
-          );
-        }
-        normalizedValue = Math.round(num);
-        if (normalizedValue < 0) {
-          throw new AppError(
-            `Field "size.${nestedSizeKey}" filter value must be >= 0.`,
-            400
-          );
-        }
+      const num0 = parseCleanNumber(normalizedValue[0]);
+      const num1 = parseCleanNumber(normalizedValue[1]);
+      if (!Number.isFinite(num0) || !Number.isFinite(num1)) {
+        throw new AppError(
+          `Values in "between" filter for "${nestedReference.field}.${nestedReference.key}" must be valid numbers.`,
+          400
+        );
       }
-
-      return {
-        field: `size.${nestedSizeKey}`,
-        size_key: nestedSizeKey,
-        operator,
-        value: normalizedValue,
-      };
+      normalizedValue = [Math.round(num0), Math.round(num1)];
+    } else {
+      const num = parseCleanNumber(normalizedValue);
+      if (!Number.isFinite(num)) {
+        throw new AppError(
+          `Field "${nestedReference.field}.${nestedReference.key}" expects a valid number, got "${filter.value}".`,
+          400
+        );
+      }
+      normalizedValue = Math.round(num);
+      if (normalizedValue < 0) {
+        throw new AppError(
+          `Field "${nestedReference.field}.${nestedReference.key}" filter value must be >= 0.`,
+          400
+        );
+      }
     }
+
+    return {
+      field: `${nestedReference.field}.${nestedReference.key}`,
+      nested_field: nestedReference.field,
+      nested_key: nestedReference.key,
+      ...(nestedReference.field.toLowerCase() === 'size'
+        ? { size_key: nestedReference.key }
+        : {}),
+      operator,
+      value: normalizedValue,
+    };
   }
 
   // Handle total_stock alias for products table
@@ -1379,23 +1487,85 @@ function validateSingleUpdateTransformation(schema, rawUpdate) {
     throw new AppError('Update transformation is missing required "field".', 400);
   }
 
-  const action = normalizeUpdateAction(rawUpdate.action);
+  const rawAction = String(rawUpdate.action || 'set').trim().toLowerCase();
+  const existingMapActions = {
+    set_existing_values: 'set',
+    add_to_existing_values: 'add',
+    subtract_existing_values: 'subtract',
+    multiply_existing_values: 'multiply',
+  };
+  const existingMapAction = existingMapActions[rawAction] || null;
+  const action = existingMapAction || normalizeUpdateAction(rawUpdate.action);
   let unit = normalizeUpdateUnit(rawUpdate.unit);
 
-  // Nested size transformation on tables with a size column
-  if (findColumnDef(schema, 'size')) {
-    const nestedSizeKey = resolveNestedSizeKey(rawFieldInput, rawUpdate.size_key);
-    if (nestedSizeKey) {
+  if (existingMapAction) {
+    const mapMatch = findColumnDef(schema, rawFieldInput);
+    if (!mapMatch || !isNestedMapColumn(mapMatch.colDef, mapMatch.exactName)) {
+      throw new AppError(
+        `Operation "${rawAction}" requires a nested JSON map column, got "${rawFieldInput}".`,
+        400
+      );
+    }
+    if (rawUpdate.key_policy !== 'existing_keys_only') {
+      throw new AppError(
+        `Operation "${rawAction}" requires key_policy "existing_keys_only".`,
+        400
+      );
+    }
+    const num = parseCleanNumber(rawUpdate.value);
+    if (!Number.isFinite(num) || num < 0) {
+      throw new AppError(`Value for "${rawAction}" must be a non-negative number.`, 400);
+    }
+    if (
+      mapMatch.colDef.nestedValueType === 'integer' &&
+      unit === 'absolute' &&
+      !Number.isInteger(num)
+    ) {
+      throw new AppError(
+        `Absolute adjustment for "${mapMatch.exactName}" must be an integer.`,
+        400
+      );
+    }
+    if (action === 'subtract' && unit === 'percentage' && num > 100) {
+      throw new AppError(
+        `Cannot reduce values in "${mapMatch.exactName}" by more than 100%.`,
+        400
+      );
+    }
+    return {
+      field: mapMatch.exactName,
+      nested_field: mapMatch.exactName,
+      action: rawAction,
+      value: num,
+      unit: unit === 'percentage_points' ? 'absolute' : unit,
+      key_policy: 'existing_keys_only',
+    };
+  }
+
+  const nestedReference = resolveNestedMapReference(
+    schema,
+    rawFieldInput,
+    rawUpdate.nested_key ?? rawUpdate.size_key
+  );
+  if (nestedReference) {
+      const nestedKey = nestedReference.key;
+      const keyPolicy = rawUpdate.key_policy || 'create_if_missing';
+      if (!['existing_keys_only', 'create_if_missing'].includes(keyPolicy)) {
+        throw new AppError(
+          `Unsupported key_policy "${keyPolicy}" for nested field "${nestedReference.field}.${nestedKey}".`,
+          400
+        );
+      }
       if (rawUpdate.value === undefined || rawUpdate.value === null || rawUpdate.value === '') {
         throw new AppError(
-          `Update for "size.${nestedSizeKey}" requires a numeric "value".`,
+          `Update for "${nestedReference.field}.${nestedKey}" requires a numeric "value".`,
           400
         );
       }
       const num = parseCleanNumber(rawUpdate.value);
       if (!Number.isFinite(num)) {
         throw new AppError(
-          `Value for "size.${nestedSizeKey}" must be a valid number, got "${rawUpdate.value}".`,
+          `Value for "${nestedReference.field}.${nestedKey}" must be a valid number, got "${rawUpdate.value}".`,
           400
         );
       }
@@ -1403,63 +1573,75 @@ function validateSingleUpdateTransformation(schema, rawUpdate) {
       if (action === 'set') {
         if (!Number.isInteger(num) || num < 0) {
           throw new AppError(
-            `Stock count for "size.${nestedSizeKey}" must be a non-negative integer, got ${num}.`,
+            `Value for "${nestedReference.field}.${nestedKey}" must be a non-negative integer, got ${num}.`,
             400
           );
         }
         return {
-          field: `size.${nestedSizeKey}`,
-          size_key: nestedSizeKey,
+          field: `${nestedReference.field}.${nestedKey}`,
+          nested_field: nestedReference.field,
+          nested_key: nestedKey,
+          ...(nestedReference.field.toLowerCase() === 'size' ? { size_key: nestedKey } : {}),
           action: 'set',
           value: num,
           unit: 'absolute',
+          key_policy: keyPolicy,
         };
       }
 
       if (action === 'add' || action === 'subtract') {
         if (num < 0) {
           throw new AppError(
-            `Adjustment value for "${action}" on "size.${nestedSizeKey}" cannot be negative, got ${num}.`,
+            `Adjustment value for "${action}" on "${nestedReference.field}.${nestedKey}" cannot be negative, got ${num}.`,
             400
           );
         }
         if (unit === 'percentage' && action === 'subtract' && num > 100) {
           throw new AppError(
-            `Cannot reduce stock for "size.${nestedSizeKey}" by more than 100%.`,
+            `Cannot reduce "${nestedReference.field}.${nestedKey}" by more than 100%.`,
             400
           );
         }
-        if (unit === 'absolute' && !Number.isInteger(num)) {
+        if (
+          nestedReference.colDef.nestedValueType === 'integer' &&
+          unit === 'absolute' &&
+          !Number.isInteger(num)
+        ) {
           throw new AppError(
-            `Stock unit adjustment for "size.${nestedSizeKey}" must be a whole integer, got ${num}.`,
+            `Adjustment for "${nestedReference.field}.${nestedKey}" must be a whole integer, got ${num}.`,
             400
           );
         }
         return {
-          field: `size.${nestedSizeKey}`,
-          size_key: nestedSizeKey,
+          field: `${nestedReference.field}.${nestedKey}`,
+          nested_field: nestedReference.field,
+          nested_key: nestedKey,
+          ...(nestedReference.field.toLowerCase() === 'size' ? { size_key: nestedKey } : {}),
           action,
           value: unit === 'absolute' ? Math.round(num) : num,
           unit: unit === 'percentage' ? 'percentage' : 'absolute',
+          key_policy: keyPolicy,
         };
       }
 
       if (action === 'multiply') {
         if (num < 0) {
           throw new AppError(
-            `Stock multiplier for "size.${nestedSizeKey}" cannot be negative, got ${num}.`,
+            `Multiplier for "${nestedReference.field}.${nestedKey}" cannot be negative, got ${num}.`,
             400
           );
         }
         return {
-          field: `size.${nestedSizeKey}`,
-          size_key: nestedSizeKey,
+          field: `${nestedReference.field}.${nestedKey}`,
+          nested_field: nestedReference.field,
+          nested_key: nestedKey,
+          ...(nestedReference.field.toLowerCase() === 'size' ? { size_key: nestedKey } : {}),
           action: 'multiply',
           value: num,
           unit: 'absolute',
+          key_policy: keyPolicy,
         };
       }
-    }
   }
 
   const match = findColumnDef(schema, rawFieldInput);
@@ -1497,18 +1679,17 @@ function validateSingleUpdateTransformation(schema, rawUpdate) {
     let coerced = rawUpdate.value;
     if (colDef.type === 'boolean') {
       coerced = coerceBooleanValue(rawUpdate.value, exactName);
-    } else if (colDef.type === 'string') {
-      if (exactName === 'size') {
+    } else if (colDef.type === 'string' || colDef.type === 'json') {
+      if (isNestedMapColumn(colDef, exactName)) {
         if (typeof rawUpdate.value === 'object') {
           for (const [k, v] of Object.entries(rawUpdate.value)) {
-            const upperK = k.trim().toUpperCase();
-            if (!APPAREL_SIZE_KEYS.has(upperK)) {
-              throw new AppError(`Invalid size key "${k}" in size object.`, 400);
+            if (!/^[a-z0-9_-]+$/i.test(k)) {
+              throw new AppError(`Invalid nested map key "${k}".`, 400);
             }
             const qty = Number(v);
             if (!Number.isInteger(qty) || qty < 0) {
               throw new AppError(
-                `Stock count for size "${upperK}" must be a non-negative integer, got "${v}".`,
+                `Nested value for "${k}" must be a non-negative integer, got "${v}".`,
                 400
               );
             }
@@ -1521,13 +1702,16 @@ function validateSingleUpdateTransformation(schema, rawUpdate) {
             try {
               parsedObj = JSON.parse(strVal);
             } catch {
-              throw new AppError('Field "size" must be valid JSON.', 400);
+              throw new AppError(`Field "${exactName}" must be valid JSON.`, 400);
             }
             for (const [k, v] of Object.entries(parsedObj)) {
+              if (!/^[a-z0-9_-]+$/i.test(k)) {
+                throw new AppError(`Invalid nested map key "${k}".`, 400);
+              }
               const qty = Number(v);
               if (!Number.isInteger(qty) || qty < 0) {
                 throw new AppError(
-                  `Stock count for size "${k}" must be a non-negative integer, got "${v}".`,
+                  `Nested value for "${k}" must be a non-negative integer, got "${v}".`,
                   400
                 );
               }
@@ -1767,7 +1951,10 @@ function validateMutation(entityOrSchema, mutation) {
 
     for (const item of rawUpdatesList) {
       const validatedItem = validateSingleUpdateTransformation(schema, item);
-      if (rawOp === 'create' && (validatedItem.action !== 'set' || validatedItem.size_key)) {
+        if (
+          rawOp === 'create' &&
+          (validatedItem.action !== 'set' || validatedItem.nested_field)
+        ) {
         throw new AppError(
           'Mutation "create" only supports direct field assignments ("action": "set").',
           400
@@ -1817,6 +2004,9 @@ module.exports = {
   normalizeUpdateAction,
   normalizeUpdateUnit,
   resolveNestedSizeKey,
+  resolveNestedMapReference,
+  isNestedMapColumn,
+  quoteIdentifier,
   validateFilter,
   validateSort,
   validateSingleUpdateTransformation,

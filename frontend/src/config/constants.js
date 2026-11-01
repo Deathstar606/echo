@@ -4,8 +4,8 @@
  */
 export const BUSINESS_ID = "684a8863-5094-4c8b-9b15-c50c06335b7f";
 
-export const API_BASE_URL = "https://echo-back.vercel.app";
-/* export const API_BASE_URL = "http://localhost:3000"; */
+/* export const API_BASE_URL = "https://echo-back.vercel.app"; */
+export const API_BASE_URL = "http://localhost:3000";
 
 export const STORAGE_KEYS = {
   CUSTOMER_ID: "maxitext_customer_id",

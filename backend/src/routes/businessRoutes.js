@@ -1,11 +1,6 @@
 const express = require('express');
 const { createBusiness } = require('../controllers/businessController');
-const { uploadBusinessContext } = require('../controllers/contextController');
-const { generateBusinessPrompt } = require('../controllers/promptController');
-const {
-  createBusinessCustomer,
-  uploadBusinessCustomers,
-} = require('../controllers/customerController');
+const { createBusinessCustomer } = require('../controllers/customerController');
 const {
   listBusinessConversations,
   getCustomerConversationHistory,
@@ -25,47 +20,20 @@ const {
   validateConversationIdParam,
   validateAnnouncementIdParam,
 } = require('../middleware/validate');
-const { uploadSingleCsv } = require('../middleware/uploadMiddleware');
 const sheetRoutes = require('./sheetRoutes');
 
 const router = express.Router();
 
-// Phase 1: Business Creation Endpoint
+// Business Creation Endpoint
 // POST /api/businesses
 router.post('/', createBusiness);
 
-// Phase 1: CSV Upload and Import Endpoint
-// POST /api/businesses/:businessId/context/upload
-router.post(
-  '/:businessId/context/upload',
-  validateBusinessIdParam,
-  uploadSingleCsv,
-  uploadBusinessContext
-);
-
-// Phase 1: Single-Turn Contextual Prompt Generation Endpoint
-// POST /api/businesses/:businessId/prompt
-router.post(
-  '/:businessId/prompt',
-  validateBusinessIdParam,
-  generateBusinessPrompt
-);
-
-// Phase 2 & 3: Individual Customer Creation Endpoint
+// Individual Customer Creation Endpoint
 // POST /api/businesses/:businessId/customers
 router.post(
   '/:businessId/customers',
   validateBusinessIdParam,
   createBusinessCustomer
-);
-
-// Phase 3: Bulk Customer CSV Upload Endpoint
-// POST /api/businesses/:businessId/customers/upload
-router.post(
-  '/:businessId/customers/upload',
-  validateBusinessIdParam,
-  uploadSingleCsv,
-  uploadBusinessCustomers
 );
 
 // Phase 3 & 6: List Announcement History Endpoint

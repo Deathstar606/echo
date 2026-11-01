@@ -1,12 +1,7 @@
-const path = require('node:path');
 const AppError = require('../utils/AppError');
 const { normalizeEmail, isValidEmail } = require('../middleware/validate');
 const { findBusinessOrThrow } = require('./businessController');
 const { createCustomer } = require('../services/customerService');
-const {
-  parseAndValidateCustomerCsv,
-  upsertCustomerCsvRecords,
-} = require('../services/customerCsvImportService');
 
 /**
  * POST /api/businesses/:businessId/customers
@@ -102,68 +97,6 @@ async function createBusinessCustomer(req, res, next) {
   }
 }
 
-/**
- * POST /api/businesses/:businessId/customers/upload
- * Bulk imports/updates customers from a CSV file (customer_name,email)
- * scoped strictly to the specified businessId.
- */
-async function uploadBusinessCustomers(req, res, next) {
-  try {
-    const { businessId } = req.params;
-
-    if (!req.file) {
-      throw new AppError(
-        'No CSV file uploaded. Please attach a .csv file under the form-data field name "file" or "customer_csv".',
-        400
-      );
-    }
-
-    // 1. Validate that the business exists before parsing/importing
-    const business = await findBusinessOrThrow(businessId);
-
-    // 2. Parse CSV and separate valid rows from rejected rows
-    const { validRecords, rejectedRows, totalRows } =
-      parseAndValidateCustomerCsv(req.file.buffer);
-
-    const sanitizedSourceFile = path.basename(
-      req.file.originalname || 'customers.csv'
-    );
-
-    if (validRecords.length === 0) {
-      return res.status(400).json({
-        error: 'All rows in the uploaded CSV failed validation.',
-        business_id: business.id,
-        source_file: sanitizedSourceFile,
-        total_rows: totalRows,
-        imported_count: 0,
-        updated_count: 0,
-        rejected_count: rejectedRows.length,
-        errors: rejectedRows,
-      });
-    }
-
-    // 3. Upsert valid customer rows in a database transaction
-    const summary = await upsertCustomerCsvRecords(business.id, validRecords);
-
-    return res.status(200).json({
-      message:
-        rejectedRows.length > 0
-          ? 'Customer CSV processed with some rejected rows.'
-          : 'Customer CSV imported successfully.',
-      business_id: business.id,
-      source_file: sanitizedSourceFile,
-      total_rows: totalRows,
-      imported_count: summary.importedCount,
-      updated_count: summary.updatedCount,
-      rejected_count: rejectedRows.length,
-      errors: rejectedRows,
-    });
-  } catch (error) {
-    return next(error);
-  }
-}
-
 module.exports = {
   createBusinessCustomer,
-  uploadBusinessCustomers,
 };

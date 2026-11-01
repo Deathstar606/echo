@@ -1,14 +1,14 @@
 const { query } = require('../../db');
 const {
-  APPAREL_SIZE_KEYS,
   getSchema,
   discoverTableSchema,
   ensureTableExists,
   findColumnDef,
+  quoteIdentifier,
   validateFilter,
   validateSort,
 } = require('./sheetSchemaService');
-const { resolveNameFilters } = require('./productNameResolver');
+const { resolveNameFilters } = require('./catalogNameResolver');
 const AppError = require('../utils/AppError');
 
 /**
@@ -199,11 +199,24 @@ function buildParameterizedSelectQuery({
 
   for (const rawFilter of filters) {
     const validated = validateFilter(schema, rawFilter);
-    const { field, operator, value, size_key: sizeKey } = validated;
+    const {
+      field,
+      operator,
+      value,
+      nested_field: nestedField,
+      nested_key: nestedKey,
+    } = validated;
 
-    // 1. Nested size.<KEY> stock filter (e.g. size.M, size.XL)
-    if (sizeKey && APPAREL_SIZE_KEYS.has(sizeKey)) {
-      const sizeKeyExpr = `COALESCE((CASE WHEN size IS NOT NULL AND size LIKE '{%}' AND (size::jsonb ->> '${sizeKey}') ~ '^-?[0-9]+$' THEN (size::jsonb ->> '${sizeKey}')::integer ELSE 0 END), 0)`;
+    if (nestedField && nestedKey) {
+      const nestedColumn = findColumnDef(schema, nestedField);
+      if (!nestedColumn) {
+        throw new AppError(`Unknown nested map column "${nestedField}".`, 400);
+      }
+      const nestedColumnSql = quoteIdentifier(nestedColumn.exactName);
+      sqlParams.push(nestedKey);
+      const keyParam = `$${sqlParams.length}`;
+      const nestedValueExpr = `(${nestedColumnSql}::jsonb ->> ${keyParam})`;
+      const sizeKeyExpr = `COALESCE((CASE WHEN ${nestedColumnSql} IS NOT NULL AND ${nestedColumnSql}::text LIKE '{%}' AND ${nestedValueExpr} ~ '^-?[0-9]+([.][0-9]+)?$' THEN ${nestedValueExpr}::numeric ELSE 0 END), 0)`;
       filterClauses.push(
         buildNumericComparisonClause(sizeKeyExpr, operator, value, sqlParams)
       );
@@ -212,7 +225,9 @@ function buildParameterizedSelectQuery({
 
     // 2. Virtual total_stock filter across all sizes in the JSON `size` column
     if (field === 'total_stock') {
-      const totalStockExpr = `COALESCE((SELECT SUM(CASE WHEN value ~ '^-?[0-9]+$' THEN value::integer ELSE 0 END) FROM jsonb_each_text(CASE WHEN size IS NOT NULL AND size LIKE '{%}' THEN size::jsonb ELSE '{}'::jsonb END)), 0)`;
+      const sizeColumn = findColumnDef(schema, 'size');
+      const sizeSql = quoteIdentifier(sizeColumn ? sizeColumn.exactName : 'size');
+      const totalStockExpr = `COALESCE((SELECT SUM(CASE WHEN value ~ '^-?[0-9]+([.][0-9]+)?$' THEN value::numeric ELSE 0 END) FROM jsonb_each_text(CASE WHEN ${sizeSql} IS NOT NULL AND ${sizeSql}::text LIKE '{%}' THEN ${sizeSql}::jsonb ELSE '{}'::jsonb END)), 0)`;
       filterClauses.push(
         buildNumericComparisonClause(totalStockExpr, operator, value, sqlParams)
       );
@@ -222,7 +237,7 @@ function buildParameterizedSelectQuery({
     const colMatch = findColumnDef(schema, field);
     const colDef = colMatch ? colMatch.colDef : { type: 'string' };
     const exactCol = colMatch ? colMatch.exactName : field;
-    const colSql = `"${exactCol}"`;
+    const colSql = quoteIdentifier(exactCol);
 
     // 3. Special handling for comma-separated color lists and JSON size maps
     if (field.toLowerCase() === 'color' && (operator === 'equals' || operator === 'contains')) {
@@ -231,14 +246,10 @@ function buildParameterizedSelectQuery({
       continue;
     }
 
-    if (field.toLowerCase() === 'size' && (operator === 'equals' || operator === 'contains')) {
+    if (colDef.nestedMap && (operator === 'equals' || operator === 'contains')) {
       const trimmedVal = String(value).trim();
-      if (APPAREL_SIZE_KEYS.has(trimmedVal.toUpperCase())) {
-        sqlParams.push(`%"${trimmedVal.toUpperCase()}":%`);
-      } else {
-        sqlParams.push(`%${trimmedVal}%`);
-      }
-      filterClauses.push(`${colSql} ILIKE $${sqlParams.length}`);
+      sqlParams.push(`%${trimmedVal}%`);
+      filterClauses.push(`${colSql}::text ILIKE $${sqlParams.length}`);
       continue;
     }
 
@@ -341,7 +352,7 @@ function buildParameterizedSelectQuery({
   for (const s of validatedSort) {
     const sMatch = findColumnDef(schema, s.field);
     const sCol = sMatch ? sMatch.exactName : s.field;
-    sortClauses.push(`"${sCol}" ${s.direction.toUpperCase()}`);
+    sortClauses.push(`${quoteIdentifier(sCol)} ${s.direction.toUpperCase()}`);
   }
   if (schema.columns.created_at) {
     sortClauses.push('"created_at" DESC');
@@ -350,11 +361,11 @@ function buildParameterizedSelectQuery({
     sortClauses.push('"id" ASC');
   }
 
-  const safeTableName = String(schema.tableName || 'products').replace(/[^a-z0-9_]/gi, '_');
+  const safeTableName = quoteIdentifier(schema.tableName || 'products');
 
   let sql = `
     SELECT *
-    FROM "${safeTableName}"
+    FROM ${safeTableName}
     WHERE ${whereSql}
   `;
 
@@ -380,7 +391,7 @@ function buildParameterizedSelectQuery({
 async function getAllRows(entity = 'products', businessId) {
   const schema = await discoverTableSchema(entity, businessId);
   await ensureTableExists(schema);
-  const safeTableName = String(schema.tableName || 'products').replace(/[^a-z0-9_]/gi, '_');
+  const safeTableName = quoteIdentifier(schema.tableName || 'products');
   const orderClause = schema.columns.created_at
     ? 'ORDER BY "created_at" DESC, "id" ASC'
     : schema.columns.id
@@ -390,7 +401,7 @@ async function getAllRows(entity = 'products', businessId) {
   const result = await query(
     `
       SELECT *
-      FROM "${safeTableName}"
+      FROM ${safeTableName}
       WHERE business_id = $1
       ${orderClause};
     `,

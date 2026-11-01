@@ -5,13 +5,14 @@ const {
   discoverTableSchema,
   ensureTableExists,
   findColumnDef,
+  quoteIdentifier,
   validateMutation,
 } = require('./sheetSchemaService');
 const {
   buildParameterizedSelectQuery,
   normalizeProductRow,
 } = require('./sheetQueryService');
-const { resolveNameFilters } = require('./productNameResolver');
+const { resolveNameFilters } = require('./catalogNameResolver');
 const AppError = require('../utils/AppError');
 
 /**
@@ -65,6 +66,7 @@ function computeRowUpdates(row, validatedUpdates, schema) {
   const before = {};
   const after = {};
   const changes = {};
+  const originalMaps = new Map();
 
   const rowName =
     normalizedRow.name ||
@@ -79,94 +81,154 @@ function computeRowUpdates(row, validatedUpdates, schema) {
     normalizedRow.model ||
     normalizedRow.id;
 
-  let parsedSizeObj = null;
+  const parsedMaps = new Map();
 
   for (const u of validatedUpdates) {
-    // 1. Nested size.<KEY> transformation for tables with size JSON
-    if (u.size_key) {
-      const sizeKey = u.size_key;
-      if (!parsedSizeObj) {
-        if (!nextRow.size || typeof nextRow.size !== 'string') {
-          parsedSizeObj = {};
-        } else {
+    const nestedField = u.nested_field || (u.size_key ? 'size' : null);
+    if (nestedField) {
+      const mapMatch = findColumnDef(schema, nestedField);
+      if (!mapMatch) {
+        throw new AppError(`Nested map column "${nestedField}" no longer exists.`, 400);
+      }
+      const exactMapField = mapMatch.exactName;
+      const originalMap = normalizedRow[exactMapField] ?? normalizedRow[nestedField];
+      let mapValue = parsedMaps.get(exactMapField);
+      if (!mapValue) {
+        let parsed;
+        if (originalMap === null || originalMap === undefined || originalMap === '') {
+          parsed = {};
+        } else if (typeof originalMap === 'string') {
           try {
-            parsedSizeObj = JSON.parse(nextRow.size);
+            parsed = JSON.parse(originalMap);
           } catch {
             throw new AppError(
-              `Cannot modify size "${sizeKey}" on item "${rowName}" because its stored size value is not valid JSON.`,
+              `Cannot modify "${exactMapField}" on item "${rowName}" because its stored value is not valid JSON.`,
               400
             );
           }
+        } else {
+          parsed = originalMap;
         }
-        if (
-          !parsedSizeObj ||
-          typeof parsedSizeObj !== 'object' ||
-          Array.isArray(parsedSizeObj)
-        ) {
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
           throw new AppError(
-            `Cannot modify size "${sizeKey}" on item "${rowName}" because its stored size value is not a JSON object.`,
+            `Cannot modify "${exactMapField}" on item "${rowName}" because its stored value is not a JSON object.`,
             400
           );
         }
-        parsedSizeObj = { ...parsedSizeObj };
+        mapValue = { ...parsed };
+        originalMaps.set(exactMapField, { ...parsed });
+        parsedMaps.set(exactMapField, mapValue);
       }
 
-      const initialSizeStock = (() => {
-        try {
-          const origObj = normalizedRow.size ? JSON.parse(normalizedRow.size) : {};
-          const n = Number(origObj[sizeKey]);
-          return Number.isFinite(n) ? Math.round(n) : 0;
-        } catch {
-          return 0;
+      const existingValuesOperation = u.action.endsWith('_existing_values');
+      const baseAction = existingValuesOperation
+        ? u.action.replace(/_existing_values$/, '').replace(/_to$/, '')
+        : u.action;
+      const keys = existingValuesOperation
+        ? Object.keys(mapValue)
+        : [u.nested_key || u.size_key];
+      const updatedEntries = [];
+
+      for (const rawKey of keys) {
+        const key = existingValuesOperation
+          ? rawKey
+          : Object.keys(mapValue).find(
+              (candidate) =>
+                candidate === rawKey ||
+                (exactMapField.toLowerCase() === 'size' &&
+                  candidate.toUpperCase() === String(rawKey).toUpperCase())
+            ) || rawKey;
+        const keyExists = Object.prototype.hasOwnProperty.call(mapValue, key);
+        if (!keyExists && (existingValuesOperation || u.key_policy === 'existing_keys_only')) {
+          continue;
         }
-      })();
 
-      const currentStock = Number.isFinite(Number(parsedSizeObj[sizeKey]))
-        ? Math.round(Number(parsedSizeObj[sizeKey]))
-        : 0;
-
-      let rawNewStock = currentStock;
-      if (u.action === 'set') {
-        rawNewStock = u.value;
-      } else if (u.action === 'add') {
-        rawNewStock =
-          u.unit === 'percentage'
-            ? currentStock * (1 + u.value / 100)
-            : currentStock + u.value;
-      } else if (u.action === 'subtract') {
-        rawNewStock =
-          u.unit === 'percentage'
-            ? currentStock * (1 - u.value / 100)
-            : currentStock - u.value;
-      } else if (u.action === 'multiply') {
-        rawNewStock = currentStock * u.value;
+        const currentValue = keyExists ? mapValue[key] : 0;
+        const currentNumber =
+          typeof currentValue === 'number' ||
+          (typeof currentValue === 'string' && currentValue.trim() !== '')
+            ? Number(currentValue)
+            : Number.NaN;
+        if (keyExists && !Number.isFinite(currentNumber)) {
+          if (existingValuesOperation) continue;
+          throw new AppError(
+            `Cannot modify "${exactMapField}.${key}" on item "${rowName}" because its value is not numeric.`,
+            400
+          );
+        }
+        const current = keyExists ? currentNumber : 0;
+        let proposed = current;
+        if (baseAction === 'set') {
+          proposed = u.value;
+        } else if (baseAction === 'add') {
+          proposed =
+            u.unit === 'percentage'
+              ? current * (1 + u.value / 100)
+              : current + u.value;
+        } else if (baseAction === 'subtract') {
+          proposed =
+            u.unit === 'percentage'
+              ? current * (1 - u.value / 100)
+              : current - u.value;
+        } else if (baseAction === 'multiply') {
+          proposed = current * u.value;
+        }
+        proposed =
+          mapMatch.colDef.nestedValueType === 'integer'
+            ? Math.round(proposed)
+            : Number(proposed.toFixed(2));
+        if (!Number.isFinite(proposed) || proposed < 0) {
+          throw new AppError(
+            `Value for "${exactMapField}.${key}" on item "${rowName}" cannot become negative or non-numeric.`,
+            400
+          );
+        }
+        mapValue[key] = proposed;
+        updatedEntries.push({
+          key,
+          current: keyExists ? currentValue : undefined,
+          proposed,
+        });
       }
 
-      const proposedStock = Math.round(rawNewStock);
-      if (!Number.isFinite(proposedStock) || proposedStock < 0) {
-        throw new AppError(
-          `Stock count for size "${sizeKey}" on item "${rowName}" cannot become negative (current: ${currentStock}, proposed: ${proposedStock}).`,
-          400
-        );
+      const nextMapValue =
+        typeof originalMap === 'string' ? JSON.stringify(mapValue) : mapValue;
+      nextRow[exactMapField] = nextMapValue;
+      if (exactMapField !== nestedField) nextRow[nestedField] = nextMapValue;
+
+      if (existingValuesOperation) {
+        if (!Object.prototype.hasOwnProperty.call(before, exactMapField)) {
+          before[exactMapField] = originalMap;
+        }
+        after[exactMapField] = nextMapValue;
+        changes[exactMapField] = { current: originalMap, proposed: nextMapValue };
+      } else {
+        const entry = updatedEntries[0];
+        if (entry) {
+          const nestedName = `${exactMapField}.${entry.key}`;
+          if (!Object.prototype.hasOwnProperty.call(before, nestedName)) {
+            const originalMapValue = originalMaps.get(exactMapField) || {};
+            const originalKey = Object.keys(originalMapValue).find(
+              (candidate) =>
+                candidate === entry.key ||
+                (exactMapField.toLowerCase() === 'size' &&
+                  candidate.toUpperCase() === entry.key.toUpperCase())
+            );
+            before[nestedName] =
+              originalKey === undefined ? undefined : originalMapValue[originalKey];
+          }
+          after[nestedName] = entry.proposed;
+          changes[nestedName] = {
+            current: before[nestedName],
+            proposed: entry.proposed,
+          };
+        }
+        if (!Object.prototype.hasOwnProperty.call(before, exactMapField)) {
+          before[exactMapField] = originalMap;
+        }
+        after[exactMapField] = nextMapValue;
+        changes[exactMapField] = { current: originalMap, proposed: nextMapValue };
       }
-
-      parsedSizeObj[sizeKey] = proposedStock;
-      const newSizeJson = JSON.stringify(parsedSizeObj);
-      nextRow.size = newSizeJson;
-
-      before[u.field] = initialSizeStock;
-      after[u.field] = proposedStock;
-      changes[u.field] = {
-        current: initialSizeStock,
-        proposed: proposedStock,
-      };
-
-      before.size = normalizedRow.size;
-      after.size = newSizeJson;
-      changes.size = {
-        current: normalizedRow.size,
-        proposed: newSizeJson,
-      };
       continue;
     }
 
@@ -266,7 +328,18 @@ function computeRowUpdates(row, validatedUpdates, schema) {
  * @param {Array<object>} diffPreview
  * @returns {string}
  */
-function computePreviewHash(diffPreview) {
+function createApprovedMutation(validated) {
+  return {
+    entity: validated.entity,
+    operation: validated.operation,
+    filter_logic: validated.filter_logic,
+    match_all: validated.match_all,
+    target_filters: validated.target_filters,
+    updates: validated.updates,
+  };
+}
+
+function computePreviewHash(diffPreview, validatedMutation = null) {
   const canonical = [...diffPreview]
     .sort((a, b) => String(a.id).localeCompare(String(b.id)))
     .map((d) => ({
@@ -274,9 +347,19 @@ function computePreviewHash(diffPreview) {
       before: d.before,
       after: d.after,
     }));
+  const plan = validatedMutation
+    ? {
+        operation: validatedMutation.operation,
+        filter_logic: validatedMutation.filter_logic,
+        match_all: validatedMutation.match_all,
+        target_filters: validatedMutation.target_filters,
+        updates: validatedMutation.updates,
+        changes: validatedMutation.operation === 'create' ? validatedMutation.changes : undefined,
+      }
+    : null;
   return crypto
     .createHash('sha256')
-    .update(JSON.stringify(canonical))
+    .update(JSON.stringify({ rows: canonical, plan }))
     .digest('hex');
 }
 
@@ -301,8 +384,8 @@ function buildParameterizedUpdateStatement({
   const setClauses = [];
   const updateParams = [businessId, targetIds];
 
-  const hasNestedSizeUpdates = validatedUpdates.some((u) => Boolean(u.size_key));
-  const nonSizeUpdates = validatedUpdates.filter((u) => !u.size_key);
+  const nestedUpdates = validatedUpdates.filter((u) => Boolean(u.nested_field || u.size_key));
+  const nonSizeUpdates = validatedUpdates.filter((u) => !u.nested_field && !u.size_key);
 
   const colOccurrences = new Map();
   for (const u of nonSizeUpdates) {
@@ -316,14 +399,17 @@ function buildParameterizedUpdateStatement({
     if (processedCols.has(col)) continue;
     processedCols.add(col);
 
-    if (colOccurrences.get(col) > 1 || (col === 'size' && hasNestedSizeUpdates)) {
+    if (
+      colOccurrences.get(col) > 1 ||
+      nestedUpdates.some((u) => (u.nested_field || 'size') === col)
+    ) {
       continue;
     }
 
     const match = findColumnDef(schema, col);
     const colDef = match ? match.colDef : { type: 'string' };
     const exactCol = match ? match.exactName : col;
-    const colSql = `"${exactCol}"`;
+    const colSql = quoteIdentifier(exactCol);
 
     updateParams.push(u.value);
     const paramRef = `$${updateParams.length}`;
@@ -390,37 +476,46 @@ function buildParameterizedUpdateStatement({
         const valParam = `$${updateParams.length}`;
         caseParts.push(`WHEN ${idParam}::uuid THEN ${valParam}`);
       }
-      setClauses.push(`"${exactCol}" = CASE id ${caseParts.join(' ')} END`);
+      setClauses.push(`${quoteIdentifier(exactCol)} = CASE id ${caseParts.join(' ')} END`);
     }
   }
 
-  // Handle nested size.<KEY> updates
-  if (hasNestedSizeUpdates) {
-    const distinctAfterSizes = new Set(diffPreview.map((d) => d.after.size));
-    if (distinctAfterSizes.size === 1) {
-      updateParams.push(diffPreview[0].after.size);
-      setClauses.push(`"size" = $${updateParams.length}`);
-    } else {
-      const caseParts = [];
-      for (const d of diffPreview) {
-        updateParams.push(d.id);
-        const idParam = `$${updateParams.length}`;
-        updateParams.push(d.after.size);
-        const valParam = `$${updateParams.length}`;
-        caseParts.push(`WHEN ${idParam}::uuid THEN ${valParam}`);
-      }
-      setClauses.push(`"size" = CASE id ${caseParts.join(' ')} END`);
+  for (const nestedField of new Set(nestedUpdates.map((u) => u.nested_field || 'size'))) {
+    const mapMatch = findColumnDef(schema, nestedField);
+    if (!mapMatch) {
+      throw new AppError(`Unknown nested map column "${nestedField}".`, 400);
     }
+    const exactField = mapMatch.exactName;
+    const caseParts = [];
+    for (const d of diffPreview) {
+      updateParams.push(d.id);
+      const idParam = `$${updateParams.length}`;
+      updateParams.push(d.after[exactField]);
+      const valueParam = `$${updateParams.length}`;
+      const isJsonStorage =
+        mapMatch.colDef.type === 'json' ||
+        ['json', 'jsonb'].includes(
+          String(mapMatch.colDef.storageType || '').toLowerCase()
+        );
+      caseParts.push(
+        `WHEN ${idParam}::uuid THEN ${isJsonStorage ? `${valueParam}::jsonb` : valueParam}`
+      );
+    }
+    setClauses.push(
+      `${quoteIdentifier(exactField)} = CASE id ${caseParts.join(' ')} END`
+    );
   }
 
   if (schema.columns.updated_at) {
-    setClauses.push('"updated_at" = NOW()');
+    setClauses.push(
+      `${quoteIdentifier(schema.columns.updated_at.exactName || 'updated_at')} = NOW()`
+    );
   }
 
-  const safeTableName = String(schema.tableName || 'products').replace(/[^a-z0-9_]/gi, '_');
+  const safeTableName = quoteIdentifier(schema.tableName || 'products');
 
   const updateSql = `
-    UPDATE "${safeTableName}"
+    UPDATE ${safeTableName}
     SET ${setClauses.join(', ')}
     WHERE business_id = $1 AND id = ANY($2::uuid[])
     RETURNING *;
@@ -464,6 +559,7 @@ async function previewMutation({
   const validatedRaw = validateMutation(schema, mutationJson);
 
   if (validatedRaw.operation === 'create') {
+    const approvedMutation = createApprovedMutation(validatedRaw);
     return {
       status: 'preview',
       operation: 'create',
@@ -472,6 +568,8 @@ async function previewMutation({
       message: `Ready to create new ${schema.entity} record. Submit with "confirm": true to execute.`,
       proposed_changes: validatedRaw.changes,
       proposed_updates: validatedRaw.updates,
+      approved_mutation: approvedMutation,
+      preview_hash: computePreviewHash([], validatedRaw),
       affected_count: 1,
       target_rows: [],
     };
@@ -521,7 +619,8 @@ async function previewMutation({
       };
     });
 
-    const previewHash = computePreviewHash(diffPreview);
+    const approvedMutation = createApprovedMutation(validated);
+    const previewHash = computePreviewHash(diffPreview, validated);
 
     return {
       status: 'preview',
@@ -533,6 +632,7 @@ async function previewMutation({
       target_rows: targetRows,
       proposed_changes: validated.changes,
       proposed_updates: validated.updates,
+      approved_mutation: approvedMutation,
       filter_logic: validated.filter_logic,
       match_all: validated.match_all,
       target_filters: validated.target_filters,
@@ -543,6 +643,11 @@ async function previewMutation({
   }
 
   if (validated.operation === 'delete') {
+    const deleteDiff = targetRows.map((row) => ({
+      id: row.id,
+      before: row,
+      after: null,
+    }));
     return {
       status: 'preview',
       operation: 'delete',
@@ -551,6 +656,8 @@ async function previewMutation({
       message: `Warning: This will permanently delete ${targetRows.length} record(s). Submit with "confirm": true to execute deletion.`,
       affected_count: targetRows.length,
       target_rows: targetRows,
+      approved_mutation: createApprovedMutation(validated),
+      preview_hash: computePreviewHash(deleteDiff, validated),
       target_filters: validated.target_filters,
       name_resolutions: nameResolutions,
     };
@@ -582,12 +689,13 @@ async function executeMutation({
   }
 
   const schema = await discoverTableSchema(entity, businessId);
-  await ensureTableExists(schema);
 
   // If not confirmed, return preview
   if (confirm !== true) {
     return previewMutation({ entity: schema, businessId, mutationJson });
   }
+
+  await ensureTableExists(schema);
 
   if (mutationJson.status === 'clarification_needed') {
     return {
@@ -622,22 +730,35 @@ async function executeMutation({
   return withTransaction(async (client) => {
     // 1. Create operation
     if (validated.operation === 'create') {
+      if (hashToVerify && computePreviewHash([], validated) !== hashToVerify) {
+        throw new AppError(
+          'Mutation plan differs from the approved preview. Please preview the mutation again before confirming.',
+          409
+        );
+      }
       const keys = Object.keys(validated.changes);
       if (keys.length === 0) {
         throw new AppError('Cannot create record with empty fields.', 400);
       }
 
-      const safeTableName = String(schema.tableName || 'products').replace(/[^a-z0-9_]/gi, '_');
+      const safeTableName = quoteIdentifier(schema.tableName || 'products');
       const cols = ['"business_id"'];
       const placeholders = ['$1'];
       const values = [businessId];
 
-      keys.forEach((k, idx) => {
+      keys.forEach((k) => {
         const match = findColumnDef(schema, k);
         const exactCol = match ? match.exactName : k;
-        cols.push(`"${exactCol}"`);
-        placeholders.push(`$${idx + 2}`);
+        cols.push(quoteIdentifier(exactCol));
         values.push(validated.changes[k]);
+        const parameter = `$${values.length}`;
+        const jsonStorage =
+          match &&
+          (match.colDef.type === 'json' ||
+            ['json', 'jsonb'].includes(
+              String(match.colDef.storageType || '').toLowerCase()
+            ));
+        placeholders.push(jsonStorage ? `${parameter}::jsonb` : parameter);
       });
 
       if (schema.columns.created_at) {
@@ -650,7 +771,7 @@ async function executeMutation({
       }
 
       const insertSql = `
-        INSERT INTO "${safeTableName}" (${cols.join(', ')})
+        INSERT INTO ${safeTableName} (${cols.join(', ')})
         VALUES (${placeholders.join(', ')})
         RETURNING *;
       `;
@@ -706,7 +827,7 @@ async function executeMutation({
       });
 
       if (hashToVerify) {
-        const currentHash = computePreviewHash(diffPreview);
+        const currentHash = computePreviewHash(diffPreview, validated);
         if (currentHash !== hashToVerify) {
           throw new AppError(
             'Stale preview detected: target records were modified since the preview was generated. Please preview the mutation again before confirming.',
@@ -764,9 +885,23 @@ async function executeMutation({
 
     // 4. Delete operation
     if (validated.operation === 'delete') {
-      const safeTableName = String(schema.tableName || 'products').replace(/[^a-z0-9_]/gi, '_');
+      if (hashToVerify) {
+        const deleteDiff = targetRows.map((row) => ({
+          id: row.id,
+          before: row,
+          after: null,
+        }));
+        const currentHash = computePreviewHash(deleteDiff, validated);
+        if (currentHash !== hashToVerify) {
+          throw new AppError(
+            'Stale preview or mutation plan detected. Please preview the deletion again before confirming.',
+            409
+          );
+        }
+      }
+      const safeTableName = quoteIdentifier(schema.tableName || 'products');
       const deleteSql = `
-        DELETE FROM "${safeTableName}"
+        DELETE FROM ${safeTableName}
         WHERE business_id = $1 AND id = ANY($2::uuid[])
         RETURNING *;
       `;

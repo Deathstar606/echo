@@ -252,6 +252,13 @@ async function callGeminiModelWithSchema(
     throw err;
   }
 
+  const promptTokenCount = data?.usageMetadata?.promptTokenCount;
+  if (Number.isFinite(promptTokenCount)) {
+    console.info(
+      `[Gemini] model=${normalizedModel} prompt_tokens=${promptTokenCount}`
+    );
+  }
+
   const parts = data?.candidates?.[0]?.content?.parts || [];
   const textPart = parts.find(
     (part) => typeof part.text === 'string' && !part.thought

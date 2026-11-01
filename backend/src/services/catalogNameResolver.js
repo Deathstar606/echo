@@ -1,5 +1,9 @@
 const { query } = require('../../db');
-const { getSchema, findColumnDef } = require('./sheetSchemaService');
+const {
+  getSchema,
+  findColumnDef,
+  quoteIdentifier,
+} = require('./sheetSchemaService');
 
 /**
  * Deterministic, catalog-driven product/item name resolution.
@@ -15,6 +19,41 @@ const { getSchema, findColumnDef } = require('./sheetSchemaService');
 
 const NAME_EQUALITY_OPERATORS = new Set(['equals', 'not_equals']);
 const NAME_SUBSTRING_OPERATORS = new Set(['contains', 'not_contains', 'starts_with', 'ends_with']);
+
+function getCatalogColumns(entityOrSchema) {
+  const schema =
+    entityOrSchema && typeof entityOrSchema === 'object' && entityOrSchema.columns
+      ? entityOrSchema
+      : getSchema(entityOrSchema);
+  const nameColDef =
+    schema.columns.name ||
+    schema.columns.product_name ||
+    schema.columns.product_model ||
+    schema.columns.item_name ||
+    schema.columns.title ||
+    schema.columns.model ||
+    Object.values(schema.columns).find(
+      (c) => c.modifiable && c.type === 'string' && /name|model|item|title/i.test(c.exactName)
+    ) ||
+    Object.values(schema.columns).find((c) => c.modifiable && c.type === 'string');
+  const categoryColDef =
+    schema.columns.category ||
+    schema.columns.brand_name ||
+    schema.columns.vendor ||
+    schema.columns.supplier ||
+    Object.values(schema.columns).find(
+      (c) =>
+        c.modifiable &&
+        c.type === 'string' &&
+        /category|brand|vendor|supplier/i.test(c.exactName)
+    );
+
+  return {
+    schema,
+    exactNameCol: nameColDef?.exactName || (nameColDef ? 'name' : null),
+    exactCategoryCol: categoryColDef?.exactName || null,
+  };
+}
 
 /**
  * Normalizes a product/item name for comparison.
@@ -75,53 +114,81 @@ function diceSimilarity(a, b) {
  * @returns {Promise<Array<{ name: string, category: string | null }>>}
  */
 async function loadCatalogNames(businessId, entity = 'products') {
-  const schema = getSchema(entity);
-  const nameColDef =
-    schema.columns.name ||
-    schema.columns.product_name ||
-    schema.columns.product_model ||
-    schema.columns.item_name ||
-    schema.columns.title ||
-    schema.columns.model ||
-    Object.values(schema.columns).find(
-      (c) => c.modifiable && c.type === 'string' && /name|model|item|title/i.test(c.exactName)
-    ) ||
-    Object.values(schema.columns).find((c) => c.modifiable && c.type === 'string');
-
-  if (!nameColDef) return [];
-  const exactNameCol = nameColDef.exactName || 'name';
-
-  const catColDef =
-    schema.columns.category ||
-    schema.columns.brand_name ||
-    schema.columns.vendor ||
-    schema.columns.supplier ||
-    Object.values(schema.columns).find(
-      (c) =>
-        c.modifiable &&
-        c.type === 'string' &&
-        /category|brand|vendor|supplier/i.test(c.exactName)
-    );
-  const exactCatCol = catColDef ? catColDef.exactName : null;
-
-  const selectCols = exactCatCol
-    ? `"${exactNameCol}", "${exactCatCol}"`
-    : `"${exactNameCol}"`;
+  const { schema, exactNameCol, exactCategoryCol } = getCatalogColumns(entity);
+  if (!exactNameCol) return [];
+  const selectCols = exactCategoryCol
+    ? `${quoteIdentifier(exactNameCol)}, ${quoteIdentifier(exactCategoryCol)}`
+    : quoteIdentifier(exactNameCol);
 
   try {
-    const safeTableName = String(schema.tableName || 'products').replace(/[^a-z0-9_]/gi, '_');
+    const safeTableName = quoteIdentifier(schema.tableName || 'products');
     const result = await query(
-      `SELECT ${selectCols} FROM "${safeTableName}" WHERE business_id = $1 ORDER BY "${exactNameCol}" ASC;`,
+      `SELECT ${selectCols} FROM ${safeTableName} WHERE business_id = $1 ORDER BY ${quoteIdentifier(exactNameCol)} ASC;`,
       [businessId]
     );
     return result.rows.map((r) => ({
       name: r[exactNameCol] ?? r[exactNameCol.toLowerCase()] ?? r.name,
-      category: exactCatCol
-        ? (r[exactCatCol] ?? r[exactCatCol.toLowerCase()] ?? r.category ?? null)
+      category: exactCategoryCol
+        ? (r[exactCategoryCol] ?? r[exactCategoryCol.toLowerCase()] ?? r.category ?? null)
         : null,
     }));
   } catch {
     return [];
+  }
+}
+
+/**
+ * Loads only the bounded catalog context displayed in the interpretation prompt.
+ * Full catalog loading remains available for exact name resolution when needed.
+ *
+ * @param {string} businessId
+ * @param {string | object} entity
+ * @param {{ names?: number, categories?: number }} [limits]
+ * @returns {Promise<{ names: string[], categories: string[] }>}
+ */
+async function loadCatalogPromptContext(
+  businessId,
+  entity = 'products',
+  { names: nameLimit = 12, categories: categoryLimit = 8 } = {}
+) {
+  const { schema, exactNameCol, exactCategoryCol } = getCatalogColumns(entity);
+  if (!exactNameCol) return { names: [], categories: [] };
+
+  const table = quoteIdentifier(schema.tableName || 'products');
+  const nameColumn = quoteIdentifier(exactNameCol);
+  const namesSql = `
+    SELECT DISTINCT ${nameColumn} AS name
+    FROM ${table}
+    WHERE business_id = $1 AND ${nameColumn} IS NOT NULL
+    ORDER BY name
+    LIMIT $2;
+  `;
+
+  try {
+    const [namesResult, categoriesResult] = await Promise.all([
+      query(namesSql, [businessId, nameLimit]),
+      exactCategoryCol
+        ? query(
+            `SELECT DISTINCT ${quoteIdentifier(exactCategoryCol)} AS category
+             FROM ${table}
+             WHERE business_id = $1 AND ${quoteIdentifier(exactCategoryCol)} IS NOT NULL
+             ORDER BY category
+             LIMIT $2;`,
+            [businessId, categoryLimit]
+          )
+        : Promise.resolve({ rows: [] }),
+    ]);
+
+    return {
+      names: namesResult.rows.map((row) => row.name).filter(Boolean),
+      categories: categoriesResult.rows
+        .map((row) => row.category)
+        .filter((value) => value !== null && value !== undefined)
+        .map((value) => String(value).trim())
+        .filter(Boolean),
+    };
+  } catch {
+    return { names: [], categories: [] };
   }
 }
 
@@ -162,7 +229,7 @@ function suggestNames(index, rawValue, limit = 3) {
 }
 
 /**
- * Resolves a user/LLM-provided product name to the exact stored catalog name(s).
+ * Resolves a user/LLM-provided product/item name to the exact stored catalog name(s).
  *
  * @param {Array} index - result of buildNameIndex
  * @param {string} rawValue
@@ -377,8 +444,11 @@ async function resolveNameFilters({ businessId, filters, entity = 'products', ca
 
 module.exports = {
   normalizeProductName,
+  normalizeCatalogName: normalizeProductName,
   loadCatalogNames,
+  loadCatalogPromptContext,
   buildNameIndex,
   resolveProductName,
+  resolveCatalogName: resolveProductName,
   resolveNameFilters,
 };

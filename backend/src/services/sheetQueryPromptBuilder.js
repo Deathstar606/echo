@@ -1,18 +1,16 @@
 const {
-  APPAREL_SIZE_KEYS,
   getSchema,
   discoverTableSchema,
-  findColumnDef,
   validateFilter,
   validateSort,
   validateMutation,
 } = require('./sheetSchemaService');
 const { generateAiSheetInterpretation } = require('./geminiService');
-const { loadCatalogNames } = require('./productNameResolver');
+const { loadCatalogPromptContext } = require('./catalogNameResolver');
 const AppError = require('../utils/AppError');
 
-const MAX_PROMPT_CATALOG_NAMES = 300;
-const MAX_PROMPT_CATEGORIES = 100;
+const MAX_PROMPT_CATALOG_NAMES = 12;
+const MAX_PROMPT_CATEGORIES = 8;
 
 /**
  * Formats live catalog context (names + distinct categories/brands) for prompt grounding.
@@ -35,7 +33,7 @@ function formatCatalogContext(catalog) {
     lines.push(`Known category/brand values: ${shownCategories.map((c) => JSON.stringify(c)).join(', ')}`);
   }
   if (shownNames.length > 0) {
-    lines.push(`Item/product names (${names.length} total${names.length > shownNames.length ? `, first ${shownNames.length} shown` : ''}):`);
+    lines.push(`Representative item/product names (up to ${MAX_PROMPT_CATALOG_NAMES} shown):`);
     for (const n of shownNames) {
       lines.push(`- ${JSON.stringify(n)}`);
     }
@@ -67,12 +65,23 @@ function buildSheetQueryPrompt({
   const schema = explicitSchema || getSchema(entity);
 
   const columnsList = Object.entries(schema.columns)
-    .filter(([, def]) => !def.readonly || def.virtual)
     .map(([, def]) => {
       const colName = def.exactName || def;
-      let desc = `- ${colName} (${def.type})`;
+      const modifiable = def.modifiable && !def.virtual;
+      let desc = `- ${colName} (${def.type}) [${modifiable ? 'modifiable' : 'read-only'}]`;
+      if (def.storageType) {
+        desc += ` [PostgreSQL: ${def.storageType}]`;
+      }
       if (def.description) {
         desc += `: ${def.description}`;
+      }
+      if (def.nestedMap) {
+        const structure = def.nestedStructure
+          ? Object.entries(def.nestedStructure)
+              .map(([key, type]) => `${key}:${type}`)
+              .join(', ')
+          : 'object with record-specific keys';
+        desc += ` [nested map; representative keys/types: ${structure}]`;
       }
       if (def.allowedValues) {
         desc += ` [allowed values: ${def.allowedValues.map((v) => `"${v}"`).join(', ')}]`;
@@ -86,7 +95,9 @@ function buildSheetQueryPrompt({
   if (schema.representativeValues && Object.keys(schema.representativeValues).length > 0) {
     for (const [col, vals] of Object.entries(schema.representativeValues)) {
       if (Array.isArray(vals) && vals.length > 0) {
-        repLines.push(`- ${col}: ${vals.join(', ')}`);
+        repLines.push(
+          `- ${col}: ${vals.map((value) => JSON.stringify(value)).join(', ')}`
+        );
       }
     }
   }
@@ -95,87 +106,42 @@ function buildSheetQueryPrompt({
       ? `Representative values:\n${repLines.join('\n')}`
       : '';
 
-  // Check if active table has apparel size column
-  const hasSizeColumn = Boolean(findColumnDef(schema, 'size'));
-  const sizeInstructions = hasSizeColumn
-    ? `\nSPECIAL NESTED SIZE FIELDS\n- "size.<SIZE_KEY>" (integer): Stock for one size key in JSON "size" column. Allowed size keys: ${Array.from(
-        APPAREL_SIZE_KEYS
-      ).join(', ')}. Supports numeric arithmetic.\n- "total_stock" (integer, virtual, filter-only): Sum of stock units across all sizes.\n`
+  const nestedMapColumns = Object.values(schema.columns)
+    .filter((def) => def.nestedMap && def.modifiable)
+    .map((def) => def.exactName);
+  const nestedMapInstructions = nestedMapColumns.length
+    ? `\nNested map columns: ${nestedMapColumns.join(', ')}. A dotted field targets one explicit key. For an operation over every key already in each matching row, use action "add_to_existing_values", "subtract_existing_values", "multiply_existing_values", or "set_existing_values" with key_policy "existing_keys_only". Iterate each row's own keys; never infer/union keys from other records or samples.`
     : '';
 
-  return `ROLE
-You are a precise spreadsheet query and mutation interpreter for a universal business inventory editor.
-
-OBJECTIVE
-Translate the user's natural language request into a strictly structured JSON query or mutation plan for the active table.
-${isMutation ? 'Note: The user is invoking the mutation endpoint, so interpret actionable change requests as "update_many", "update", "create", or "delete" operations.' : ''}
-
-CURRENT REFERENCE DATE
-Today's date is: ${currentDate}
+  return `Interpret the user's request as a safe spreadsheet query or mutation plan.
 
 ACTIVE TABLE SCHEMA
-Table: ${schema.tableName}
+Table: ${schema.tableName} (${schema.entity})
 
-Available columns:
+COMPLETE SCHEMA (exact database identifiers; logical type, storage type, mutability, metadata)
 ${columnsList}
-${representativeValuesBlock ? `\n${representativeValuesBlock}\n` : ''}${sizeInstructions}
-GENERAL INVENTORY DOMAIN & SEMANTIC COLUMN MAPPING
-Understand the semantic purpose of columns dynamically regardless of how the user or table names them:
-- Product title/name: e.g., "name", "Product_Name", "item_name", "title"
-- Brand, manufacturer, or vendor: e.g., "brand", "Brand_Name", "manufacturer", "make"
-- Supplier or distributor: e.g., "supplier", "Supplier", "vendor", "distributor", "source"
-- Selling price vs. purchase cost (CRITICAL BUSINESS RULE):
-  * Selling price: e.g., "price", "Selling_Price", "Current_Price", "retail_price"
-  * Purchase/unit cost: e.g., "cost", "Unit_Cost", "purchase_price", "wholesale_price"
-  * CRITICAL RULE: Never modify purchase/unit cost when the user asks to discount, put on sale, adjust price, or change pricing, unless the user explicitly mentions "cost" or "unit cost".
-- Inventory quantity or stock: e.g., "stock", "Stock_Qty", "Quantity", "qty", "inventory_count", "units_available"
-- Reorder threshold: e.g., "reorder_level", "Reorder_Level", "restock_point", "min_stock"
-- Storage location: e.g., "warehouse", "Warehouse", "Warehouse_Location", "aisle", "bin", "location"
-- Category, department, or section: e.g., "category", "Department", "type", "group"
-- Expiration or shelf life: e.g., "expiry_date", "Expiry_Date", "expiration", "best_before", "use_by"
-- SKU, barcode, or identifier: e.g., "sku", "item_code", "Batch_No", "barcode", "serial_number"
-- Status flags: e.g., "best", "status", "Status", "is_clearance", "active"
+${representativeValuesBlock ? `\n${representativeValuesBlock}\n` : ''}
+${nestedMapInstructions}
 
-DISCOUNT CONVENTIONS & ARITHMETIC RULES
-1. "Put a 10% discount on all products from Asus":
-   - If the active table has an explicit discount column (e.g., "discount"), update that column.
-   - If the active table has a selling price column (e.g., "Current_Price" or "Selling_Price") but NO separate discount column, reduce the selling price by 10%:
-     {"field": "<SellingPriceColumn>", "action": "subtract", "value": 10, "unit": "percentage"}
-2. "Set/Change/Update/Mark X to/as Y" -> {"action": "set", "value": Y}
-3. "Increase/Add/Raise X by Y" -> "add"; "Reduce/Decrease/Lower X by Y" -> "subtract"
-   - Percentage adjustments: "unit": "percentage" (for prices/costs/quantities) or "percentage_points" (for discount columns)
-   - Plain amounts: "unit": "absolute"
-4. "Multiply/Double/Triple X" -> {"action": "multiply", "value": factor}
+INTERPRETATION RULES
+- Map business concepts to physical fields using exact names, descriptions, types, nested structure, and representative values. Treat examples/values as evidence, not as a requirement that every row has them. Never invent a field.
+- Infer roles from wording, field tokens, descriptions, types, and value patterns (item identity, maker, supplier, sales price, acquisition cost, on-hand quantity, reorder threshold, location, category, expiry, or status); do not map by name alone.
+- Distinguish the requested business measure (for example, sale price versus acquisition cost). If no field fits, or multiple fields fit without a clear choice, return status "clarification_needed" and explain.
+- Preserve every stated condition and update. Use target_filters for mutation criteria; filter_logic is AND unless the user clearly says OR. Use match_all only when the user explicitly targets every row.
+- Use exact schema column names. A product/item reference filters on the best matching name-like field; copy the requested value exactly.
+- Mutations use operation update/update_many, create, or delete. Set uses action "set"; arithmetic uses "add", "subtract", or "multiply". Use unit "absolute" for amounts, "percentage" for relative percentage changes, and "percentage_points" for changes to a percentage-valued field.
+- A discount is a percentage-valued field when present. Do not treat a cost field as a sale-price field. A pricing request without a confidently matching field needs clarification.
+- For a query use operation "filter", filters, optional sort and limit. For a mutation use updates with field/action/value/unit. Every update must name a real modifiable schema field.
+- For nested maps, a dotted field changes one named key. Include key_policy "existing_keys_only" unless the user explicitly asks to create a missing key, in which case use "create_if_missing". Operations over all existing entries must use the existing-keys-only representation above, and must not include a generated or shared list of keys.
+- Return JSON only. If the operation, target field, condition, amount, unit, or scope cannot be determined, return {"status":"clarification_needed","message":"..."}.
 
-NAME MATCHING RULES
-1. When user refers to a specific product/item, emit {"field": "<NameColumn>", "operator": "equals", "value": "<name>"}.
-2. NEVER return "clarification_needed" merely because a product name seems unknown or absent from context; copy the user's name verbatim.
+OUTPUT
+Use the existing JSON contract:
+{"status":"ok","entity":"${schema.entity}","operation":"filter|update|update_many|create|delete","filter_logic":"AND|OR","match_all":false,"filters":[],"target_filters":[],"updates":[],"sort":[],"limit":null}
+Use only fields relevant to the operation. Query filters and mutation target_filters use {field,operator,value}. Updates use {field,action,value,unit}; existing-map operations also use {key_policy:"existing_keys_only"}.
 
-AMBIGUITY & CLARIFICATION RULES
-- Return "status": "clarification_needed" when:
-  * The requested target column cannot be resolved from the active schema (e.g. asking to change warranty on a grocery table that has no warranty column).
-  * The request is missing the change value, direction, or target scope.
-  * The request is fundamentally ambiguous.
-
-OUTPUT FORMAT REQUIREMENTS
-- Return valid JSON only.
-- You MUST use the EXACT column names as listed under "Available columns" in the ACTIVE TABLE SCHEMA above.
-
-JSON MUTATION CONTRACT ("update_many" / "update" / "delete" / "create"):
-{
-  "status": "ok",
-  "message": "<brief description>",
-  "entity": "${schema.entity}",
-  "operation": "update_many",
-  "filter_logic": "AND",
-  "match_all": false,
-  "target_filters": [
-    {"field": "<ExactColumn>", "operator": "equals" | "greater_than" | "less_than" | ..., "value": ...}
-  ],
-  "updates": [
-    {"field": "<ExactColumn>", "action": "set" | "add" | "subtract" | "multiply", "value": ..., "unit": "absolute" | "percentage" | "percentage_points"}
-  ]
-}
+Reference date: ${currentDate}
+Request mode: ${isMutation ? 'mutation' : 'query'}
 
 ${formatCatalogContext(catalog)}
 
@@ -369,30 +335,20 @@ async function interpretNaturalLanguageQuery({
   isMutation = false,
   currentDate,
   businessId,
+  schema: suppliedSchema = null,
 }) {
   if (typeof message !== 'string' || !message.trim()) {
     throw new AppError('Message is required and must be a non-empty string.', 400);
   }
 
   // 1. Dynamically discover the schema of the active table
-  const schema = await discoverTableSchema(entity, businessId);
+  const schema = suppliedSchema || (await discoverTableSchema(entity, businessId));
 
   // 2. Load catalog names if businessId is present and table has a name column
   let catalog = null;
   if (businessId) {
     try {
-      const rows = await loadCatalogNames(businessId, schema.entity);
-      if (rows && rows.length > 0) {
-        const names = [...new Set(rows.map((r) => r.name).filter(Boolean))];
-        const categories = [
-          ...new Set(
-            rows
-              .map((r) => (r.category ? String(r.category).trim() : ''))
-              .filter(Boolean)
-          ),
-        ].sort();
-        catalog = { names, categories };
-      }
+      catalog = await loadCatalogPromptContext(businessId, schema);
     } catch {
       // Catalog grounding is best-effort
     }

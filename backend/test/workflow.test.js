@@ -3,6 +3,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
+const { parse } = require('csv-parse/sync');
 const app = require('../src/app');
 const { setPool } = require('../db');
 const {
@@ -10,6 +11,12 @@ const {
   setAnnouncementGeminiGenerator,
 } = require('../src/services/geminiService');
 const { setMailTransporter } = require('../src/services/emailService');
+const {
+  retrieveRelevantContextForBusiness,
+} = require('../src/services/contextRetrievalService');
+const {
+  buildContextualPrompt,
+} = require('../src/services/promptBuilderService');
 
 /**
  * In-memory PostgreSQL pool simulator that faithfully implements the SQL queries,
@@ -908,68 +915,67 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.equal(resB.status, 201);
     const dataB = await resB.json();
     businessBId = dataB.id;
+
+    // Seed baseline business context records directly for Business A
+    const initialPolicies = [
+      [
+        'company_info',
+        'Company Overview',
+        'We provide home renovation, remodeling, and consultation services.',
+        'initial-policies.csv',
+      ],
+      [
+        'refund_policy',
+        'Refund Eligibility',
+        'Updated policy: Customers may request a full refund within 14 days if the service has not started.',
+        'updated-policies.csv',
+      ],
+      [
+        'cancellation_policy',
+        'Appointment Cancellation',
+        'Customers should cancel or reschedule at least 24 hours before their appointment.',
+        'initial-policies.csv',
+      ],
+      [
+        'warranty_policy',
+        'Workmanship Warranty',
+        'All renovation work includes a 2-year workmanship warranty.',
+        'updated-policies.csv',
+      ],
+      [
+        'support_process',
+        'Human Support',
+        'Escalate unresolved disputes to a human support representative.',
+        'initial-policies.csv',
+      ],
+    ];
+    for (const [cat, title, content, src] of initialPolicies) {
+      await mockPool.query(
+        'INSERT INTO context_entries (business_id, category, title, content, source_file) VALUES ($1, $2, $3, $4, $5)',
+        [businessAId, cat, title, content, src]
+      );
+    }
   });
 
-  it('3. POST /api/businesses/:businessId/context/upload imports valid CSV with commas and line breaks', async () => {
-    const csvContent = [
-      'category,title,content',
-      'company_info,Company Overview,"We provide home renovation, remodeling, and consultation services."',
-      'refund_policy,Refund Eligibility,"Customers may request a refund within 7 days if the service has not started.\nRequests must include the booking reference."',
-      'cancellation_policy,Appointment Cancellation,"Customers should cancel or reschedule at least 24 hours before their appointment."',
-      'support_process,Human Support,"Escalate unresolved disputes to a human support representative."',
-    ].join('\n');
-
-    const formData = new FormData();
-    formData.append(
-      'file',
-      new Blob([csvContent], { type: 'text/csv' }),
-      'initial-policies.csv'
-    );
-
-    const res = await fetch(
+  it('3. Removed Phase 1 context upload and prompt endpoints return 404', async () => {
+    const resUpload = await fetch(
       `${baseUrl}/api/businesses/${businessAId}/context/upload`,
+      { method: 'POST', body: new FormData() }
+    );
+    assert.equal(resUpload.status, 404);
+
+    const resPrompt = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/prompt`,
       {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: 'Can I get a refund?' }),
       }
     );
-
-    assert.equal(res.status, 200);
-    const body = await res.json();
-    assert.equal(body.totalProcessed, 4);
-    assert.equal(body.insertedCount, 4);
-    assert.equal(body.updatedCount, 0);
-    assert.equal(body.sourceFile, 'initial-policies.csv');
+    assert.equal(resPrompt.status, 404);
   });
 
-  it('4. Re-uploading an existing (business_id, category, title) record updates it instead of duplicating', async () => {
-    const updatedCsv = [
-      'category,title,content',
-      'refund_policy,Refund Eligibility,"Updated policy: Customers may request a full refund within 14 days if the service has not started."',
-      'warranty_policy,Workmanship Warranty,"All renovation work includes a 2-year workmanship warranty."',
-    ].join('\n');
-
-    const formData = new FormData();
-    formData.append(
-      'file',
-      new Blob([updatedCsv], { type: 'text/csv' }),
-      'updated-policies.csv'
-    );
-
-    const res = await fetch(
-      `${baseUrl}/api/businesses/${businessAId}/context/upload`,
-      {
-        method: 'POST',
-        body: formData,
-      }
-    );
-
-    assert.equal(res.status, 200);
-    const body = await res.json();
-    assert.equal(body.totalProcessed, 2);
-    assert.equal(body.insertedCount, 1);
-    assert.equal(body.updatedCount, 1);
-
+  it('4. Context entries seeded for Business A are stored and isolated from Business B', async () => {
     const entriesForA = mockPool
       .getInternalEntries()
       .filter((e) => e.business_id === businessAId);
@@ -978,81 +984,33 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     const refundEntry = entriesForA.find((e) => e.category === 'refund_policy');
     assert.ok(refundEntry.content.includes('within 14 days'));
     assert.equal(refundEntry.source_file, 'updated-policies.csv');
+
+    const entriesForB = mockPool
+      .getInternalEntries()
+      .filter((e) => e.business_id === businessBId);
+    assert.equal(entriesForB.length, 0);
   });
 
-  it('5. Rejects invalid CSV uploads (missing columns, empty values, non-CSV files, unknown business)', async () => {
-    const badFileForm = new FormData();
-    badFileForm.append(
-      'file',
-      new Blob(['{"hello":"world"}'], { type: 'application/json' }),
-      'policies.json'
-    );
-    const resNonCsv = await fetch(
-      `${baseUrl}/api/businesses/${businessAId}/context/upload`,
-      { method: 'POST', body: badFileForm }
-    );
-    assert.equal(resNonCsv.status, 400);
-
-    const badHeaderForm = new FormData();
-    badHeaderForm.append(
-      'file',
-      new Blob(['category,title\nrefund_policy,Refunds'], { type: 'text/csv' }),
-      'bad-headers.csv'
-    );
-    const resBadHeader = await fetch(
-      `${baseUrl}/api/businesses/${businessAId}/context/upload`,
-      { method: 'POST', body: badHeaderForm }
-    );
-    assert.equal(resBadHeader.status, 400);
-    const errHeader = await resBadHeader.json();
-    assert.match(errHeader.error, /Missing required column/i);
-
-    const emptyValForm = new FormData();
-    emptyValForm.append(
-      'file',
-      new Blob(['category,title,content\nrefund_policy,,Some text'], {
-        type: 'text/csv',
-      }),
-      'missing-val.csv'
-    );
-    const resEmptyVal = await fetch(
-      `${baseUrl}/api/businesses/${businessAId}/context/upload`,
-      { method: 'POST', body: emptyValForm }
-    );
-    assert.equal(resEmptyVal.status, 400);
-    const errVal = await resEmptyVal.json();
-    assert.match(errVal.error, /row 2/i);
-
+  it('5. Rejects non-existent routes or unknown businesses with 404', async () => {
     const unknownId = '00000000-0000-4000-8000-000000000000';
-    const validForm = new FormData();
-    validForm.append(
-      'file',
-      new Blob(['category,title,content\ninfo,Title,Text'], {
-        type: 'text/csv',
-      }),
-      'valid.csv'
-    );
     const resNotFound = await fetch(
       `${baseUrl}/api/businesses/${unknownId}/context/upload`,
-      { method: 'POST', body: validForm }
+      { method: 'POST', body: new FormData() }
     );
     assert.equal(resNotFound.status, 404);
   });
 
-  it('6. POST /api/businesses/:businessId/prompt returns only plain-text prompt with relevant records', async () => {
-    const res = await fetch(`${baseUrl}/api/businesses/${businessAId}/prompt`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: 'Can I cancel my appointment and get a refund?',
-      }),
+  it('6. Contextual prompt builder service constructs correct prompt with relevant records', async () => {
+    const businessA = { id: businessAId, name: 'Example Home Renovations' };
+    const relevant = await retrieveRelevantContextForBusiness(
+      businessAId,
+      'Can I cancel my appointment and get a refund?'
+    );
+    const promptText = buildContextualPrompt({
+      business: businessA,
+      relevantRecords: relevant,
+      customerMessage: 'Can I cancel my appointment and get a refund?',
     });
-
-    assert.equal(res.status, 200);
-    const contentType = res.headers.get('content-type') || '';
-    assert.match(contentType, /text\/plain/i);
-
-    const promptText = await res.text();
 
     assert.match(promptText, /^ROLE\b/m);
     assert.match(promptText, /^OBJECTIVE\b/m);
@@ -1074,16 +1032,17 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
   });
 
   it('7. Explicitly indicates when no relevant business context is found and never leaks other businesses', async () => {
-    const resB = await fetch(`${baseUrl}/api/businesses/${businessBId}/prompt`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: 'Can I cancel my appointment and get a refund?',
-      }),
+    const businessB = { id: businessBId, name: 'Other Gadgets Corp' };
+    const relevantB = await retrieveRelevantContextForBusiness(
+      businessBId,
+      'Can I cancel my appointment and get a refund?'
+    );
+    const promptB = buildContextualPrompt({
+      business: businessB,
+      relevantRecords: relevantB,
+      customerMessage: 'Can I cancel my appointment and get a refund?',
     });
 
-    assert.equal(resB.status, 200);
-    const promptB = await resB.text();
     assert.ok(promptB.includes('Business Name: Other Gadgets Corp'));
     assert.ok(
       promptB.includes(
@@ -1093,18 +1052,15 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.ok(!promptB.includes('Example Home Renovations'));
     assert.ok(!promptB.includes('Appointment Cancellation'));
 
-    const resUnrelated = await fetch(
-      `${baseUrl}/api/businesses/${businessAId}/prompt`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: 'Do you ship international cryptocurrency hardware wallets?',
-        }),
-      }
+    const relevantUnrelated = await retrieveRelevantContextForBusiness(
+      businessAId,
+      'Do you ship international cryptocurrency hardware wallets?'
     );
-    assert.equal(resUnrelated.status, 200);
-    const promptUnrelated = await resUnrelated.text();
+    const promptUnrelated = buildContextualPrompt({
+      business: { id: businessAId, name: 'Example Home Renovations' },
+      relevantRecords: relevantUnrelated,
+      customerMessage: 'Do you ship international cryptocurrency hardware wallets?',
+    });
     assert.ok(
       promptUnrelated.includes(
         'No relevant business context was found for this customer message.'
@@ -1451,18 +1407,17 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
   });
 
   it('13. Bounds prompt conversation history to the latest 20 messages and isolates business context', async () => {
-    // Upload context specifically for Business B
-    const csvB = [
-      'category,title,content',
-      'shipping_policy,Gadget Shipping,"Gadgets ship within 2 business days via express courier."',
-    ].join('\n');
-    const formB = new FormData();
-    formB.append('file', new Blob([csvB], { type: 'text/csv' }), 'b-context.csv');
-    const uploadBRes = await fetch(
-      `${baseUrl}/api/businesses/${businessBId}/context/upload`,
-      { method: 'POST', body: formB }
+    // Seed context specifically for Business B
+    await mockPool.query(
+      'INSERT INTO context_entries (business_id, category, title, content, source_file) VALUES ($1, $2, $3, $4, $5)',
+      [
+        businessBId,
+        'shipping_policy',
+        'Gadget Shipping',
+        'Gadgets ship within 2 business days via express courier.',
+        'b-context.csv',
+      ]
     );
-    assert.equal(uploadBRes.status, 200);
 
     // Create a new open conversation for Business B
     const convBRes = await fetch(
@@ -1749,74 +1704,34 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.equal(crossBizCust.email, 'alice.renovator@example.test');
   });
 
-  it('16. Bulk imports sample-customers.csv, updates existing customers on re-upload, and reports row-level errors for malformed rows', async () => {
-    // 1. Valid customer CSV upload using standard or alternative field names (e.g. 'file' or 'customer_csv')
-    const sampleCsvContent = [
-      'customer_name,email',
-      'Sarah Khan,sarah@example.test',
-      'David Lee,david@example.test',
-      'Alex Rahman,alex@example.test',
-    ].join('\n');
-
-    const form1 = new FormData();
-    form1.append(
-      'customer_csv',
-      new Blob([sampleCsvContent], { type: 'text/csv' }),
-      'sample-customers.csv'
-    );
-
-    const res1 = await fetch(
+  it('16. Deprecated customers/upload returns 404 and individual customer creation populates customer list', async () => {
+    // Verify deprecated endpoint returns 404
+    const resUpload = await fetch(
       `${baseUrl}/api/businesses/${businessAId}/customers/upload`,
-      {
+      { method: 'POST', body: new FormData() }
+    );
+    assert.equal(resUpload.status, 404);
+
+    // Register customers via the active customer endpoint used in the UX
+    const customersToCreate = [
+      { customer_name: 'Sarah Khan Updated', email: 'sarah@example.test' },
+      { customer_name: 'David Lee', email: 'david@example.test' },
+      { customer_name: 'Alex Rahman', email: 'alex@example.test' },
+      { customer_name: 'Nadia Islam', email: 'nadia@example.test' },
+    ];
+    for (const c of customersToCreate) {
+      const res = await fetch(`${baseUrl}/api/businesses/${businessAId}/customers`, {
         method: 'POST',
-        body: form1,
-      }
-    );
-    assert.equal(res1.status, 200);
-    const body1 = await res1.json();
-    assert.equal(body1.business_id, businessAId);
-    assert.equal(body1.imported_count, 3);
-    assert.equal(body1.updated_count, 0);
-    assert.equal(body1.rejected_count, 0);
-    assert.deepEqual(body1.errors, []);
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(c),
+      });
+      assert.equal(res.status, 201);
+    }
 
-    // 2. Re-upload with 1 updated customer, 1 new customer, and 2 invalid rows (missing name + bad email)
-    const mixedCsv = [
-      'customer_name,email',
-      'Sarah Khan Updated,SARAH@EXAMPLE.TEST',
-      'Nadia Islam,nadia@example.test',
-      ',missingname@example.test',
-      'Bad Email Person,invalid-email-format',
-    ].join('\n');
-
-    const form2 = new FormData();
-    form2.append(
-      'file',
-      new Blob([mixedCsv], { type: 'text/csv' }),
-      'mixed-customers.csv'
-    );
-
-    const res2 = await fetch(
-      `${baseUrl}/api/businesses/${businessAId}/customers/upload`,
-      {
-        method: 'POST',
-        body: form2,
-      }
-    );
-    assert.equal(res2.status, 200);
-    const body2 = await res2.json();
-    assert.equal(body2.imported_count, 1);
-    assert.equal(body2.updated_count, 1);
-    assert.equal(body2.rejected_count, 2);
-    assert.equal(body2.errors.length, 2);
-    assert.equal(body2.errors[0].row, 4);
-    assert.equal(body2.errors[1].row, 5);
-
-    // Verify Sarah Khan's name was updated in Business A and not duplicated
+    // Verify Business A has 5 customers: Alice Renovator + Sarah Khan + David Lee + Alex Rahman + Nadia Islam
     const custsA = mockPool
       .getInternalCustomers()
       .filter((c) => c.business_id === businessAId);
-    // Total in Business A: Alice Renovator + Sarah Khan + David Lee + Alex Rahman + Nadia Islam = 5
     assert.equal(custsA.length, 5);
     const sarah = custsA.find((c) => c.email === 'sarah@example.test');
     assert.equal(sarah.customer_name, 'Sarah Khan Updated');
@@ -2300,7 +2215,7 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.ok(latestHistoryItem.failed_recipients);
   });
 
-  it('22. Imports extensive sample-context.csv (VELOURA), dynamically retrieves across all designated fields, adapts when field content changes, and keeps prompt tokens compact', async () => {
+  it('22. Tests extensive sample-context.csv (VELOURA), dynamically retrieves across all designated fields, adapts when field content changes, and keeps prompt tokens compact', async () => {
     const bizRes = await fetch(`${baseUrl}/api/businesses`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2311,90 +2226,77 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
 
     const sampleContextPath = path.resolve(__dirname, '../sample-context.csv');
     const sampleContextCsv = fs.readFileSync(sampleContextPath, 'utf8');
+    const rows = parse(sampleContextCsv, {
+      bom: true,
+      skip_empty_lines: true,
+      columns: true,
+    });
 
-    const formData = new FormData();
-    formData.append(
-      'file',
-      new Blob([sampleContextCsv], { type: 'text/csv' }),
-      'sample-context.csv'
-    );
+    for (const row of rows) {
+      await mockPool.query(
+        'INSERT INTO context_entries (business_id, category, title, content, source_file) VALUES ($1, $2, $3, $4, $5)',
+        [velouraBiz.id, row.category.trim(), row.title.trim(), row.content.trim(), 'sample-context.csv']
+      );
+    }
 
-    const uploadRes = await fetch(
-      `${baseUrl}/api/businesses/${velouraBiz.id}/context/upload`,
-      { method: 'POST', body: formData }
-    );
-    assert.equal(uploadRes.status, 200);
-    const uploadBody = await uploadRes.json();
-    assert.equal(uploadBody.totalProcessed, 6);
-    assert.equal(uploadBody.insertedCount, 6);
+    // Verify removed upload endpoint returns 404
+    const resUpload404 = await fetch(`${baseUrl}/api/businesses/${velouraBiz.id}/context/upload`, {
+      method: 'POST',
+      body: new FormData(),
+    });
+    assert.equal(resUpload404.status, 404);
 
     // 1. Inquiry about delivery fee & timeframe inside/outside Khulna -> retrieves terms_and_conditions & shipping_policy
-    const shipRes = await fetch(
-      `${baseUrl}/api/businesses/${velouraBiz.id}/prompt`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: 'How much is the shipping cost inside and outside Khulna, and how long does delivery take?',
-        }),
-      }
+    const shipRecords = await retrieveRelevantContextForBusiness(
+      velouraBiz.id,
+      'How much is the shipping cost inside and outside Khulna, and how long does delivery take?'
     );
-    assert.equal(shipRes.status, 200);
-    const shipPrompt = await shipRes.text();
+    const shipPrompt = buildContextualPrompt({
+      business: velouraBiz,
+      relevantRecords: shipRecords,
+      customerMessage: 'How much is the shipping cost inside and outside Khulna, and how long does delivery take?',
+    });
     assert.ok(shipPrompt.includes('70 BDT'));
     assert.ok(shipPrompt.includes('120 BDT'));
     assert.ok(shipPrompt.includes('1 to 3 business days'));
     assert.ok(shipPrompt.length < 4800);
 
     // 2. Inquiry about COD, bKash, and SPACES furniture advance -> retrieves payment_policy
-    const payRes = await fetch(
-      `${baseUrl}/api/businesses/${velouraBiz.id}/prompt`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: 'Can I pay with COD or bKash, and what is the advance deposit for SPACES furniture?',
-        }),
-      }
+    const payRecords = await retrieveRelevantContextForBusiness(
+      velouraBiz.id,
+      'Can I pay with COD or bKash, and what is the advance deposit for SPACES furniture?'
     );
-    assert.equal(payRes.status, 200);
-    const payPrompt = await payRes.text();
+    const payPrompt = buildContextualPrompt({
+      business: velouraBiz,
+      relevantRecords: payRecords,
+      customerMessage: 'Can I pay with COD or bKash, and what is the advance deposit for SPACES furniture?',
+    });
     assert.ok(payPrompt.includes('Category: payment_policy'));
     assert.ok(payPrompt.includes('bKash'));
     assert.ok(payPrompt.includes('10% advance'));
     assert.ok(payPrompt.length < 4800);
 
     // 3. Dynamically update the content of an existing (category, title) row and verify the prompt immediately reflects the new content
-    const dynamicUpdateCsv = [
-      'category,title,content',
-      'refund_policy,Refund Eligibility,"Updated dynamic policy: Refund requests must now be submitted within 5 days of delivery via support@velourabd.com and are processed within 10 working days."',
-    ].join('\n');
-    const updateForm = new FormData();
-    updateForm.append(
-      'file',
-      new Blob([dynamicUpdateCsv], { type: 'text/csv' }),
-      'sample-context.csv'
+    await mockPool.query(
+      'INSERT INTO context_entries (business_id, category, title, content, source_file) VALUES ($1, $2, $3, $4, $5)',
+      [
+        velouraBiz.id,
+        'refund_policy',
+        'Refund Eligibility',
+        'Updated dynamic policy: Refund requests must now be submitted within 5 days of delivery via support@velourabd.com and are processed within 10 working days.',
+        'sample-context.csv',
+      ]
     );
-    const reuploadRes = await fetch(
-      `${baseUrl}/api/businesses/${velouraBiz.id}/context/upload`,
-      { method: 'POST', body: updateForm }
-    );
-    assert.equal(reuploadRes.status, 200);
-    const reuploadBody = await reuploadRes.json();
-    assert.equal(reuploadBody.updatedCount, 1);
 
-    const refundRes = await fetch(
-      `${baseUrl}/api/businesses/${velouraBiz.id}/prompt`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: 'How many days do I have to request a refund after delivery?',
-        }),
-      }
+    const refundRecords = await retrieveRelevantContextForBusiness(
+      velouraBiz.id,
+      'How many days do I have to request a refund after delivery?'
     );
-    assert.equal(refundRes.status, 200);
-    const refundPrompt = await refundRes.text();
+    const refundPrompt = buildContextualPrompt({
+      business: velouraBiz,
+      relevantRecords: refundRecords,
+      customerMessage: 'How many days do I have to request a refund after delivery?',
+    });
     assert.ok(refundPrompt.includes('within 5 days of delivery'));
     assert.ok(refundPrompt.includes('support@velourabd.com'));
     assert.ok(!refundPrompt.includes('within 3 days of delivery'));

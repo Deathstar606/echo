@@ -1,14 +1,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { parse } = require('csv-parse/sync');
 const { getPool } = require('./index');
 const {
   parseAndValidateProductsCsv,
   importProductsToDatabase,
 } = require('../src/services/sheetCsvImportService');
-const {
-  parseAndValidateCsv,
-  importContextRecords,
-} = require('../src/services/csvImportService');
 
 const DEFAULT_BUSINESS_ID = '684a8863-5094-4c8b-9b15-c50c06335b7f';
 
@@ -49,14 +46,30 @@ async function initializeDatabase() {
 
     if (fs.existsSync(sampleContextCsvPath)) {
       const contextCsvBuffer = fs.readFileSync(sampleContextCsvPath);
-      const contextRecords = parseAndValidateCsv(contextCsvBuffer);
-      const contextSummary = await importContextRecords(
-        DEFAULT_BUSINESS_ID,
-        'sample-context.csv',
-        contextRecords
-      );
+      const rows = parse(contextCsvBuffer, {
+        bom: true,
+        skip_empty_lines: true,
+        columns: true,
+      });
+
+      let insertedCount = 0;
+      for (const row of rows) {
+        const category = String(row.category || '').trim();
+        const title = String(row.title || '').trim();
+        const content = String(row.content || '').trim();
+        if (category && title && content) {
+          await pool.query(
+            `INSERT INTO context_entries (business_id, category, title, content, source_file)
+             VALUES ($1, $2, $3, $4, 'sample-context.csv')
+             ON CONFLICT (business_id, category, title) DO UPDATE
+             SET content = EXCLUDED.content, updated_at = NOW();`,
+            [DEFAULT_BUSINESS_ID, category, title, content]
+          );
+          insertedCount += 1;
+        }
+      }
       console.log(
-        `Seeded sample-context.csv for business ${DEFAULT_BUSINESS_ID}: ${contextSummary.totalProcessed} records imported (${contextSummary.insertedCount} inserted, ${contextSummary.updatedCount} updated).`
+        `Seeded sample-context.csv for business ${DEFAULT_BUSINESS_ID}: ${insertedCount} records imported.`
       );
     }
 

@@ -302,12 +302,13 @@ async function querySpreadsheet(req, res, next) {
     const entity = normalizeEntityName(rawEntity);
     const business = await resolveBusiness(req);
 
-    // Verify entity schema exists
-    await discoverTableSchema(entity, business.id);
+    // Resolve the schema once and reuse it across interpretation and execution.
+    const schema = await discoverTableSchema(entity, business.id);
 
     // 1. Convert natural-language message to structured JSON query
     const interpreted = await interpretNaturalLanguageQuery({
       entity,
+      schema,
       message: rawMessage.trim(),
       isMutation: false,
       businessId: business.id,
@@ -315,7 +316,7 @@ async function querySpreadsheet(req, res, next) {
 
     // 2. Execute query against PostgreSQL (or return clarification response)
     const result = await executeSpreadsheetQuery({
-      entity,
+      entity: schema,
       businessId: business.id,
       queryJson: interpreted,
     });
@@ -349,8 +350,8 @@ async function mutateSpreadsheet(req, res, next) {
     const entity = normalizeEntityName(rawEntity);
     const business = await resolveBusiness(req);
 
-    // Verify entity schema exists
-    await discoverTableSchema(entity, business.id);
+    // Resolve the schema once and reuse it across interpretation and preview.
+    const schema = await discoverTableSchema(entity, business.id);
 
     let mutationJson = body.mutation;
 
@@ -358,6 +359,7 @@ async function mutateSpreadsheet(req, res, next) {
     if (!mutationJson && typeof body.message === 'string' && body.message.trim()) {
       mutationJson = await interpretNaturalLanguageQuery({
         entity,
+        schema,
         message: body.message.trim(),
         isMutation: true,
         businessId: business.id,
@@ -375,7 +377,7 @@ async function mutateSpreadsheet(req, res, next) {
       body.expected_preview_hash || body.preview_hash || undefined;
 
     const result = await executeMutation({
-      entity,
+      entity: schema,
       businessId: business.id,
       mutationJson,
       confirm,

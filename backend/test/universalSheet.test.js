@@ -10,7 +10,12 @@ const {
   discoverTableSchema,
   getSchema,
   registerTableSchema,
+  validateMutation,
 } = require('../src/services/sheetSchemaService');
+const {
+  computeRowUpdates,
+  buildParameterizedUpdateStatement,
+} = require('../src/services/sheetMutationService');
 const { buildSheetQueryPrompt } = require('../src/services/sheetQueryPromptBuilder');
 
 /**
@@ -20,6 +25,7 @@ const { buildSheetQueryPrompt } = require('../src/services/sheetQueryPromptBuild
 function createUniversalSheetPool() {
   const businesses = new Map();
   const tables = new Map();
+  const queryLog = [];
 
   let monotonicClock = Date.now();
   let failNextUpdate = false;
@@ -80,15 +86,17 @@ function createUniversalSheetPool() {
 
     // 1. Nested size.<KEY> integer comparison
     const sizeKeyMatch = trimmed.match(
-      /\(size::jsonb\s*->>\s*'([A-Za-z0-9]+)'\)[\s\S]+?,\s*0\)\s*(=|<>|>=|<=|>|<)\s*\$(\d+)/i
+      /\(([a-z0-9_]+)::jsonb\s*->>\s*\$(\d+)\)[\s\S]+?,\s*0\)\s*(=|<>|>=|<=|>|<)\s*\$(\d+)/i
     );
     if (sizeKeyMatch) {
-      const sizeKey = sizeKeyMatch[1];
-      const op = sizeKeyMatch[2];
-      const targetVal = Number(params[Number(sizeKeyMatch[3]) - 1]);
+      const mapField = sizeKeyMatch[1].toLowerCase();
+      const sizeKey = String(params[Number(sizeKeyMatch[2]) - 1]);
+      const op = sizeKeyMatch[3];
+      const targetVal = Number(params[Number(sizeKeyMatch[4]) - 1]);
       let actualVal = 0;
       try {
-        const parsed = JSON.parse(row.size || '{}');
+        const source = row[mapField] || '{}';
+        const parsed = typeof source === 'string' ? JSON.parse(source) : source;
         actualVal = Number.isFinite(Number(parsed[sizeKey])) ? Number(parsed[sizeKey]) : 0;
       } catch {
         actualVal = 0;
@@ -144,7 +152,7 @@ function createUniversalSheetPool() {
     }
 
     // 6. ILIKE pattern: col ILIKE $N
-    const ilikeMatch = trimmed.match(/^([a-z0-9_]+)\s+ILIKE\s+\$(\d+)$/i);
+    const ilikeMatch = trimmed.match(/^([a-z0-9_]+)(?:::\w+)?\s+ILIKE\s+\$(\d+)$/i);
     if (ilikeMatch) {
       const col = ilikeMatch[1];
       const pattern = String(params[Number(ilikeMatch[2]) - 1] ?? '').toLowerCase();
@@ -211,14 +219,16 @@ function createUniversalSheetPool() {
       return;
     }
 
-    // 3. Nested size CASE id
-    if (/^size\s*=\s*CASE\s+id/i.test(trimmed)) {
+    // 3. Nested map CASE id
+    const mapCaseMatch = trimmed.match(/^([a-z0-9_]+)\s*=\s*CASE\s+id/i);
+    if (mapCaseMatch) {
+      const mapField = mapCaseMatch[1];
       const whenMatches = [...trimmed.matchAll(/WHEN\s+\$(\d+)::uuid\s+THEN\s+\$(\d+)/gi)];
       for (const m of whenMatches) {
         const idParam = params[Number(m[1]) - 1];
         const valParam = params[Number(m[2]) - 1];
         if (row.id === idParam) {
-          row.size = valParam;
+          row[mapField] = valParam;
           return;
         }
       }
@@ -238,6 +248,7 @@ function createUniversalSheetPool() {
   async function executeQuery(sql, params = []) {
     const rawSql = sql.trim();
     const normalized = rawSql.replace(/\s+/g, ' ').toUpperCase();
+    queryLog.push({ sql: rawSql, params: [...params] });
 
     // 1. SELECT 1
     if (normalized === 'SELECT 1;' || normalized === 'SELECT 1') {
@@ -285,8 +296,46 @@ function createUniversalSheetPool() {
       const rows = Object.entries(schemaDef.columns).map(([colKey, colDef]) => ({
         column_name: colDef.exactName || colKey,
         data_type: colDef.type === 'integer' ? 'integer' : colDef.type === 'number' ? 'numeric' : colDef.type,
+        udt_name: colDef.storageType || (colDef.type === 'integer' ? 'int4' : colDef.type === 'number' ? 'numeric' : colDef.type),
         is_nullable: 'YES',
       }));
+      return { rows, rowCount: rows.length };
+    }
+
+    // Representative-value sample with a schema-whitelisted column projection.
+    const sampleMatch = rawSql.match(
+      /^SELECT\s+([\s\S]+?)\s+FROM\s+"?([a-z0-9_]+)"?\s+WHERE\s+business_id\s*=\s*\$1\s+LIMIT\s+5;?$/i
+    );
+    if (sampleMatch && !sampleMatch[1].trim().startsWith('*')) {
+      const selectedColumns = sampleMatch[1]
+        .split(',')
+        .map((column) => column.trim().replace(/^"|"$/g, ''));
+      const rows = (tables.get(sampleMatch[2].toLowerCase()) || [])
+        .filter((row) => row.business_id === params[0])
+        .slice(0, 5)
+        .map((row) => Object.fromEntries(
+          selectedColumns.map((column) => [
+            column,
+            row[column] ?? row[column.toLowerCase()],
+          ])
+        ));
+      return { rows, rowCount: rows.length };
+    }
+
+    const distinctCatalogMatch = rawSql.match(
+      /^SELECT\s+DISTINCT\s+"([^"]+)"\s+AS\s+(name|category)\s+FROM\s+"?([a-z0-9_]+)"?\s+WHERE\s+business_id\s*=\s*\$1\s+AND\s+"([^"]+)"\s+IS\s+NOT\s+NULL\s+ORDER\s+BY\s+\2\s+LIMIT\s+\$2;?$/i
+    );
+    if (distinctCatalogMatch) {
+      const [, column, alias, tableName] = distinctCatalogMatch;
+      const rows = [...new Set(
+        (tables.get(tableName.toLowerCase()) || [])
+          .filter((row) => row.business_id === params[0])
+          .map((row) => row[column] ?? row[column.toLowerCase()])
+          .filter((value) => value !== null && value !== undefined)
+      )]
+        .sort((a, b) => String(a).localeCompare(String(b)))
+        .slice(0, params[1])
+        .map((value) => ({ [alias.toLowerCase()]: value }));
       return { rows, rowCount: rows.length };
     }
 
@@ -408,6 +457,12 @@ function createUniversalSheetPool() {
   }
 
   return {
+    getQueryLog() {
+      return [...queryLog];
+    },
+    clearQueryLog() {
+      queryLog.length = 0;
+    },
     async query(sql, params) {
       return executeQuery(sql, params);
     },
@@ -599,6 +654,28 @@ describe('Universal Business Inventory Editor — Dynamic Discovery & Multi-Sche
       const userMsg = (match ? match[1] : promptText).trim();
       const lower = userMsg.toLowerCase();
 
+      if (lower.includes('increase stock for all available sizes of full shirts by 10')) {
+        return {
+          status: 'ok',
+          entity: 'nested_map_test',
+          operation: 'update_many',
+          filter_logic: 'AND',
+          target_filters: [
+            { field: 'category', operator: 'equals', value: 'full shirt' },
+          ],
+          updates: [
+            {
+              field: 'size',
+              action: 'add_to_existing_values',
+              value: 10,
+              unit: 'absolute',
+              key_policy: 'existing_keys_only',
+              keys: ['2XL', 'XXXL'],
+            },
+          ],
+        };
+      }
+
       // --- Schema A: Apparel (products) ---
       // Prompt 1: "Increase the price of Stripe Shirt by $10."
       if (lower.includes('price of stripe shirt by $10') || lower.includes('price of stripe shirt by 10')) {
@@ -789,7 +866,7 @@ describe('Universal Business Inventory Editor — Dynamic Discovery & Multi-Sche
     assert.ok(elecPrompt.includes('Current_Price (number)'));
     assert.ok(elecPrompt.includes('Warehouse (string)'));
     assert.ok(elecPrompt.includes('Representative values'));
-    assert.ok(elecPrompt.includes('Dhaka, Chittagong'));
+    assert.ok(elecPrompt.includes('"Dhaka", "Chittagong"'));
     // Should NOT include apparel nested size keys since electronics has no size column
     assert.ok(!elecPrompt.includes('SPECIAL NESTED SIZE FIELDS'));
 
@@ -813,7 +890,7 @@ describe('Universal Business Inventory Editor — Dynamic Discovery & Multi-Sche
     assert.ok(grocPrompt.includes('Item_Name (string)'));
     assert.ok(grocPrompt.includes('Selling_Price (number)'));
     assert.ok(grocPrompt.includes('Unit_Cost (number)'));
-    assert.ok(grocPrompt.includes('Acme, NorthStar'));
+    assert.ok(grocPrompt.includes('"Acme", "NorthStar"'));
   });
 
   // ==========================================
@@ -1623,5 +1700,241 @@ describe('Universal Business Inventory Editor — Dynamic Discovery & Multi-Sche
     assert.ok(hokaRow, 'Hoka shoe row must be present');
     assert.equal(hokaRow.product_name || hokaRow['product name'], 'Clifton 9');
     assert.equal(hokaRow.price, 145);
+  });
+
+  it('39. Increments only each matching record’s existing nested size keys through preview and confirmation', async () => {
+    const mapSchema = {
+      entity: 'nested_map_test',
+      tableName: 'nested_map_test',
+      displayName: 'Nested Map Test',
+      columns: {
+        id: { exactName: 'id', type: 'uuid', readonly: true, modifiable: false },
+        business_id: {
+          exactName: 'business_id',
+          type: 'uuid',
+          readonly: true,
+          modifiable: false,
+        },
+        name: { exactName: 'name', type: 'string', modifiable: true },
+        category: { exactName: 'category', type: 'string', modifiable: true },
+        size: {
+          exactName: 'size',
+          type: 'string',
+          storageType: 'text',
+          nestedMap: true,
+          nestedValueType: 'integer',
+          description: 'JSON map of size stock entries',
+          modifiable: true,
+        },
+        created_at: {
+          exactName: 'created_at',
+          type: 'date',
+          readonly: true,
+          modifiable: false,
+        },
+        updated_at: {
+          exactName: 'updated_at',
+          type: 'date',
+          readonly: true,
+          modifiable: false,
+        },
+      },
+      representativeValues: {},
+    };
+    registerTableSchema('nested_map_test', mapSchema);
+    const records = [
+      {
+        id: '44444444-4444-4444-8444-444444444441',
+        business_id: businessId,
+        name: 'Shirt A',
+        category: 'full shirt',
+        size: JSON.stringify({ M: 3, L: 7, XL: 8 }),
+      },
+      {
+        id: '44444444-4444-4444-8444-444444444442',
+        business_id: businessId,
+        name: 'Shirt B',
+        category: 'full shirt',
+        size: JSON.stringify({ M: 2, XXL: 5 }),
+      },
+      {
+        id: '44444444-4444-4444-8444-444444444443',
+        business_id: businessId,
+        name: 'Other Shirt',
+        category: 'short shirt',
+        size: JSON.stringify({ S: 1 }),
+      },
+    ];
+    universalPool.setTableRows('nested_map_test', records);
+
+    const message =
+      'Increase stock for all available sizes of full shirts by 10. If a size does not exist, do not append it; only add stock to existing sizes.';
+    universalPool.clearQueryLog();
+    setSheetGeminiGenerator(async () => ({
+      status: 'ok',
+      entity: 'nested_map_test',
+      operation: 'update_many',
+      filter_logic: 'AND',
+      target_filters: [
+        { field: 'category', operator: 'equals', value: 'full shirt' },
+      ],
+      updates: [
+        {
+          field: 'size',
+          action: 'add_to_existing_values',
+          value: 10,
+          unit: 'absolute',
+          key_policy: 'existing_keys_only',
+          keys: ['2XL', 'XXXL'],
+        },
+      ],
+    }));
+    const previewResponse = await fetch(
+      `${baseUrl}/api/sheets/nested_map_test/mutate?businessId=${businessId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entity: 'nested_map_test', message, confirm: false }),
+      }
+    );
+    const preview = await previewResponse.json();
+    assert.equal(preview.status, 'preview', preview.message);
+    assert.equal(preview.affected_count, 2);
+    const previewQueries = universalPool.getQueryLog();
+    assert.equal(
+      previewQueries.filter(({ sql }) =>
+        /^\s*SELECT column_name, data_type, udt_name, is_nullable/i.test(sql)
+      ).length,
+      1,
+      'preview should introspect the active schema only once'
+    );
+    assert.equal(
+      previewQueries.filter(({ sql }) =>
+        /FROM "nested_map_test" WHERE business_id = \$1 LIMIT 5/i.test(sql)
+      ).length,
+      1,
+      'preview should sample the active schema only once'
+    );
+    assert.equal(
+      previewQueries.filter(({ sql }) =>
+        /SELECT 1 FROM information_schema\.tables/i.test(sql)
+      ).length,
+      1,
+      'preview should check table existence only once'
+    );
+    assert.equal(
+      previewQueries.filter(({ sql }) =>
+        /SELECT column_name FROM information_schema\.columns/i.test(sql)
+      ).length,
+      1,
+      'preview should synchronize table columns only once'
+    );
+    const catalogQueries = previewQueries.filter(({ sql }) =>
+      /^\s*SELECT DISTINCT/i.test(sql)
+    );
+    assert.equal(catalogQueries.length, 2);
+    assert.ok(
+      catalogQueries.every(({ sql }) => /LIMIT \$2/i.test(sql)),
+      'prompt catalog reads should be bounded'
+    );
+    assert.deepEqual(preview.approved_mutation.target_filters, [
+      { field: 'category', operator: 'equals', value: 'full shirt' },
+    ]);
+    assert.deepEqual(preview.approved_mutation.updates[0], {
+      field: 'size',
+      nested_field: 'size',
+      action: 'add_to_existing_values',
+      value: 10,
+      unit: 'absolute',
+      key_policy: 'existing_keys_only',
+    });
+
+    const previewA = preview.diff.find((row) => row.name === 'Shirt A');
+    const previewB = preview.diff.find((row) => row.name === 'Shirt B');
+    assert.deepEqual(JSON.parse(previewA.after.size), { M: 13, L: 17, XL: 18 });
+    assert.deepEqual(JSON.parse(previewB.after.size), { M: 12, XXL: 15 });
+
+    const executeResponse = await fetch(
+      `${baseUrl}/api/sheets/nested_map_test/mutate?businessId=${businessId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entity: 'nested_map_test',
+          mutation: preview.approved_mutation,
+          expected_preview_hash: preview.preview_hash,
+          confirm: true,
+        }),
+      }
+    );
+    const execution = await executeResponse.json();
+    assert.equal(execution.status, 'success');
+    assert.equal(execution.affected_count, 2);
+
+    const finalRows = universalPool.getTableRows('nested_map_test');
+    const finalA = JSON.parse(finalRows.find((row) => row.name === 'Shirt A').size);
+    const finalB = JSON.parse(finalRows.find((row) => row.name === 'Shirt B').size);
+    assert.deepEqual(finalA, { M: 13, L: 17, XL: 18 });
+    assert.deepEqual(finalB, { M: 12, XXL: 15 });
+    assert.ok(!Object.hasOwn(finalA, '2XL'));
+    assert.ok(!Object.hasOwn(finalB, '2XL'));
+    assert.deepEqual(
+      JSON.parse(finalRows.find((row) => row.name === 'Other Shirt').size),
+      { S: 1 }
+    );
+  });
+
+  it('40. Preserves JSONB object storage and ignores injected missing keys in existing-entry operations', () => {
+    const baseSchema = getSchema('products');
+    const jsonbSchema = {
+      ...baseSchema,
+      columns: {
+        ...baseSchema.columns,
+        size: {
+          ...baseSchema.columns.size,
+          type: 'json',
+          storageType: 'jsonb',
+          nestedMap: true,
+          nestedValueType: 'integer',
+        },
+      },
+    };
+    const validated = validateMutation(jsonbSchema, {
+      operation: 'update_many',
+      target_filters: [
+        { field: 'category', operator: 'equals', value: 'full shirt' },
+      ],
+      updates: [
+        {
+          field: 'size',
+          action: 'add_to_existing_values',
+          value: 10,
+          unit: 'absolute',
+          key_policy: 'existing_keys_only',
+          keys: ['2XL', 'XXXL'],
+        },
+      ],
+    });
+    const row = {
+      id: '55555555-5555-4555-8555-555555555551',
+      business_id: businessId,
+      name: 'JSONB shirt',
+      category: 'full shirt',
+      size: { M: 3, XXL: 5 },
+    };
+    const computed = computeRowUpdates(row, validated.updates, jsonbSchema);
+    assert.deepEqual(computed.updatedRow.size, { M: 13, XXL: 15 });
+    assert.deepEqual(computed.before.size, { M: 3, XXL: 5 });
+    assert.deepEqual(computed.after.size, { M: 13, XXL: 15 });
+
+    const { updateSql, updateParams } = buildParameterizedUpdateStatement({
+      schema: jsonbSchema,
+      businessId,
+      targetIds: [row.id],
+      validatedUpdates: validated.updates,
+      diffPreview: [{ ...computed, before: computed.before, after: computed.after }],
+    });
+    assert.match(updateSql, /THEN \$\d+::jsonb/);
+    assert.deepEqual(updateParams.at(-1), { M: 13, XXL: 15 });
   });
 });

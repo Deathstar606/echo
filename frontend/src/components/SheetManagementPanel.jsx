@@ -416,6 +416,8 @@ export default function SheetManagementPanel() {
       applySheetMutation({
         entity: activeEntity,
         message: messageToConfirm,
+        mutation: mutationPreview.approved_mutation,
+        expectedPreviewHash: mutationPreview.preview_hash,
       }),
     );
   };

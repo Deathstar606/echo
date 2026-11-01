@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const app = require('../src/app');
 const { setPool } = require('../db');
 const { setSheetGeminiGenerator } = require('../src/services/geminiService');
+const { getSchema } = require('../src/services/sheetSchemaService');
 const {
   retrieveRelevantContextForBusiness,
 } = require('../src/services/contextRetrievalService');
@@ -22,15 +23,17 @@ function evaluateConditionClause(clauseSql, row, params) {
 
   // 1. Nested size.<KEY> integer comparison:
   const sizeKeyMatch = trimmed.match(
-    /\(size::jsonb\s*->>\s*'([A-Za-z0-9]+)'\)[\s\S]+?,\s*0\)\s*(=|<>|>=|<=|>|<)\s*\$(\d+)/i
+    /\(([a-z0-9_]+)::jsonb\s*->>\s*\$(\d+)\)[\s\S]+?,\s*0\)\s*(=|<>|>=|<=|>|<)\s*\$(\d+)/i
   );
   if (sizeKeyMatch) {
-    const sizeKey = sizeKeyMatch[1];
-    const op = sizeKeyMatch[2];
-    const targetVal = Number(params[Number(sizeKeyMatch[3]) - 1]);
+    const mapField = sizeKeyMatch[1].toLowerCase();
+    const sizeKey = String(params[Number(sizeKeyMatch[2]) - 1]);
+    const op = sizeKeyMatch[3];
+    const targetVal = Number(params[Number(sizeKeyMatch[4]) - 1]);
     let actualVal = 0;
     try {
-      const parsed = JSON.parse(row.size || '{}');
+      const source = row[mapField] || '{}';
+      const parsed = typeof source === 'string' ? JSON.parse(source) : source;
       actualVal = Number.isFinite(Number(parsed[sizeKey]))
         ? Number(parsed[sizeKey])
         : 0;
@@ -94,7 +97,7 @@ function evaluateConditionClause(clauseSql, row, params) {
   }
 
   // 6. ILIKE substring / prefix comparisons: col ILIKE $N
-  const ilikeMatch = trimmed.match(/^([a-z_]+)\s+ILIKE\s+\$(\d+)$/i);
+  const ilikeMatch = trimmed.match(/^([a-z_]+)(?:::\w+)?\s+ILIKE\s+\$(\d+)$/i);
   if (ilikeMatch) {
     const col = ilikeMatch[1].toLowerCase();
     const pattern = String(params[Number(ilikeMatch[2]) - 1] ?? '').toLowerCase();
@@ -401,7 +404,7 @@ function createInMemorySheetPool() {
       return { rows: [{ ...row }], rowCount: 1 };
     }
 
-    // Catalog name + category lookup for productNameResolver
+    // Catalog name + category lookup for catalogNameResolver
     if (
       normalized.startsWith(
         'SELECT NAME, CATEGORY FROM PRODUCTS WHERE BUSINESS_ID = $1'
@@ -431,6 +434,54 @@ function createInMemorySheetPool() {
     // Context retrieval fallback on context_entries
     if (normalized.includes('FROM CONTEXT_ENTRIES WHERE BUSINESS_ID = $1')) {
       return { rows: [], rowCount: 0 };
+    }
+
+    if (normalized.includes('FROM INFORMATION_SCHEMA.COLUMNS')) {
+      if (String(params[0]).toLowerCase() !== 'products') {
+        return { rows: [], rowCount: 0 };
+      }
+      const schema = getSchema('products');
+      const rows = Object.entries(schema.columns)
+        .filter(([, colDef]) => !colDef.virtual)
+        .map(([key, colDef]) => ({
+          column_name: colDef.exactName || key,
+          data_type:
+            colDef.type === 'integer'
+              ? 'integer'
+              : colDef.type === 'number'
+                ? 'numeric'
+                : colDef.storageType || colDef.type,
+          udt_name:
+            colDef.storageType ||
+            (colDef.type === 'integer'
+              ? 'int4'
+              : colDef.type === 'number'
+                ? 'numeric'
+                : colDef.type),
+          is_nullable: colDef.required ? 'NO' : 'YES',
+        }));
+      return { rows, rowCount: rows.length };
+    }
+
+    const sampleMatch = rawSql.match(
+      /^SELECT\s+([\s\S]+?)\s+FROM\s+"?products"?\s+WHERE\s+business_id\s*=\s*\$1\s+LIMIT\s+5;?$/i
+    );
+    if (sampleMatch && !sampleMatch[1].trim().startsWith('*')) {
+      const selectedColumns = sampleMatch[1]
+        .split(',')
+        .map((column) => column.trim().replace(/^"|"$/g, ''));
+      const rows = products
+        .filter((row) => row.business_id === params[0])
+        .slice(0, 5)
+        .map((row) =>
+          Object.fromEntries(
+            selectedColumns.map((column) => [
+              column,
+              row[column] ?? row[column.toLowerCase()],
+            ])
+          )
+        );
+      return { rows, rowCount: rows.length };
     }
 
     // Select Products

@@ -90,7 +90,10 @@ export const previewSheetMutation = createAsyncThunk(
  */
 export const applySheetMutation = createAsyncThunk(
   'sheets/applySheetMutation',
-  async ({ entity, message }, { getState, dispatch, rejectWithValue }) => {
+  async (
+    { entity, message, mutation, expectedPreviewHash },
+    { getState, dispatch, rejectWithValue }
+  ) => {
     try {
       const targetEntity =
         entity || getState().sheets?.activeEntity || 'products';
@@ -98,6 +101,8 @@ export const applySheetMutation = createAsyncThunk(
         entity: targetEntity,
         message,
         confirm: true,
+        mutation,
+        expectedPreviewHash,
       });
       // Refresh the active sheet from the database after confirmed mutation
       await dispatch(loadSheetRows(targetEntity));

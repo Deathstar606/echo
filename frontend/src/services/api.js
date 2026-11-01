@@ -286,6 +286,8 @@ export async function mutateSheet({
   entity = 'products',
   message,
   confirm = false,
+  mutation,
+  expectedPreviewHash,
 }) {
   return request(
     `/api/sheets/mutation?businessId=${encodeURIComponent(BUSINESS_ID)}`,
@@ -296,6 +298,10 @@ export async function mutateSheet({
         entity: String(entity || 'products').trim(),
         message: String(message || '').trim(),
         confirm: Boolean(confirm),
+        ...(mutation ? { mutation } : {}),
+        ...(expectedPreviewHash
+          ? { expected_preview_hash: expectedPreviewHash }
+          : {}),
       }),
     }
   );
