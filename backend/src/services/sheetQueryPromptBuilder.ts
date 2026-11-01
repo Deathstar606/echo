@@ -20,6 +20,9 @@ import {
   isNonEmptyString,
 } from './sheetValidationService';
 
+// Ambient declaration for CommonJS require interop across serverless build environments (e.g. Vercel)
+declare const require: any;
+
 // Legacy CommonJS modules
 const {
   getSchema,
