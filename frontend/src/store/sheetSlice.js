@@ -10,6 +10,7 @@ import {
 /**
  * Thunk: Fetch full active inventory sheet from PostgreSQL.
  * GET /api/sheets/{entity}?businessId={BUSINESS_ID}
+ * @type {any}
  */
 export const loadSheetRows = createAsyncThunk(
   'sheets/loadSheetRows',
@@ -35,6 +36,7 @@ export const loadSheetRows = createAsyncThunk(
 /**
  * Thunk: Execute Natural-Language Sheet Query.
  * POST /api/businesses/{BUSINESS_ID}/sheets/query
+ * @type {any}
  */
 export const runSheetQuery = createAsyncThunk(
   'sheets/runSheetQuery',
@@ -59,6 +61,7 @@ export const runSheetQuery = createAsyncThunk(
 /**
  * Thunk: Stage 1 — Preview Sheet Mutation (confirm: false).
  * POST /api/sheets/mutation
+ * @type {any}
  */
 export const previewSheetMutation = createAsyncThunk(
   'sheets/previewSheetMutation',
@@ -87,6 +90,7 @@ export const previewSheetMutation = createAsyncThunk(
 /**
  * Thunk: Stage 2 — Confirm & Apply Sheet Mutation (confirm: true).
  * POST /api/sheets/mutation
+ * @type {any}
  */
 export const applySheetMutation = createAsyncThunk(
   'sheets/applySheetMutation',
@@ -121,6 +125,7 @@ export const applySheetMutation = createAsyncThunk(
 
 /**
  * Thunk: Upload CSV file to replace records in the active sheet.
+ * @type {any}
  */
 export const importSheetCsvFile = createAsyncThunk(
   'sheets/importSheetCsvFile',
@@ -145,6 +150,7 @@ export const importSheetCsvFile = createAsyncThunk(
 
 /**
  * Thunk: Append new rows to the active sheet from CSV ("Add Rows").
+ * @type {any}
  */
 export const appendSheetCsvFile = createAsyncThunk(
   'sheets/appendSheetCsvFile',
@@ -169,6 +175,7 @@ export const appendSheetCsvFile = createAsyncThunk(
 
 /**
  * Thunk: Insert a single new row with dynamic columns into the active table.
+ * @type {any}
  */
 export const insertSingleSheetRow = createAsyncThunk(
   'sheets/insertSingleSheetRow',

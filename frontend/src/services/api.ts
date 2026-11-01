@@ -1,10 +1,27 @@
 import { API_BASE_URL, BUSINESS_ID } from '../config/constants';
+import type {
+  DynamicSheetRow,
+  SheetQueryResult,
+  ClarificationResponse,
+  MutationPlan,
+  MutationPreviewResponse,
+  MutationExecutionResponse,
+  CustomerRegistrationRequest,
+  CustomerRegistrationResponse,
+  AnnouncementDraftResponse,
+  AnnouncementSendResponse,
+  AnnouncementHistoryItem,
+  ApiErrorDetail,
+} from '../../../shared/types/contracts';
 
 /**
  * Custom API Error preserving HTTP status codes and backend error payloads.
  */
-export class ApiError extends Error {
-  constructor(message, status, details = null) {
+export class ApiError<TDetails = ApiErrorDetail[] | unknown> extends Error {
+  public status: number;
+  public details: TDetails | null;
+
+  constructor(message: string, status: number, details: TDetails | null = null) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
@@ -15,7 +32,7 @@ export class ApiError extends Error {
 /**
  * Normalizes the base URL and endpoint so duplicate `/api/api` prefixes cannot occur.
  */
-function buildApiUrl(endpoint) {
+function buildApiUrl(endpoint: string): string {
   const base = String(API_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
   if (base.endsWith('/api') && endpoint.startsWith('/api/')) {
     return `${base}${endpoint.slice(4)}`;
@@ -27,30 +44,31 @@ function buildApiUrl(endpoint) {
  * Shared HTTP client helper for communicating with the Node.js backend.
  * Handles JSON serialization, response parsing, and actionable error messages.
  */
-async function request(endpoint, options = {}) {
+async function request<T = unknown>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = buildApiUrl(endpoint);
-  const headers = {
+  const headers: Record<string, string> = {
     Accept: 'application/json',
     ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-    ...(options.headers || {}),
+    ...((options.headers as Record<string, string>) || {}),
   };
 
-  let response;
+  let response: Response;
   try {
     response = await fetch(url, {
       ...options,
       headers,
     });
-  } catch (networkErr) {
+  } catch (networkErr: unknown) {
+    const errMsg = networkErr instanceof Error ? networkErr.message : null;
     throw new ApiError(
       'Unable to reach the MaxiText backend at http://localhost:3000. Please verify the backend server is running.',
       0,
-      networkErr?.message || null
+      errMsg
     );
   }
 
   const contentType = response.headers.get('content-type') || '';
-  let data = null;
+  let data: any = null;
 
   if (contentType.includes('application/json')) {
     try {
@@ -70,14 +88,14 @@ async function request(endpoint, options = {}) {
     throw new ApiError(errorMessage, response.status, data?.details || null);
   }
 
-  return data;
+  return data as T;
 }
 
 /**
  * Health check for the top header status indicator.
  */
-export async function checkBackendHealth() {
-  return request('/api/health', { method: 'GET' });
+export async function checkBackendHealth(): Promise<{ status: string; service?: string }> {
+  return request<{ status: string; service?: string }>('/api/health', { method: 'GET' });
 }
 
 /**
@@ -89,8 +107,8 @@ export async function registerCustomer({
   customerName,
   email,
   externalCustomerId,
-}) {
-  const payload = {
+}: CustomerRegistrationRequest): Promise<CustomerRegistrationResponse> {
+  const payload: Record<string, string> = {
     customer_name: String(customerName || '').trim(),
     email: String(email || '').trim(),
   };
@@ -102,7 +120,7 @@ export async function registerCustomer({
     payload.external_customer_id = externalCustomerId.trim();
   }
 
-  return request(`/api/businesses/${BUSINESS_ID}/customers`, {
+  return request<CustomerRegistrationResponse>(`/api/businesses/${BUSINESS_ID}/customers`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
@@ -112,7 +130,7 @@ export async function registerCustomer({
  * 3B & 3C. Existing Customer Login & Conversation History Lookup
  * POST /api/businesses/{BUSINESS_ID}/conversations/history
  */
-export async function fetchCustomerConversationHistory(customerId) {
+export async function fetchCustomerConversationHistory(customerId: string): Promise<any> {
   return request(`/api/businesses/${BUSINESS_ID}/conversations/history`, {
     method: 'POST',
     body: JSON.stringify({
@@ -125,7 +143,7 @@ export async function fetchCustomerConversationHistory(customerId) {
  * 3C. Create New Customer Conversation
  * POST /api/businesses/{BUSINESS_ID}/conversations
  */
-export async function createCustomerConversation(customerId) {
+export async function createCustomerConversation(customerId: string): Promise<any> {
   return request(`/api/businesses/${BUSINESS_ID}/conversations`, {
     method: 'POST',
     body: JSON.stringify({
@@ -139,7 +157,10 @@ export async function createCustomerConversation(customerId) {
  * POST /api/businesses/{BUSINESS_ID}/conversations/{conversation_id}/messages
  * Returns ONLY customer-safe message data. AI suggestion is saved server-side.
  */
-export async function sendCustomerMessage(conversationId, message) {
+export async function sendCustomerMessage(
+  conversationId: string,
+  message: string
+): Promise<any> {
   return request(
     `/api/businesses/${BUSINESS_ID}/conversations/${encodeURIComponent(
       conversationId
@@ -157,7 +178,7 @@ export async function sendCustomerMessage(conversationId, message) {
  * 4A. Fetch All Business Conversations (Company Inquiry Panel Inbox)
  * GET /api/businesses/{BUSINESS_ID}/conversations
  */
-export async function fetchCompanyConversations() {
+export async function fetchCompanyConversations(): Promise<any> {
   return request(`/api/businesses/${BUSINESS_ID}/conversations`, {
     method: 'GET',
   });
@@ -167,7 +188,7 @@ export async function fetchCompanyConversations() {
  * 4A & 4B. Fetch Single Conversation with Full History & AI Suggestion (Company View)
  * GET /api/businesses/{BUSINESS_ID}/conversations/{conversation_id}
  */
-export async function fetchCompanyConversationDetail(conversationId) {
+export async function fetchCompanyConversationDetail(conversationId: string): Promise<any> {
   return request(
     `/api/businesses/${BUSINESS_ID}/conversations/${encodeURIComponent(
       conversationId
@@ -182,7 +203,10 @@ export async function fetchCompanyConversationDetail(conversationId) {
  * 4C. Send Company Approved Reply
  * POST /api/businesses/{BUSINESS_ID}/conversations/{conversation_id}/replies
  */
-export async function sendCompanyReply(conversationId, message) {
+export async function sendCompanyReply(
+  conversationId: string,
+  message: string
+): Promise<any> {
   return request(
     `/api/businesses/${BUSINESS_ID}/conversations/${encodeURIComponent(
       conversationId
@@ -200,23 +224,31 @@ export async function sendCompanyReply(conversationId, message) {
  * Phase 2 — 1A. Fetch Announcement History
  * GET /api/businesses/{BUSINESS_ID}/announcements
  */
-export async function fetchAnnouncementHistory() {
-  return request(`/api/businesses/${BUSINESS_ID}/announcements`, {
-    method: 'GET',
-  });
+export async function fetchAnnouncementHistory(): Promise<{ announcements: AnnouncementHistoryItem[] }> {
+  return request<{ announcements: AnnouncementHistoryItem[] }>(
+    `/api/businesses/${BUSINESS_ID}/announcements`,
+    {
+      method: 'GET',
+    }
+  );
 }
 
 /**
  * Phase 2 — 1B. Generate AI Announcement Draft & Natural-Language Recipient Targeting
  * POST /api/businesses/{BUSINESS_ID}/announcements/draft
  */
-export async function draftAnnouncement(announcementText) {
-  return request(`/api/businesses/${BUSINESS_ID}/announcements/draft`, {
-    method: 'POST',
-    body: JSON.stringify({
-      announcement: String(announcementText || '').trim(),
-    }),
-  });
+export async function draftAnnouncement(
+  announcementText: string
+): Promise<AnnouncementDraftResponse> {
+  return request<AnnouncementDraftResponse>(
+    `/api/businesses/${BUSINESS_ID}/announcements/draft`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        announcement: String(announcementText || '').trim(),
+      }),
+    }
+  );
 }
 
 /**
@@ -224,10 +256,10 @@ export async function draftAnnouncement(announcementText) {
  * POST /api/businesses/{BUSINESS_ID}/announcements/{announcementId}/send
  */
 export async function sendAnnouncement(
-  announcementId,
-  { subject, body } = {}
-) {
-  const payload = {
+  announcementId: string,
+  { subject, body }: { subject?: string; body?: string } = {}
+): Promise<AnnouncementSendResponse> {
+  const payload: Record<string, unknown> = {
     confirm: true,
   };
   if (typeof subject === 'string' && subject.trim()) {
@@ -237,7 +269,7 @@ export async function sendAnnouncement(
     payload.body = body.trim();
   }
 
-  return request(
+  return request<AnnouncementSendResponse>(
     `/api/businesses/${BUSINESS_ID}/announcements/${encodeURIComponent(
       announcementId
     )}/send`,
@@ -248,13 +280,25 @@ export async function sendAnnouncement(
   );
 }
 
+export interface SheetRowsResponse<TRow extends DynamicSheetRow = DynamicSheetRow> {
+  status: string;
+  entity: string;
+  count: number;
+  rows: TRow[];
+  columns?: string[];
+  tableName?: string;
+  displayName?: string;
+}
+
 /**
  * Phase 2 — 2A. Fetch Sheet Rows for any active inventory sheet (products, electronics, grocery, etc.)
  * GET /api/sheets/{entity}?businessId={BUSINESS_ID}
  */
-export async function fetchSheetRows(entity = 'products') {
+export async function fetchSheetRows<TRow extends DynamicSheetRow = DynamicSheetRow>(
+  entity: string = 'products'
+): Promise<SheetRowsResponse<TRow>> {
   const target = String(entity || 'products').trim();
-  return request(
+  return request<SheetRowsResponse<TRow>>(
     `/api/sheets/${encodeURIComponent(target)}?businessId=${encodeURIComponent(
       BUSINESS_ID
     )}`,
@@ -264,18 +308,36 @@ export async function fetchSheetRows(entity = 'products') {
   );
 }
 
+export interface QuerySheetParams {
+  entity?: string;
+  message: string;
+}
+
 /**
  * Phase 2 — 2B. Natural-Language Sheet Query
  * POST /api/businesses/{BUSINESS_ID}/sheets/query
  */
-export async function querySheet({ entity = 'products', message }) {
-  return request(`/api/businesses/${BUSINESS_ID}/sheets/query`, {
-    method: 'POST',
-    body: JSON.stringify({
-      entity: String(entity || 'products').trim(),
-      message: String(message || '').trim(),
-    }),
-  });
+export async function querySheet(
+  { entity = 'products', message }: QuerySheetParams
+): Promise<SheetQueryResult | ClarificationResponse> {
+  return request<SheetQueryResult | ClarificationResponse>(
+    `/api/businesses/${BUSINESS_ID}/sheets/query`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        entity: String(entity || 'products').trim(),
+        message: String(message || '').trim(),
+      }),
+    }
+  );
+}
+
+export interface MutateSheetParams {
+  entity?: string;
+  message?: string;
+  confirm?: boolean;
+  mutation?: MutationPlan;
+  expectedPreviewHash?: string;
 }
 
 /**
@@ -288,8 +350,8 @@ export async function mutateSheet({
   confirm = false,
   mutation,
   expectedPreviewHash,
-}) {
-  return request(
+}: MutateSheetParams): Promise<MutationPreviewResponse | MutationExecutionResponse | ClarificationResponse> {
+  return request<MutationPreviewResponse | MutationExecutionResponse | ClarificationResponse>(
     `/api/sheets/mutation?businessId=${encodeURIComponent(BUSINESS_ID)}`,
     {
       method: 'POST',
@@ -310,22 +372,25 @@ export async function mutateSheet({
 /**
  * CSV Upload & Append for Universal Inventory Sheets
  * POST /api/sheets/{entity}/upload?businessId={BUSINESS_ID}[&mode=append]
- *
- * @param {string|File} entity
- * @param {File} [file]
- * @param {'replace'|'append'} [mode='replace']
  */
-export async function uploadSheetCsv(entity, file, mode = 'replace') {
+export async function uploadSheetCsv(
+  entity: string | File,
+  file?: File,
+  mode: 'replace' | 'append' = 'replace'
+): Promise<any> {
   let targetEntity = 'products';
-  let actualFile = file;
-  let targetMode = mode;
+  let actualFile: File;
+  const targetMode = mode;
 
-  if (entity instanceof File || (entity && entity.name && !file)) {
+  if (entity instanceof File) {
     actualFile = entity;
+    targetEntity = 'products';
+  } else if (entity && typeof entity === 'object' && 'name' in entity && !file) {
+    actualFile = entity as File;
     targetEntity = 'products';
   } else {
     targetEntity = String(entity || 'products').trim();
-    actualFile = file;
+    actualFile = file as File;
   }
 
   const formData = new FormData();
@@ -342,17 +407,18 @@ export async function uploadSheetCsv(entity, file, mode = 'replace') {
     }`
   );
 
-  let response;
+  let response: Response;
   try {
     response = await fetch(url, {
       method: 'POST',
       body: formData,
     });
-  } catch (networkErr) {
+  } catch (networkErr: unknown) {
+    const errMsg = networkErr instanceof Error ? networkErr.message : null;
     throw new ApiError(
       'Unable to reach the MaxiText backend at http://localhost:3000.',
       0,
-      networkErr?.message || null
+      errMsg
     );
   }
 
@@ -370,24 +436,27 @@ export async function uploadSheetCsv(entity, file, mode = 'replace') {
 
 /**
  * Appends new rows to the active sheet
- *
- * @param {string} entity
- * @param {File} file
  */
-export async function appendSheetCsv(entity, file) {
+export async function appendSheetCsv(entity: string, file: File): Promise<any> {
   return uploadSheetCsv(entity, file, 'append');
+}
+
+export interface AddRowResponse {
+  status: string;
+  message: string;
+  row?: DynamicSheetRow;
 }
 
 /**
  * Inserts a single new row with dynamic columns into the active table in PostgreSQL.
  * POST /api/sheets/{entity}/row?businessId={BUSINESS_ID}
- *
- * @param {string} entity
- * @param {object} row
  */
-export async function addSheetRow(entity = 'products', row = {}) {
+export async function addSheetRow(
+  entity: string = 'products',
+  row: Record<string, unknown> = {}
+): Promise<AddRowResponse> {
   const targetEntity = String(entity || 'products').trim();
-  return request(
+  return request<AddRowResponse>(
     `/api/sheets/${encodeURIComponent(targetEntity)}/row?businessId=${encodeURIComponent(
       BUSINESS_ID
     )}`,

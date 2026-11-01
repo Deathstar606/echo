@@ -1,0 +1,31 @@
+SKU,Product_Name,Category,Sub_Category,Material,Dimensions_cm,Color,Cost_Price,Retail_Price,Stock_Quantity,Weight_kg,Assembly_Required,Is_Featured
+FUR-LR-001,Nordic 3-Seater Fabric Sofa,Living Room,Sofas,Solid Oak & Textured Linen,210 x 85 x 82,Slate Grey,22000,38500,12,48.5,True,True
+FUR-LR-002,Minimalist Oval Coffee Table,Living Room,Coffee Tables,Tempered Glass & Powder-Coated Steel,120 x 60 x 42,Smoked Glass / Matte Black,6200,11500,25,16.0,True,False
+FUR-LR-003,Bouclé Swivel Accent Chair,Living Room,Accent Chairs,Teddy Bouclé Fabric & Steel Swivel Base,78 x 80 x 76,Ivory Cream,9500,16900,14,18.2,False,True
+FUR-LR-004,Linear Fluted TV Console,Living Room,Media Consoles,Walnut Veneer & Solid Beech Legs,180 x 40 x 50,Rich Walnut,14000,24900,8,34.0,True,False
+FUR-LR-005,Modern L-Shape Sectional Sofa,Living Room,Sofas,High-Density Foam & Water-Repellent Velvet,260 x 160 x 85,Deep Emerald,36000,62000,6,72.0,True,True
+FUR-BR-006,Upholstered Queen Bed Frame,Bedroom,Bed Frames,Kiln-Dried Pine & Chenille Upholstery,215 x 165 x 115,Oatmeal Beige,19500,34500,10,54.0,True,True
+FUR-BR-007,2-Drawer Floating Nightstand,Bedroom,Nightstands,Engineered Wood & Brushed Brass Handles,45 x 35 x 28,Matte White,3200,5900,28,8.5,True,False
+FUR-BR-008,6-Drawer Tallboy Dresser,Bedroom,Dressers,Solid Teak & Soft-Close Metal Runners,80 x 48 x 125,Natural Teak,17500,29900,7,46.0,False,False
+FUR-BR-009,Modular 3-Door Wardrobe,Bedroom,Wardrobes,Melamine Faced Board & Aluminum Rails,150 x 60 x 210,Charcoal Grey / Mirror,26000,44500,5,89.0,True,True
+FUR-BR-010,Rattan King Size Headboard,Bedroom,Bed Accessories,Natural Rattan & Ash Wood Frame,190 x 5 x 130,Natural Cane,11000,19500,9,14.2,False,False
+FUR-DR-011,Extendable Solid Ash Dining Table,Dining Room,Dining Tables,Solid American Ash Wood,160-210 x 90 x 76,Warm Caramel,24000,41900,8,52.0,True,True
+FUR-DR-012,Sculpted Curved Dining Chair (Set of 2),Dining Room,Dining Chairs,Bent Plywood & Faux Leather,52 x 54 x 79,Cognac Tan,7800,13900,22,12.4,True,False
+FUR-DR-013,Mid-Century Modern Sideboard,Dining Room,Sideboards & Buffets,Oak Veneer with Brass Inlay Detailing,160 x 42 x 78,Dark Oak,18000,31500,11,42.5,False,True
+FUR-DR-014,Faux Marble Round Bistro Table,Dining Room,Dining Tables,Sintered Stone Top & Cast Iron Pedestal,90 x 90 x 75,Carrara White / Gold Base,11500,19800,15,29.0,True,False
+FUR-DR-015,Upholstered Counter Bar Stool,Dining Room,Bar Stools,Velvet Fabric & Matt Black Steel Frame,44 x 46 x 92,Forest Green,3800,6900,30,6.8,True,False
+FUR-OF-016,Ergonomic Mesh Executive Chair,Home Office,Office Chairs,"Breathable Mesh, Aluminum Base & PU Casters",65 x 65 x 118-128,Jet Black,8500,15200,20,17.5,True,True
+FUR-OF-017,Dual-Motor Electric Standing Desk,Home Office,Desks,Solid Rubberwood Top & Heavy Duty Steel Legs,140 x 70 x 68-120,Natural Maple / White Frame,19000,32900,12,38.0,True,True
+FUR-OF-018,5-Tier Industrial Bookcase,Home Office,Bookcases,Rustic Particleboard & Powder-Coated Iron,80 x 30 x 175,Vintage Brown / Black,5200,9400,18,21.0,True,False
+FUR-OF-019,3-Drawer Mobile Filing Cabinet,Home Office,Storage & Organization,Cold-Rolled Steel Sheet with Key Lock,39 x 50 x 60,Matte White,4600,8200,24,15.0,False,False
+FUR-OF-020,Compact Writing Desk with Drawer,Home Office,Desks,Laminated MDF & Solid Beech Legs,100 x 50 x 75,Scandinavian White / Natural,5800,10500,16,18.0,True,False
+FUR-OD-021,All-Weather Resin Wicker Loveseat,Outdoor & Patio,Outdoor Seating,Synthetic PE Wicker & Olefin Cushions,142 x 75 x 82,Charcoal Weave / Light Grey Cushion,15000,26500,9,23.5,True,False
+FUR-OD-022,Teak Outdoor Foldable Bistro Set,Outdoor & Patio,Outdoor Dining,Grade-A Indonesian Teak Wood,60 x 60 x 74 (Table),Natural Teak Oil Finish,9800,17500,14,16.0,False,True
+FUR-OD-023,Cantilever Hanging Patio Umbrella,Outdoor & Patio,Shade & Umbrellas,UV-Proof Polyester & Aluminum Crank Pole,300 x 300 x 260,Sand Taupe,8200,14800,11,19.8,True,False
+FUR-EN-024,Entryway Shoe Storage Bench,Entryway,Shoe Storage,Bamboo Frame & High-Resilience Sponge Cushion,90 x 30 x 48,Natural Bamboo / Heather Grey,3400,6200,35,9.2,True,False
+FUR-EN-025,Solid Wood Coat Rack with Umbrella Stand,Entryway,Coat Racks,Solid Rubberwood with 8 Brass Hooks,38 x 38 x 178,Walnut Finish,2600,4800,40,4.8,True,False
+FUR-EN-026,Arched Full-Length Mirror Console,Entryway,Mirrors & Consoles,HD Shatter-Proof Glass & Thin Brass Edge,170 x 60 x 3,Brushed Gold,7200,12900,17,13.0,False,True
+FUR-LR-027,Velvet Tufted Round Storage Ottoman,Living Room,Ottomans,Soft Crushed Velvet & Gold Metal Base,55 x 55 x 42,Dusty Rose,3100,5600,26,6.5,False,False
+FUR-BR-028,Dressing Table with LED Touch Vanity Mirror,Bedroom,Vanities,High-Gloss MDF & Gold Steel Legs,100 x 40 x 135,Pure White / Gold,14500,25800,8,31.0,True,True
+FUR-LR-029,Tempered Glass End Table,Living Room,Side Tables,Clear Tempered Glass & Chrome Steel Frame,45 x 45 x 55,Chrome / Clear,3300,5990,21,7.8,True,False
+FUR-OF-030,Ladder Shelf with Integrated Writing Desk,Home Office,Desks,Solid Ash Uprights & White Lacquered Shelves,84 x 50 x 190,Natural Ash / Matte White,9200,16500,13,24.5,True,False

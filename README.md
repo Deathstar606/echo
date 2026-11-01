@@ -4,7 +4,8 @@
 
 MaxiText AI Studio is a full-stack, AI-driven workspace prototype engineered to bridge customer support with enterprise tabular data. The platform combines real-time conversational customer support, Google Gemini-powered response synthesis, natural-language targeted email broadcasts, and an interactive, schema-agnostic live spreadsheet engine with staged two-phase mutations.
 
-[![Tests](https://img.shields.io/badge/backend_tests-60%2F60_passing-16a34a.svg?style=flat-square)](file:///c:/Users/USER/Desktop/Development/Echo/backend/test)
+[![Tests](https://img.shields.io/badge/backend_tests-62%2F62_passing-16a34a.svg?style=flat-square)](file:///c:/Users/USER/Desktop/Development/Echo/backend/test)
+[![TypeScript](https://img.shields.io/badge/TypeScript-Selective_Adoption_(Strict)-3178c6.svg?style=flat-square)](file:///c:/Users/USER/Desktop/Development/Echo/shared/types/contracts.ts)
 [![Frontend](https://img.shields.io/badge/frontend-React_18_+_Redux_Toolkit-3946d3.svg?style=flat-square)](file:///c:/Users/USER/Desktop/Development/Echo/frontend)
 [![Styling](https://img.shields.io/badge/UI-Liquid_Glass_+_Framer_Motion-7c3aed.svg?style=flat-square)](file:///c:/Users/USER/Desktop/Development/Echo/frontend/src/index.css)
 [![Backend](https://img.shields.io/badge/backend-Node.js_+_Express_+_PostgreSQL-0ea5e9.svg?style=flat-square)](file:///c:/Users/USER/Desktop/Development/Echo/backend)
@@ -15,6 +16,7 @@ MaxiText AI Studio is a full-stack, AI-driven workspace prototype engineered to 
 ## 📑 Table of Contents
 - [Key Features](#-key-features)
 - [Architecture & Tech Stack](#-architecture--tech-stack)
+- [Selective TypeScript Architecture & Type Safety](#-selective-typescript-architecture--type-safety)
 - [Hardcoded Business ID & Production Roadmap](#-hardcoded-business-id--production-roadmap)
 - [Announcement Broadcasts & Live Demo Email Notice](#-announcement-broadcasts--live-demo-email-notice)
 - [Docker Quickstart](#-docker-quickstart)
@@ -85,11 +87,80 @@ MaxiText AI Studio is a full-stack, AI-driven workspace prototype engineered to 
 
 | Layer | Technologies | Key Highlights |
 | :--- | :--- | :--- |
-| **Frontend** | React 18, Redux Toolkit, Vite, Framer Motion, Lucide Icons | Responsive grid, liquid glass design, spring tab sliding, custom X-axis scrolling table |
-| **Backend** | Node.js (v26.8+), Express, Helmet, Morgan, Multer | Parameterized safe SQL, transactional mutations, structured error handling |
+| **Type Layer** | TypeScript (Strict), Shared Domain Contracts (`shared/types/contracts.ts`) | Schema-agnostic `DynamicSheetRow`, Gemini prompt/response contracts, runtime guards |
+| **Frontend** | React 18, Redux Toolkit, Vite, Framer Motion, TypeScript (`.tsx`/`.ts`) + JSX | Responsive grid, liquid glass design, spring tab sliding, custom X-axis scrolling table |
+| **Backend** | Node.js (v20+), Express, tsx runtime loader, Helmet, Morgan, Multer | Parameterized safe SQL, transactional mutations, runtime payload validation, zero-config TS loader |
 | **Database** | PostgreSQL 13+ (Local or Managed Cloud like Aiven/Supabase) | Multi-table relational schema, dynamic introspection, index optimization |
 | **AI Integration** | Google Gemini API (`@google/genai`) | Contextual customer support replies, natural-language SQL query and mutation compilation |
 | **Email Service** | Nodemailer | Individual recipient delivery, HTML templating, personalized placeholder interpolation |
+
+---
+
+## 🔷 Selective TypeScript Architecture & Type Safety
+
+MaxiText AI Studio employs a **Selective TypeScript Adoption** model. High-value data processing, Gemini payload normalization, runtime validation, and API contracts are strongly typed, while peripheral presentation and standard Express route handlers remain in clean JavaScript/JSX.
+
+```
+                               ┌──────────────────────────────────────────────┐
+                               │       shared/types/contracts.ts              │
+                               │  • DynamicSheetRow (Schema-Agnostic)         │
+                               │  • QueryFilter, QuerySort, QueryResult       │
+                               │  • MutationPlan, MutationTransformation      │
+                               │  • MutationPreviewResponse, DiffItem         │
+                               │  • Customer & Announcement API Interfaces    │
+                               └──────────────────────┬───────────────────────┘
+                                                      │
+                       ┌──────────────────────────────┴──────────────────────────────┐
+                       │                                                             │
+        ┌──────────────▼──────────────┐                               ┌──────────────▼──────────────┐
+        │       Backend (.ts)         │                               │       Frontend (.ts/.tsx)   │
+        │ • sheetValidationService.ts │                               │ • api.ts (Typed HTTP Client)│
+        │   (Runtime Type Guards)     │                               │ • SheetManagementPanel.tsx  │
+        │ • sheetQueryPromptBuilder.ts│                               │   (Dynamic Sheet Workspace) │
+        │   (Gemini Prompt & Schema)  │                               │                             │
+        └──────────────┬──────────────┘                               └──────────────┬──────────────┘
+                       │                                                             │
+        ┌──────────────▼──────────────┐                               ┌──────────────▼──────────────┐
+        │  Backend Preserved (.js)    │                               │  Frontend Preserved (.jsx)  │
+        │ • Express Routes & Server   │                               │ • TopHeader, Dashboard      │
+        │ • Database Query Builders   │                               │ • CustomerSupportChat       │
+        │ • Controllers & Middleware  │                               │ • CustomerPanel & Modals    │
+        └─────────────────────────────┘                               └─────────────────────────────┘
+```
+
+### 1. High-Value Migrated Modules
+- **Shared Domain Contracts (`shared/types/contracts.ts`)**:
+  - `DynamicSheetRow = Record<string, unknown> & { id?: string; ... }`: Universal, schema-agnostic inventory row type that never forces rigid columns like `name` or `price`.
+  - Staged mutation plans (`MutationPlan`), bulk arithmetic transformations (`set`, `add`, `subtract`, `multiply`), visual diff items (`MutationDiffItem`), and clarification responses (`ClarificationResponse`).
+- **Backend Validation & Prompt Engineering (`backend/src/services/`)**:
+  - `sheetValidationService.ts`: Runtime type guards (`isObject`, `isQueryOperator`, `isMutationOperation`, etc.) and assertion validators that inspect untrusted client and Gemini LLM payloads using `unknown` without blind `as` casting.
+  - `sheetQueryPromptBuilder.ts`: Typed Gemini prompt construction, live catalog context grounding, and strict response normalization.
+- **Frontend Services & Core Workspace (`frontend/src/`)**:
+  - `services/api.ts`: Fully typed HTTP client methods, error models (`ApiError`), query/mutation parameter signatures, and typed response wrappers.
+  - `components/SheetManagementPanel.tsx`: Core interactive spreadsheet panel managing dynamic table schemas, row addition modal states, and two-stage mutation preview diffs.
+
+### 2. Preserved JavaScript & JSX Modules
+To preserve maximum agility and avoid ripple-effect refactoring, the majority of the codebase remains in clean JavaScript/JSX:
+- Backend: `server.js`, `app.js`, Express route definitions (`routes/`), controllers (`controllers/`), database queries (`db/`), and email utilities (`utils/`).
+- Frontend: Top navigation bar (`TopHeader.jsx`), company container (`CompanyDashboard.jsx`), customer support chat (`CustomerSupportChat.jsx`), customer registration/login portal (`CustomerPanel.jsx`), and Redux slices (`store/`).
+
+### 3. Type Checking & Build Commands
+- **Backend Type Check**:
+  ```bash
+  npm run typecheck --prefix backend
+  # Executes: tsc --noEmit (strict typecheck)
+  ```
+- **Frontend Type Check & Build**:
+  ```bash
+  npm run typecheck --prefix frontend
+  # Executes: tsc --noEmit
+
+  npm run build --prefix frontend
+  # Executes: tsc --noEmit && vite build
+  ```
+
+> [!WARNING]
+> **Limitation**: Adding entirely new columns to uploaded inventory sheets is not currently supported. The editor can work with supported existing sheet columns, but users cannot introduce arbitrary new columns through natural-language commands.
 
 ---
 
@@ -294,7 +365,7 @@ Run the test suite from the repository root:
 npm test --prefix backend
 ```
 
-**Test Results**: **`60 / 60 tests passed`** (0 failures, 100% passing).
+**Test Results**: **`62 / 62 tests passed`** (0 failures, 100% passing).
 
 ---
 

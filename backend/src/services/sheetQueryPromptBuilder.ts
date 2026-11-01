@@ -1,3 +1,26 @@
+/**
+ * MaxiText AI Studio — Google AI Studio Gemini Sheet Query & Mutation Service
+ *
+ * Grounded natural-language prompt construction, LLM dispatch, untrusted JSON
+ * parsing and strict schema-driven normalization.
+ */
+
+import type {
+  SheetSchema,
+  InterpretedSheetAction,
+  QueryFilter,
+  QuerySort,
+  MutationOperation,
+  MutationFilterLogic,
+  ClarificationResponse,
+} from '../../../shared/types/contracts';
+
+import {
+  validateRawGeminiInterpretation,
+  isNonEmptyString,
+} from './sheetValidationService';
+
+// Legacy CommonJS modules
 const {
   getSchema,
   discoverTableSchema,
@@ -12,13 +35,33 @@ const AppError = require('../utils/AppError');
 const MAX_PROMPT_CATALOG_NAMES = 12;
 const MAX_PROMPT_CATEGORIES = 8;
 
+export interface CatalogContext {
+  names?: string[];
+  categories?: string[];
+}
+
+export interface BuildPromptParams {
+  entity?: string | SheetSchema;
+  schema?: SheetSchema | null;
+  message: string;
+  isMutation?: boolean;
+  currentDate?: string;
+  catalog?: CatalogContext | null;
+}
+
+export interface InterpretQueryParams {
+  entity?: string | SheetSchema;
+  message: string;
+  isMutation?: boolean;
+  currentDate?: string;
+  businessId?: string;
+  schema?: SheetSchema | null;
+}
+
 /**
  * Formats live catalog context (names + distinct categories/brands) for prompt grounding.
- *
- * @param {{ names?: string[], categories?: string[] } | null} catalog
- * @returns {string}
  */
-function formatCatalogContext(catalog) {
+export function formatCatalogContext(catalog?: CatalogContext | null): string {
   const names = Array.isArray(catalog?.names) ? catalog.names : [];
   const categories = Array.isArray(catalog?.categories) ? catalog.categories : [];
 
@@ -30,10 +73,14 @@ function formatCatalogContext(catalog) {
   const shownCategories = categories.slice(0, MAX_PROMPT_CATEGORIES);
   const lines = ['LIVE CATALOG CONTEXT (loaded from the database for this business)'];
   if (shownCategories.length > 0) {
-    lines.push(`Known category/brand values: ${shownCategories.map((c) => JSON.stringify(c)).join(', ')}`);
+    lines.push(
+      `Known category/brand values: ${shownCategories.map((c) => JSON.stringify(c)).join(', ')}`
+    );
   }
   if (shownNames.length > 0) {
-    lines.push(`Representative item/product names (up to ${MAX_PROMPT_CATALOG_NAMES} shown):`);
+    lines.push(
+      `Representative item/product names (up to ${MAX_PROMPT_CATALOG_NAMES} shown):`
+    );
     for (const n of shownNames) {
       lines.push(`- ${JSON.stringify(n)}`);
     }
@@ -44,29 +91,20 @@ function formatCatalogContext(catalog) {
 /**
  * Builds the natural-language prompt instructing Gemini to convert a spreadsheet query/mutation
  * into structured JSON according to the active table's dynamically discovered schema.
- *
- * @param {object} params
- * @param {string | object} [params.entity='products'] - Entity name or schema object
- * @param {object} [params.schema] - Optional resolved schema definition
- * @param {string} params.message - Raw user natural language prompt
- * @param {boolean} [params.isMutation=false] - Whether a mutation is expected
- * @param {string} [params.currentDate] - Current reference date in YYYY-MM-DD
- * @param {{ names?: string[], categories?: string[] } | null} [params.catalog] - Live catalog context
- * @returns {string}
  */
-function buildSheetQueryPrompt({
+export function buildSheetQueryPrompt({
   entity = 'products',
   schema: explicitSchema = null,
   message,
   isMutation = false,
   currentDate = new Date().toISOString().slice(0, 10),
   catalog = null,
-}) {
-  const schema = explicitSchema || getSchema(entity);
+}: BuildPromptParams): string {
+  const schema: SheetSchema = explicitSchema || getSchema(entity);
 
   const columnsList = Object.entries(schema.columns)
     .map(([, def]) => {
-      const colName = def.exactName || def;
+      const colName = def.exactName || (def as unknown as string);
       const modifiable = def.modifiable && !def.virtual;
       let desc = `- ${colName} (${def.type}) [${modifiable ? 'modifiable' : 'read-only'}]`;
       if (def.storageType) {
@@ -91,7 +129,7 @@ function buildSheetQueryPrompt({
     .join('\n');
 
   // Format representative values block if available
-  const repLines = [];
+  const repLines: string[] = [];
   if (schema.representativeValues && Object.keys(schema.representativeValues).length > 0) {
     for (const [col, vals] of Object.entries(schema.representativeValues)) {
       if (Array.isArray(vals) && vals.length > 0) {
@@ -156,12 +194,9 @@ ${message}
  * Determines whether a validation error represents a hard value/domain constraint violation
  * (which should be rejected with HTTP 400) versus an incomplete/ambiguous request or
  * schema column limitation (which should return status: 'clarification_needed').
- *
- * @param {Error} err
- * @returns {boolean}
  */
-function isHardConstraintValidationError(err) {
-  const msg = String(err?.message || '');
+export function isHardConstraintValidationError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err || '');
   return (
     msg.includes('must be <=') ||
     msg.includes('must be >=') ||
@@ -180,19 +215,21 @@ function isHardConstraintValidationError(err) {
 
 /**
  * Validates and normalizes the parsed JSON interpretation returned by the LLM.
- *
- * @param {string | object} entityOrSchema
- * @param {object} parsed
- * @returns {object}
+ * Strictly checks untrusted input before constructing typed output.
  */
-function normalizeInterpretedQuery(entityOrSchema, parsed) {
-  const schema = getSchema(entityOrSchema);
+export function normalizeInterpretedQuery(
+  entityOrSchema: string | SheetSchema,
+  raw: unknown
+): InterpretedSheetAction {
+  const schema: SheetSchema = getSchema(entityOrSchema);
   const normalizedEntity = schema.entity;
 
-  if (!parsed || typeof parsed !== 'object') {
+  const parsed = validateRawGeminiInterpretation(raw);
+
+  if (parsed.status === 'clarification_needed' || !parsed.operation) {
     return {
       status: 'clarification_needed',
-      message: 'Could not interpret request into a structured spreadsheet query.',
+      message: String(parsed.message || 'Could not interpret request into a structured spreadsheet query.').trim(),
       entity: normalizedEntity,
       operation: null,
       filters: [],
@@ -201,19 +238,7 @@ function normalizeInterpretedQuery(entityOrSchema, parsed) {
     };
   }
 
-  if (parsed.status === 'clarification_needed') {
-    return {
-      status: 'clarification_needed',
-      message: String(parsed.message || 'Please provide more details for this query.').trim(),
-      entity: normalizedEntity,
-      operation: null,
-      filters: [],
-      sort: [],
-      limit: null,
-    };
-  }
-
-  const operation = String(parsed.operation || 'filter').trim().toLowerCase();
+  const operation = String(parsed.operation).trim().toLowerCase();
 
   // If mutation operation (update, update_many, delete, create)
   if (
@@ -235,20 +260,20 @@ function normalizeInterpretedQuery(entityOrSchema, parsed) {
         status: 'ok',
         message: String(parsed.message || '').trim(),
         entity: normalizedEntity,
-        operation: validatedMut.operation,
-        filter_logic: validatedMut.filter_logic,
-        match_all: validatedMut.match_all,
+        operation: validatedMut.operation as MutationOperation,
+        filter_logic: validatedMut.filter_logic as MutationFilterLogic,
+        match_all: Boolean(validatedMut.match_all),
         target_filters: validatedMut.target_filters,
         updates: validatedMut.updates,
-        changes: validatedMut.changes,
+        changes: validatedMut.changes || {},
       };
-    } catch (err) {
+    } catch (err: unknown) {
       if (isHardConstraintValidationError(err)) {
         throw err;
       }
       return {
         status: 'clarification_needed',
-        message: err.message,
+        message: err instanceof Error ? err.message : String(err),
         entity: normalizedEntity,
         operation: null,
         filters: [],
@@ -264,15 +289,15 @@ function normalizeInterpretedQuery(entityOrSchema, parsed) {
     : Array.isArray(parsed.target_filters)
       ? parsed.target_filters
       : [];
-  const validatedFilters = [];
+  const validatedFilters: QueryFilter[] = [];
 
   for (const f of rawFilters) {
     try {
       validatedFilters.push(validateFilter(schema, f));
-    } catch (err) {
+    } catch (err: unknown) {
       return {
         status: 'clarification_needed',
-        message: `Schema limitation: ${err.message}`,
+        message: `Schema limitation: ${err instanceof Error ? err.message : String(err)}`,
         entity: normalizedEntity,
         operation: null,
         filters: [],
@@ -282,16 +307,16 @@ function normalizeInterpretedQuery(entityOrSchema, parsed) {
     }
   }
 
-  let validatedSort = [];
+  let validatedSort: QuerySort[] = [];
   try {
     validatedSort = validateSort(schema, parsed.sort || []);
   } catch {
     validatedSort = [];
   }
 
-  let limit = null;
+  let limit: number | null = null;
   if (parsed.limit !== null && parsed.limit !== undefined) {
-    const parsedLimit = Number.parseInt(parsed.limit, 10);
+    const parsedLimit = Number.parseInt(String(parsed.limit), 10);
     if (Number.isFinite(parsedLimit) && parsedLimit > 0) {
       limit = Math.min(parsedLimit, 500);
     }
@@ -302,7 +327,7 @@ function normalizeInterpretedQuery(entityOrSchema, parsed) {
   )
     .trim()
     .toUpperCase();
-  const filterLogic = rawFilterLogic === 'OR' ? 'OR' : 'AND';
+  const filterLogic: 'AND' | 'OR' = rawFilterLogic === 'OR' ? 'OR' : 'AND';
 
   return {
     status: 'ok',
@@ -320,32 +345,25 @@ function normalizeInterpretedQuery(entityOrSchema, parsed) {
  * High-level service function:
  * Dynamically discovers the active table schema, resolves catalog context if applicable,
  * prompts the LLM, and validates the interpreted result against the active schema.
- *
- * @param {object} params
- * @param {string | object} [params.entity='products'] - Active table / entity name
- * @param {string} params.message - user natural language prompt
- * @param {boolean} [params.isMutation=false]
- * @param {string} [params.currentDate]
- * @param {string} [params.businessId]
- * @returns {Promise<object>}
  */
-async function interpretNaturalLanguageQuery({
+export async function interpretNaturalLanguageQuery({
   entity = 'products',
   message,
   isMutation = false,
   currentDate,
   businessId,
   schema: suppliedSchema = null,
-}) {
-  if (typeof message !== 'string' || !message.trim()) {
+}: InterpretQueryParams): Promise<InterpretedSheetAction> {
+  if (!isNonEmptyString(message)) {
     throw new AppError('Message is required and must be a non-empty string.', 400);
   }
 
   // 1. Dynamically discover the schema of the active table
-  const schema = suppliedSchema || (await discoverTableSchema(entity, businessId));
+  const schema: SheetSchema =
+    suppliedSchema || (await discoverTableSchema(entity, businessId));
 
   // 2. Load catalog names if businessId is present and table has a name column
-  let catalog = null;
+  let catalog: CatalogContext | null = null;
   if (businessId) {
     try {
       catalog = await loadCatalogPromptContext(businessId, schema);
@@ -370,10 +388,3 @@ async function interpretNaturalLanguageQuery({
   // 5. Normalize and validate against the active table schema
   return normalizeInterpretedQuery(schema, rawAiResult);
 }
-
-module.exports = {
-  buildSheetQueryPrompt,
-  formatCatalogContext,
-  normalizeInterpretedQuery,
-  interpretNaturalLanguageQuery,
-};
