@@ -91,14 +91,13 @@ async function uploadProducts(req, res, next) {
       // In replace mode for non-products sheets, always derive the active schema directly
       // from the uploaded CSV headers so NO imaginary columns are ever inherited or created!
       schema = await createOrRegisterDynamicTableFromCsv(entity, req.file.buffer, business.id);
-      await ensureTableExists(schema);
     } else {
       try {
         schema = await discoverTableSchema(entity, business.id);
+        await ensureTableExists(schema);
       } catch {
         schema = await createOrRegisterDynamicTableFromCsv(entity, req.file.buffer, business.id);
       }
-      await ensureTableExists(schema);
     }
 
     // For products table

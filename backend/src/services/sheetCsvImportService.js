@@ -122,9 +122,12 @@ async function createOrRegisterDynamicTableFromCsv(entityName, fileBuffer, busin
   const normName = normalizeEntityName(entityName);
   let rows;
   try {
+    // Only parse the first 50 lines for dynamic table detection and column inference.
+    // This avoids parsing megabytes of data when registering dynamic schemas.
     rows = parse(fileBuffer, {
       bom: true,
       skip_empty_lines: true,
+      to_line: 50,
     });
   } catch (err) {
     throw new AppError(`Malformed CSV file: ${err.message}`, 400);
@@ -176,6 +179,12 @@ async function createOrRegisterDynamicTableFromCsv(entityName, fileBuffer, busin
         isInteger = false;
       }
 
+      // Preserve numbers with leading zeroes (e.g. '01712345678' or '00123') or >15 digits as strings
+      if (val.length > 15 || (val.startsWith('0') && val.length > 1 && !val.includes('.'))) {
+        isInteger = false;
+        isNumeric = false;
+      }
+
       const bLow = val.toLowerCase();
       if (!['true', 'false', '1', '0', 'yes', 'no'].includes(bLow)) {
         isBoolean = false;
@@ -193,10 +202,11 @@ async function createOrRegisterDynamicTableFromCsv(entityName, fileBuffer, busin
       pgType = 'BOOLEAN';
     } else if (isInteger) {
       colType = 'integer';
-      pgType = 'INTEGER';
+      // Use 64-bit BIGINT in PostgreSQL so values > 2,147,483,647 (e.g. student IDs) never overflow
+      pgType = 'BIGINT';
     } else if (isNumeric) {
       colType = 'number';
-      pgType = 'NUMERIC(12, 2)';
+      pgType = 'NUMERIC(18, 2)';
     } else if (isDate) {
       colType = 'date';
       pgType = 'DATE';
@@ -530,6 +540,8 @@ function parseAndValidateProductsCsv(fileBuffer, options = {}) {
  */
 async function importProductsToDatabase(businessId, validRecords, options = {}) {
   const mode = options.mode || 'replace';
+  if (!validRecords || validRecords.length === 0) return 0;
+
   return withTransaction(async (client) => {
     await ensureTableExists('products', client);
 
@@ -540,46 +552,105 @@ async function importProductsToDatabase(businessId, validRecords, options = {}) 
       ]);
     }
 
-    let inserted = 0;
-    const insertSql = `
-      INSERT INTO products (
-        business_id,
-        name,
-        category,
-        description,
-        best,
-        color,
-        discount,
-        ordered,
-        images,
-        size,
-        price,
-        created_at,
-        updated_at
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12::timestamptz, NOW()), NOW())
-      RETURNING id;
+    const colsSql = `
+      business_id,
+      name,
+      category,
+      description,
+      best,
+      color,
+      discount,
+      ordered,
+      images,
+      size,
+      price,
+      created_at,
+      updated_at
     `;
 
-    for (const rec of validRecords) {
-      await client.query(insertSql, [
-        businessId,
-        rec.name,
-        rec.category,
-        rec.description,
-        Boolean(rec.best),
-        rec.color,
-        rec.discount ?? 0,
-        rec.ordered ?? 0,
-        rec.images,
-        rec.size,
-        rec.price,
-        rec.created_at || null,
-      ]);
-      inserted += 1;
+    // 12 parameterized fields per row.
+    // Chunk into batches of up to 500 rows to minimize remote DB network roundtrips.
+    const paramsPerRow = 12;
+    const batchSize = Math.max(1, Math.min(500, Math.floor(10000 / paramsPerRow)));
+    let totalInserted = 0;
+
+    for (let i = 0; i < validRecords.length; i += batchSize) {
+      const batch = validRecords.slice(i, i + batchSize);
+      const values = [];
+      const rowTuples = [];
+
+      for (let r = 0; r < batch.length; r += 1) {
+        const rec = batch[r];
+        const rowPlaceholders = [];
+
+        // 1: business_id
+        values.push(businessId);
+        rowPlaceholders.push(`$${values.length}`);
+
+        // 2: name
+        values.push(rec.name);
+        rowPlaceholders.push(`$${values.length}`);
+
+        // 3: category
+        values.push(rec.category);
+        rowPlaceholders.push(`$${values.length}`);
+
+        // 4: description
+        values.push(rec.description);
+        rowPlaceholders.push(`$${values.length}`);
+
+        // 5: best
+        values.push(Boolean(rec.best));
+        rowPlaceholders.push(`$${values.length}`);
+
+        // 6: color
+        values.push(rec.color);
+        rowPlaceholders.push(`$${values.length}`);
+
+        // 7: discount
+        values.push(rec.discount ?? 0);
+        rowPlaceholders.push(`$${values.length}`);
+
+        // 8: ordered
+        values.push(rec.ordered ?? 0);
+        rowPlaceholders.push(`$${values.length}`);
+
+        // 9: images
+        values.push(rec.images);
+        rowPlaceholders.push(`$${values.length}`);
+
+        // 10: size
+        values.push(rec.size);
+        rowPlaceholders.push(`$${values.length}`);
+
+        // 11: price
+        values.push(rec.price);
+        rowPlaceholders.push(`$${values.length}`);
+
+        // 12: created_at
+        values.push(rec.created_at || null);
+        const createdAtParam = `$${values.length}`;
+        rowPlaceholders.push(`COALESCE(${createdAtParam}::timestamptz, NOW())`);
+
+        // 13: updated_at (SQL literal)
+        rowPlaceholders.push('NOW()');
+
+        rowTuples.push(`(${rowPlaceholders.join(', ')})`);
+      }
+
+      const batchInsertSql = `
+        INSERT INTO products (
+          ${colsSql}
+        )
+        VALUES ${rowTuples.join(', ')}
+        RETURNING id;
+      `;
+
+      const result = await client.query(batchInsertSql, values);
+      totalInserted += (result && result.rowCount) ? result.rowCount : batch.length;
     }
 
-    return inserted;
+    return totalInserted;
   });
 }
 
@@ -758,6 +829,8 @@ function parseAndValidateSheetCsv(fileBuffer, schema, options = {}) {
  */
 async function importSheetRecordsToDatabase(businessId, schema, validRecords, options = {}) {
   const mode = options.mode || 'replace';
+  if (!validRecords || validRecords.length === 0) return 0;
+
   return withTransaction(async (client) => {
     await ensureTableExists(schema, client);
 
@@ -767,20 +840,39 @@ async function importSheetRecordsToDatabase(businessId, schema, validRecords, op
       await client.query(`DELETE FROM "${safeTableName}" WHERE business_id = $1;`, [businessId]);
     }
 
-    // Introspect physical column names in PostgreSQL to preserve exact casing and avoid code 42703
+    // Introspect physical column names and data types in PostgreSQL
     const pgColsMap = new Map(); // lowercase name -> exact physical column name in pg
+    const pgColTypesMap = new Map(); // lowercase name -> physical data_type in pg
     try {
       const colRes = await client.query(
-        `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND LOWER(table_name) = LOWER($1);`,
+        `SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' AND LOWER(table_name) = LOWER($1);`,
         [safeTableName]
       );
       if (colRes.rows && colRes.rows.length > 0) {
         for (const row of colRes.rows) {
-          pgColsMap.set(String(row.column_name).toLowerCase(), String(row.column_name));
+          const lower = String(row.column_name).toLowerCase();
+          pgColsMap.set(lower, String(row.column_name));
+          pgColTypesMap.set(lower, String(row.data_type || '').toLowerCase());
         }
       }
     } catch {
       // Mock pool or query error fallback
+    }
+
+    // Automatically widen any pre-existing 32-bit INTEGER or SMALLINT columns to BIGINT
+    // so values > 2,147,483,647 (e.g. Student IDs, big counts) never fail with 22003 out of range errors
+    for (const [lowerCol, physicalCol] of pgColsMap.entries()) {
+      if (['id', 'business_id', 'created_at', 'updated_at'].includes(lowerCol)) continue;
+      const currentType = pgColTypesMap.get(lowerCol);
+      if (currentType === 'integer' || currentType === 'smallint') {
+        try {
+          await client.query(
+            `ALTER TABLE "${safeTableName}" ALTER COLUMN "${physicalCol}" TYPE BIGINT, ALTER COLUMN "${physicalCol}" DROP NOT NULL;`
+          );
+        } catch {
+          // Best-effort column widening
+        }
+      }
     }
 
     // If pgColsMap is empty (e.g. mock unit-test pools), populate from schema.columns
@@ -792,65 +884,105 @@ async function importSheetRecordsToDatabase(businessId, schema, validRecords, op
     }
 
     // Dynamically ensure any column from validRecords exists in PostgreSQL table
-    if (validRecords.length > 0) {
-      const allRecordKeys = new Set();
-      for (const rec of validRecords) {
-        for (const k of Object.keys(rec)) {
-          allRecordKeys.add(k);
-        }
-      }
-
-      for (const k of allRecordKeys) {
-        const cleanKey = String(k).replace(/[^a-z0-9_]/gi, '_');
-        if (!pgColsMap.has(cleanKey.toLowerCase())) {
-          try {
-            await client.query(
-              `ALTER TABLE "${safeTableName}" ADD COLUMN IF NOT EXISTS "${cleanKey}" TEXT;`
-            );
-            pgColsMap.set(cleanKey.toLowerCase(), cleanKey);
-          } catch {
-            pgColsMap.set(cleanKey.toLowerCase(), cleanKey);
-          }
-        }
+    const allRecordKeys = new Set();
+    for (const rec of validRecords) {
+      for (const k of Object.keys(rec)) {
+        allRecordKeys.add(k);
       }
     }
 
-    let inserted = 0;
-    for (const rec of validRecords) {
-      const keys = Object.keys(rec);
-      const businessIdCol = pgColsMap.get('business_id') || 'business_id';
-      const cols = [`"${businessIdCol}"`];
-      const placeholders = ['$1'];
-      const values = [businessId];
-
-      keys.forEach((k, idx) => {
-        const cleanKey = String(k).replace(/[^a-z0-9_]/gi, '_');
-        const physicalCol = pgColsMap.get(cleanKey.toLowerCase()) || cleanKey;
-        cols.push(`"${physicalCol}"`);
-        placeholders.push(`$${idx + 2}`);
-        values.push(rec[k]);
-      });
-
-      if (schema.columns && schema.columns.created_at) {
-        const createdAtCol = pgColsMap.get('created_at') || 'created_at';
-        cols.push(`"${createdAtCol}"`);
-        placeholders.push('NOW()');
+    const missingCols = [];
+    for (const k of allRecordKeys) {
+      const cleanKey = String(k).replace(/[^a-z0-9_]/gi, '_');
+      if (!pgColsMap.has(cleanKey.toLowerCase())) {
+        missingCols.push(cleanKey);
+        pgColsMap.set(cleanKey.toLowerCase(), cleanKey);
       }
-      if (schema.columns && schema.columns.updated_at) {
-        const updatedAtCol = pgColsMap.get('updated_at') || 'updated_at';
-        cols.push(`"${updatedAtCol}"`);
-        placeholders.push('NOW()');
+    }
+
+    if (missingCols.length > 0) {
+      try {
+        const alterClauses = missingCols.map((c) => `ADD COLUMN IF NOT EXISTS "${c}" TEXT`).join(', ');
+        await client.query(`ALTER TABLE "${safeTableName}" ${alterClauses};`);
+      } catch {
+        // Fallback or mock pool
+      }
+    }
+
+    // Fixed column list for multi-row batch insert
+    const businessIdCol = pgColsMap.get('business_id') || 'business_id';
+    const insertCols = [`"${businessIdCol}"`];
+    const keyPhysicalMap = [];
+
+    for (const k of allRecordKeys) {
+      const cleanKey = String(k).replace(/[^a-z0-9_]/gi, '_');
+      const physicalCol = pgColsMap.get(cleanKey.toLowerCase()) || cleanKey;
+      insertCols.push(`"${physicalCol}"`);
+      keyPhysicalMap.push({ key: k, physicalCol });
+    }
+
+    const hasCreatedAt = Boolean(schema.columns && schema.columns.created_at);
+    const hasUpdatedAt = Boolean(schema.columns && schema.columns.updated_at);
+
+    if (hasCreatedAt) {
+      const createdAtCol = pgColsMap.get('created_at') || 'created_at';
+      insertCols.push(`"${createdAtCol}"`);
+    }
+    if (hasUpdatedAt) {
+      const updatedAtCol = pgColsMap.get('updated_at') || 'updated_at';
+      insertCols.push(`"${updatedAtCol}"`);
+    }
+
+    const colsSql = insertCols.join(', ');
+    const paramsPerRow = 1 + keyPhysicalMap.length;
+    // Chunk into batches of up to 500 rows to minimize remote cloud DB network roundtrips.
+    // PostgreSQL has a limit of 65,535 parameters; 10,000 parameter budget keeps batches safe and lightning-fast.
+    const batchSize = Math.max(1, Math.min(500, Math.floor(10000 / paramsPerRow)));
+
+    let totalInserted = 0;
+
+    for (let i = 0; i < validRecords.length; i += batchSize) {
+      const batch = validRecords.slice(i, i + batchSize);
+      const values = [];
+      const rowTuples = [];
+
+      for (let r = 0; r < batch.length; r += 1) {
+        const rec = batch[r];
+        const rowPlaceholders = [];
+
+        // 1. business_id
+        values.push(businessId);
+        rowPlaceholders.push(`$${values.length}`);
+
+        // 2. record columns
+        for (let c = 0; c < keyPhysicalMap.length; c += 1) {
+          const val = rec[keyPhysicalMap[c].key];
+          values.push(val !== undefined ? val : null);
+          rowPlaceholders.push(`$${values.length}`);
+        }
+
+        // 3. created_at & updated_at (using NOW() SQL literal)
+        if (hasCreatedAt) {
+          rowPlaceholders.push('NOW()');
+        }
+        if (hasUpdatedAt) {
+          rowPlaceholders.push('NOW()');
+        }
+
+        rowTuples.push(`(${rowPlaceholders.join(', ')})`);
       }
 
-      const insertSql = `
-        INSERT INTO "${safeTableName}" (${cols.join(', ')})
-        VALUES (${placeholders.join(', ')})
+      const batchInsertSql = `
+        INSERT INTO "${safeTableName}" (${colsSql})
+        VALUES ${rowTuples.join(', ')}
         RETURNING id;
       `;
-      await client.query(insertSql, values);
-      inserted += 1;
+
+      const result = await client.query(batchInsertSql, values);
+      totalInserted += (result && result.rowCount) ? result.rowCount : batch.length;
     }
-    return inserted;
+
+    return totalInserted;
   });
 }
 

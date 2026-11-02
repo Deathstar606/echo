@@ -247,6 +247,9 @@ const sheetSlice = createSlice({
       const entity = action.payload || 'products';
       state.activeEntity = entity;
       state.activeFileName = `${entity}.csv`;
+      state.queryResult = null;
+      state.queryError = null;
+      state.queryStatus = 'idle';
     },
     setSheetNlPrompt(state, action) {
       state.nlPrompt = action.payload;
@@ -389,17 +392,17 @@ const sheetSlice = createSlice({
             payload.affected_count || updatedIds.length
           } record(s).`;
 
-        if (updatedIds.length > 0) {
-          state.queryResult = {
-            status: 'ok',
-            entity: payload.entity || state.activeEntity,
-            promptUsed: payload.promptUsed,
-            matchedIds: updatedIds,
-            count: updatedIds.length,
-            message: state.mutationApplySuccessMessage,
-            rows: updatedRows,
-          };
+        // Update rows in place in rowsByEntity so full sheet view shows updated values
+        const targetEntity = payload.entity || state.activeEntity;
+        if (state.rowsByEntity[targetEntity] && updatedRows.length > 0) {
+          const updatedMap = new Map(updatedRows.map((r) => [r.id, r]));
+          state.rowsByEntity[targetEntity] = state.rowsByEntity[targetEntity].map((row) =>
+            updatedMap.has(row.id) ? updatedMap.get(row.id) : row
+          );
         }
+
+        // Keep the full updated sheet visible after applying mutations
+        state.queryResult = null;
       })
       .addCase(applySheetMutation.rejected, (state, action) => {
         state.mutationApplyStatus = 'failed';

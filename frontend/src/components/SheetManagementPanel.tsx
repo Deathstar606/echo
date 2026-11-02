@@ -64,6 +64,7 @@ interface SheetSliceState {
     promptUsed?: string;
     matchedIds?: string[];
     message?: string;
+    rows?: DynamicSheetRow[];
   } | null;
   mutationPreviewStatus: 'idle' | 'loading' | 'succeeded' | 'failed';
   mutationPreviewError: string | null;
@@ -411,10 +412,27 @@ export default function SheetManagementPanel(): React.ReactElement {
     return base;
   }, [activeEntity, activeRows]);
 
-  const matchedIdsSet = new Set(
-    Array.isArray(queryResult?.matchedIds) ? queryResult.matchedIds : []
+  const matchedIdsSet = useMemo(
+    () => new Set(Array.isArray(queryResult?.matchedIds) ? queryResult.matchedIds : []),
+    [queryResult?.matchedIds]
   );
-  const hasActiveQueryFilter = Boolean(queryResult);
+  const isQueryFilterActive = Boolean(
+    queryResult &&
+    queryResult.status !== 'clarification_needed' &&
+    Array.isArray(queryResult.matchedIds)
+  );
+  const hasActiveQueryFilter = isQueryFilterActive;
+
+  // When a natural-language query is active, show ONLY the rows that match the query
+  const displayedRows: DynamicSheetRow[] = useMemo(() => {
+    if (!isQueryFilterActive) {
+      return activeRows;
+    }
+    if (Array.isArray(queryResult?.rows) && queryResult.rows.length > 0) {
+      return queryResult.rows;
+    }
+    return activeRows.filter((row) => row.id && matchedIdsSet.has(row.id as string));
+  }, [activeRows, isQueryFilterActive, queryResult, matchedIdsSet]);
 
   // Run Natural-Language Query
   const handleRunQuery = async (customText?: string) => {
@@ -673,8 +691,8 @@ export default function SheetManagementPanel(): React.ReactElement {
         </div>
 
         <div className="sheet-card-body">
-          {/* Clear Row Highlights when active filter is applied */}
-          {hasActiveQueryFilter && (
+          {/* Show All Rows banner when filter is active */}
+          {isQueryFilterActive && (
             <div
               style={{
                 display: 'flex',
@@ -685,11 +703,17 @@ export default function SheetManagementPanel(): React.ReactElement {
               <button
                 type="button"
                 className="btn-warm-outlined"
-                style={{ fontSize: '12px', padding: '4px 10px' }}
+                style={{
+                  fontSize: '12px',
+                  padding: '4px 10px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
                 onClick={() => dispatch(clearSheetFiltersAndFeedback())}
               >
                 <RotateCcw size={13} />
-                Clear Row Highlights ({matchedIdsSet.size} matched)
+                Show All Rows ({activeRows.length})
               </button>
             </div>
           )}
@@ -765,14 +789,18 @@ export default function SheetManagementPanel(): React.ReactElement {
                   ? '#fffbeb'
                   : queryResult && queryResult.count === 0
                     ? '#fef2f2'
-                    : 'var(--bg-subtle-warm)',
+                    : isQueryFilterActive
+                      ? '#eff6ff'
+                      : 'var(--bg-subtle-warm)',
               borderRadius: '8px',
               border:
                 queryResult?.status === 'clarification_needed'
                   ? '1px solid #f59e0b'
                   : queryResult && queryResult.count === 0
                     ? '1px solid #fecaca'
-                    : '1px solid var(--border-warm)',
+                    : isQueryFilterActive
+                      ? '1px solid #bfdbfe'
+                      : '1px solid var(--border-warm)',
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -783,25 +811,44 @@ export default function SheetManagementPanel(): React.ReactElement {
                   : queryResult.status === 'clarification_needed'
                     ? `Clarification Needed: ${queryResult.message}`
                     : queryResult.count === 0
-                      ? `0 records matched "${queryResult.promptUsed}". Full sheet remains visible below.`
-                      : `Highlighted ${queryResult.count} matching record(s) for "${queryResult.promptUsed}".`}
+                      ? `0 records matched "${queryResult.promptUsed}".`
+                      : `Showing ${displayedRows.length} matching record(s) for "${queryResult.promptUsed}".`}
               </span>
               <span className="sheet-scroll-hint-pill">
                 <ArrowRightLeft size={11} />
                 Scroll table horizontally (↔)
               </span>
             </div>
-            <span
-              style={{
-                fontSize: '12px',
-                color: 'var(--text-secondary)',
-                fontWeight: 600,
-              }}
-            >
-              {queryResult
-                ? `Matched: ${matchedIdsSet.size} of ${activeRows.length} rows`
-                : `Total Rows: ${activeRows.length}`}
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span
+                style={{
+                  fontSize: '12px',
+                  color: isQueryFilterActive ? 'var(--primary-indigo)' : 'var(--text-secondary)',
+                  fontWeight: 600,
+                }}
+              >
+                {isQueryFilterActive
+                  ? `Showing ${displayedRows.length} of ${activeRows.length} rows`
+                  : `Total Rows: ${activeRows.length}`}
+              </span>
+              {isQueryFilterActive && (
+                <button
+                  type="button"
+                  className="btn-warm-outlined"
+                  style={{
+                    fontSize: '11px',
+                    padding: '2px 8px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                  onClick={() => dispatch(clearSheetFiltersAndFeedback())}
+                >
+                  <RotateCcw size={11} />
+                  Show All Rows
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Universal Spreadsheet Table */}
@@ -822,7 +869,7 @@ export default function SheetManagementPanel(): React.ReactElement {
                 />
                 <div>Loading {activeDisplayName || activeEntity} records...</div>
               </div>
-            ) : activeRows.length === 0 ? (
+            ) : displayedRows.length === 0 ? (
               <div
                 style={{
                   padding: '48px 20px',
@@ -831,8 +878,43 @@ export default function SheetManagementPanel(): React.ReactElement {
                   fontSize: '13.5px',
                 }}
               >
-                No records found in {activeDisplayName || activeEntity}. Click{' '}
-                <strong>Upload CSV</strong> above to import your sheet.
+                {isQueryFilterActive ? (
+                  <div>
+                    <div
+                      style={{
+                        fontWeight: 600,
+                        color: 'var(--text-primary)',
+                        marginBottom: '6px',
+                        fontSize: '14px',
+                      }}
+                    >
+                      No matching records found
+                    </div>
+                    <div>
+                      0 records matched &ldquo;{queryResult?.promptUsed}&rdquo;.
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-warm-outlined"
+                      style={{
+                        marginTop: '12px',
+                        fontSize: '12px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                      onClick={() => dispatch(clearSheetFiltersAndFeedback())}
+                    >
+                      <RotateCcw size={13} />
+                      Show All Records ({activeRows.length})
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    No records found in {activeDisplayName || activeEntity}. Click{' '}
+                    <strong>Upload CSV</strong> above to import your sheet.
+                  </div>
+                )}
               </div>
             ) : (
               <table className="sheet-table">
@@ -845,32 +927,12 @@ export default function SheetManagementPanel(): React.ReactElement {
                   </tr>
                 </thead>
                 <tbody>
-                  {activeRows.map((row, idx) => {
+                  {displayedRows.map((row, idx) => {
                     const rowId = row.id as string | undefined;
-                    const isHighlighted = rowId ? matchedIdsSet.has(rowId) : false;
                     return (
-                      <tr
-                        key={rowId || idx}
-                        className={isHighlighted ? 'highlighted-row' : ''}
-                      >
+                      <tr key={rowId || idx}>
                         <td style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
                           <span>{idx + 1}</span>
-                          {isHighlighted && (
-                            <span
-                              style={{
-                                marginLeft: '6px',
-                                display: 'inline-block',
-                                padding: '1px 6px',
-                                borderRadius: '999px',
-                                backgroundColor: 'var(--primary-indigo)',
-                                color: '#ffffff',
-                                fontSize: '9.5px',
-                                fontWeight: 700,
-                              }}
-                            >
-                              MATCH
-                            </span>
-                          )}
                         </td>
                         {displayedColumns.map((col) => (
                           <td

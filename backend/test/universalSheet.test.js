@@ -363,21 +363,39 @@ function createUniversalSheetPool() {
       return { rows: [], rowCount: before.length - after.length };
     }
 
-    // 6. INSERT INTO <table>
+    // 6. INSERT INTO <table> (supports single-row and multi-row batch inserts)
     const insertMatch = rawSql.match(/INSERT\s+INTO\s+["']?([a-z0-9_]+)["']?\s*\(([^)]+)\)/i);
     if (insertMatch) {
       const tableName = insertMatch[1].toLowerCase();
       const cols = insertMatch[2].split(',').map((c) => c.trim().replace(/^["']|["']$/g, ''));
-      const row = { id: crypto.randomUUID(), created_at: nextIsoTimestamp(), updated_at: nextIsoTimestamp() };
-      cols.forEach((col, idx) => {
-        if (params[idx] !== undefined) {
-          row[col] = params[idx];
-          row[col.toLowerCase()] = params[idx];
-        }
-      });
+      const firstTupleMatch = rawSql.match(/VALUES\s*\(([^)]+)\)/i);
+      const placeholdersInTuple = (firstTupleMatch ? firstTupleMatch[1].match(/\$\d+/g) || [] : []).length;
+      const paramsPerRow = placeholdersInTuple > 0 ? placeholdersInTuple : cols.length;
+      const numRows = Math.max(1, Math.floor(params.length / paramsPerRow));
+      const insertedRows = [];
+
       if (!tables.has(tableName)) tables.set(tableName, []);
-      tables.get(tableName).push(row);
-      return { rows: [{ ...row }], rowCount: 1 };
+      const tableRows = tables.get(tableName);
+
+      for (let r = 0; r < numRows; r += 1) {
+        const rowParams = params.slice(r * paramsPerRow, (r + 1) * paramsPerRow);
+        const row = { id: crypto.randomUUID(), created_at: nextIsoTimestamp(), updated_at: nextIsoTimestamp() };
+        let pIdx = 0;
+        cols.forEach((col) => {
+          const colLow = col.toLowerCase();
+          if (colLow === 'created_at' || colLow === 'updated_at') {
+            // Timestamp already generated
+          } else if (pIdx < rowParams.length) {
+            row[col] = rowParams[pIdx];
+            row[colLow] = rowParams[pIdx];
+            pIdx += 1;
+          }
+        });
+        tableRows.push(row);
+        insertedRows.push(row);
+      }
+
+      return { rows: insertedRows, rowCount: insertedRows.length };
     }
 
     // 7. SELECT * FROM <table>

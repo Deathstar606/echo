@@ -349,7 +349,7 @@ function createInMemorySheetPool() {
       return { rows: [], rowCount: beforeCount - products.length };
     }
 
-    // Insert Product (supports both CSV import column order and dynamic create columns)
+    // Insert Product (supports single-row and multi-row batch insertions)
     if (normalized.startsWith('INSERT INTO PRODUCTS')) {
       const colMatch = rawSql.match(/INSERT\s+INTO\s+["']?products["']?\s*\(([^)]+)\)/i);
       const colNames = colMatch
@@ -368,40 +368,52 @@ function createInMemorySheetPool() {
             'price',
             'created_at',
           ];
-      const mapped = {};
-      let paramCursor = 0;
-      for (const col of colNames) {
-        if (
-          (col === 'created_at' || col === 'updated_at') &&
-          paramCursor >= params.length
-        ) {
-          continue;
+
+      const firstTupleMatch = rawSql.match(/VALUES\s*\(([^)]+)\)/i);
+      const placeholdersInTuple = (firstTupleMatch ? firstTupleMatch[1].match(/\$\d+/g) || [] : []).length;
+      const paramsPerRow = placeholdersInTuple > 0 ? placeholdersInTuple : colNames.length;
+      const numRows = Math.max(1, Math.floor(params.length / paramsPerRow));
+      const insertedRows = [];
+      const now = nextIsoTimestamp();
+
+      for (let r = 0; r < numRows; r += 1) {
+        const rowParams = params.slice(r * paramsPerRow, (r + 1) * paramsPerRow);
+        const mapped = {};
+        let paramCursor = 0;
+        for (const col of colNames) {
+          if (
+            (col === 'created_at' || col === 'updated_at') &&
+            paramCursor >= rowParams.length
+          ) {
+            continue;
+          }
+          mapped[col] = rowParams[paramCursor];
+          paramCursor += 1;
         }
-        mapped[col] = params[paramCursor];
-        paramCursor += 1;
+
+        const row = {
+          id: crypto.randomUUID(),
+          business_id: mapped.business_id,
+          name: mapped.name,
+          category: mapped.category || null,
+          description: mapped.description || null,
+          best: Boolean(mapped.best),
+          color: mapped.color || null,
+          discount: Number(mapped.discount ?? 0),
+          ordered: Number.parseInt(mapped.ordered ?? 0, 10),
+          images: mapped.images || null,
+          size: mapped.size || null,
+          price: Number(mapped.price),
+          created_at: mapped.created_at
+            ? new Date(mapped.created_at).toISOString()
+            : now,
+          updated_at: now,
+        };
+        products.push(row);
+        insertedRows.push(row);
       }
 
-      const now = nextIsoTimestamp();
-      const row = {
-        id: crypto.randomUUID(),
-        business_id: mapped.business_id,
-        name: mapped.name,
-        category: mapped.category || null,
-        description: mapped.description || null,
-        best: Boolean(mapped.best),
-        color: mapped.color || null,
-        discount: Number(mapped.discount ?? 0),
-        ordered: Number.parseInt(mapped.ordered ?? 0, 10),
-        images: mapped.images || null,
-        size: mapped.size || null,
-        price: Number(mapped.price),
-        created_at: mapped.created_at
-          ? new Date(mapped.created_at).toISOString()
-          : now,
-        updated_at: now,
-      };
-      products.push(row);
-      return { rows: [{ ...row }], rowCount: 1 };
+      return { rows: insertedRows, rowCount: insertedRows.length };
     }
 
     // Catalog name + category lookup for catalogNameResolver

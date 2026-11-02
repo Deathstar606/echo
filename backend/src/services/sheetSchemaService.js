@@ -948,11 +948,11 @@ const CANONICAL_DDL_STATEMENTS = {
 function mapTypeToPgColumnDef(type) {
   switch (type) {
     case 'integer':
-      return 'INTEGER NOT NULL DEFAULT 0';
+      return 'BIGINT DEFAULT 0';
     case 'number':
-      return 'NUMERIC(12, 2) NOT NULL DEFAULT 0.00';
+      return 'NUMERIC(18, 2) DEFAULT 0.00';
     case 'boolean':
-      return 'BOOLEAN NOT NULL DEFAULT FALSE';
+      return 'BOOLEAN DEFAULT FALSE';
     case 'date':
       return 'DATE';
     case 'uuid':
@@ -1058,7 +1058,7 @@ async function ensureTableExists(entityOrSchema, clientOrPool) {
       }
     }
 
-    // 4. Synchronize any newly added columns if table exists
+    // 4. Synchronize any newly added columns and widen integer columns to BIGINT if table exists
     if (schema && schema.columns) {
       try {
         const colRes = await runner.query(
@@ -1078,6 +1078,15 @@ async function ensureTableExists(entityOrSchema, clientOrPool) {
             await runner.query(
               `ALTER TABLE "${safeTableName}" ADD COLUMN IF NOT EXISTS "${cleanCol}" ${mapTypeToPgColumnDef(colDef.type)};`
             );
+          } else if (colDef.type === 'integer' || colDef.type === 'number') {
+            // Widen existing integer column to BIGINT and drop NOT NULL so values > 2.14B (e.g. Student IDs) never overflow
+            try {
+              await runner.query(
+                `ALTER TABLE "${safeTableName}" ALTER COLUMN "${cleanCol}" TYPE BIGINT, ALTER COLUMN "${cleanCol}" DROP NOT NULL;`
+              );
+            } catch {
+              // Best-effort column alteration
+            }
           }
         }
       } catch {
