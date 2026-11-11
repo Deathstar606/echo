@@ -122,8 +122,11 @@ async function loadCatalogNames(businessId, entity = 'products') {
 
   try {
     const safeTableName = quoteIdentifier(schema.tableName || 'products');
+    const whereBizSql = schema?.columns?.workspace_id
+      ? '(business_id = $1 OR workspace_id = $1)'
+      : 'business_id = $1';
     const result = await query(
-      `SELECT ${selectCols} FROM ${safeTableName} WHERE business_id = $1 ORDER BY ${quoteIdentifier(exactNameCol)} ASC;`,
+      `SELECT ${selectCols} FROM ${safeTableName} WHERE ${whereBizSql} ORDER BY ${quoteIdentifier(exactNameCol)} ASC;`,
       [businessId]
     );
     return result.rows.map((r) => ({
@@ -156,10 +159,13 @@ async function loadCatalogPromptContext(
 
   const table = quoteIdentifier(schema.tableName || 'products');
   const nameColumn = quoteIdentifier(exactNameCol);
+  const whereBizSql = schema?.columns?.workspace_id
+    ? '(business_id = $1 OR workspace_id = $1)'
+    : 'business_id = $1';
   const namesSql = `
     SELECT DISTINCT ${nameColumn} AS name
     FROM ${table}
-    WHERE business_id = $1 AND ${nameColumn} IS NOT NULL
+    WHERE ${whereBizSql} AND ${nameColumn} IS NOT NULL
     ORDER BY name
     LIMIT $2;
   `;
@@ -171,7 +177,7 @@ async function loadCatalogPromptContext(
         ? query(
             `SELECT DISTINCT ${quoteIdentifier(exactCategoryCol)} AS category
              FROM ${table}
-             WHERE business_id = $1 AND ${quoteIdentifier(exactCategoryCol)} IS NOT NULL
+             WHERE ${whereBizSql} AND ${quoteIdentifier(exactCategoryCol)} IS NOT NULL
              ORDER BY category
              LIMIT $2;`,
             [businessId, categoryLimit]
@@ -306,18 +312,14 @@ function resolveProductName(index, rawValue) {
  */
 async function resolveNameFilters({ businessId, filters, entity = 'products', catalog }) {
   const list = Array.isArray(filters) ? filters : [];
-  const schema = getSchema(entity);
-
-  // Identify if any filter targets a name-like column
-  const nameColDef =
-    schema.columns.name ||
-    schema.columns.product_name ||
-    schema.columns.item_name ||
-    schema.columns.title;
-  const exactNameCol = nameColDef ? nameColDef.exactName || 'name' : null;
+  const { exactNameCol } = getCatalogColumns(entity);
 
   const hasNameFilter = list.some((f) => {
-    if (!f || typeof f.value !== 'string') return false;
+    if (!f) return false;
+    const isValSupported =
+      typeof f.value === 'string' ||
+      (f.operator === 'in' && Array.isArray(f.value));
+    if (!isValSupported) return false;
     const fLower = String(f.field || '').toLowerCase();
     return (
       fLower === 'name' ||
@@ -349,6 +351,52 @@ async function resolveNameFilters({ businessId, filters, entity = 'products', ca
       fieldLower === 'product_name' ||
       fieldLower === 'item_name' ||
       (exactNameCol && fieldLower === exactNameCol.toLowerCase());
+
+    if (
+      isTargetNameCol &&
+      filter.operator === 'in' &&
+      Array.isArray(filter.value)
+    ) {
+      const targetFieldName = exactNameCol || filter.field;
+      const resolvedItems = [];
+      for (const rawItem of filter.value) {
+        const itemStr = String(rawItem ?? '').trim();
+        if (!itemStr) continue;
+        const outcome = resolveProductName(index, itemStr);
+        if (outcome.status === 'resolved') {
+          resolutions.push({
+            requested: itemStr,
+            resolved: outcome.names,
+            strategy: outcome.strategy,
+          });
+          resolvedItems.push(...outcome.names);
+        } else if (outcome.status === 'ambiguous') {
+          return {
+            status: 'clarification_needed',
+            message: `The name "${itemStr}" matches multiple records: ${outcome.candidates
+              .map((c) => `"${c}"`)
+              .join(', ')}. Which one did you mean?`,
+            suggestions: outcome.candidates,
+          };
+        } else {
+          const suggestionText = outcome.suggestions.length
+            ? ` Did you mean ${outcome.suggestions.map((s) => `"${s}"`).join(' or ')}?`
+            : '';
+          return {
+            status: 'clarification_needed',
+            message: `No record matching "${itemStr}" exists in this catalog.${suggestionText}`,
+            suggestions: outcome.suggestions,
+          };
+        }
+      }
+      resolvedFilters.push({
+        ...filter,
+        field: targetFieldName,
+        operator: 'in',
+        value: [...new Set(resolvedItems)],
+      });
+      continue;
+    }
 
     if (!isTargetNameCol || typeof filter.value !== 'string') {
       resolvedFilters.push(filter);

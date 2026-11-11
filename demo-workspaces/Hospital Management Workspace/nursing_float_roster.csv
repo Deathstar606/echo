@@ -1,0 +1,9 @@
+nurse_id,nurse_name,credential,home_wing,assigned_unit,shift_window,availability_status,overtime_eligible,max_acuity_ratio,coordinator_email
+RN-301,Dr. Maya Lin RN,CCRN-ICU,North Wing,Float Pool,Day (07:00-19:00),Available,True,1:2,nursing.ops@example.test
+RN-302,Samuel Okafor RN,CCRN-ICU,South Wing,HICU-02,Day (07:00-19:00),Assigned,True,1:2,nursing.ops@example.test
+RN-303,Elena Vasquez RN,CEN-Emergency,Ground Wing,Float Pool,Day (07:00-19:00),Available,True,1:4,nursing.ops@example.test
+RN-304,Hannah Brooks RN,NICU-III,Pediatric Wing,HNICU-01,Day (07:00-19:00),Assigned,False,1:2,nursing.ops@example.test
+RN-305,Arjun Mehta RN,MedSurg-RN,West Wing,Float Pool,Night (19:00-07:00),Available,True,1:5,nursing.ops@example.test
+RN-306,Claire Dubois RN,CCRN-Cardiac,East Wing,Float Pool,Day (07:00-19:00),Available,False,1:2,nursing.ops@example.test
+RN-307,Devon Carter RN,Ortho-Surg,West Wing,HWARD-03,Night (19:00-07:00),On Leave,False,1:5,nursing.ops@example.test
+RN-308,Sofia Alverez RN,Infection-Ctrl,East Wing,HWARD-02,Day (07:00-19:00),Assigned,True,1:3,nursing.ops@example.test

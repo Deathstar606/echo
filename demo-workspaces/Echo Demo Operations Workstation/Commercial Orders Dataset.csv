@@ -1,0 +1,33 @@
+Order_ID,Order_Date,Customer_Name,Customer_Email,Delivery_City,Item_SKU,Item_Name,Quantity,Unit_Price_BDT,Order_Subtotal_BDT,Shipping_Cost_BDT,Total_Amount_BDT,Payment_Method,Fulfillment_Hub,Dispatch_Status,Delay_Hours,SLA_Voucher_Issued,Batch_Code,Shipping_Tier,Promo_Discount_Pct,Refund_Status
+ORD-2026-1001,2026-11-01,Tanvir Ahmed,tanvir.ahmed@example.com,Dhaka,FUR-LR-001,Nordic 3-Seater Fabric Sofa,1,38500,38500,1200,39700,Credit Card,Dhaka Central,Delivered,12,False,B-100,Standard,0,None
+ORD-2026-1002,2026-11-01,Nusrat Jahan,nusrat.jahan@example.com,Chittagong,HB-QST-001,Classic Quilted Shoulder Bag,2,2499,4998,150,5148,bKash,Chittagong Port,Delivered,18,False,B-100,Standard,0,None
+ORD-2026-1003,2026-11-02,Farhan Kabir,farhan.kabir@example.com,Dhaka,FUR-OF-016,Ergonomic Mesh Executive Chair,1,15200,15200,600,15800,Bank Transfer,Dhaka Central,Delayed,56,True,B-100,Standard,0,None
+ORD-2026-1004,2026-11-02,Ayesha Siddiqua,ayesha.s@example.com,Sylhet,HB-SFT-002,Saffiano Leather Tote,1,3800,3800,180,3980,Credit Card,Sylhet Depot,Delivered,22,False,B-100,Standard,0,None
+ORD-2026-1005,2026-11-02,Mahmudul Hasan,m.hasan@example.com,Khulna,FUR-OF-017,Dual-Motor Electric Standing Desk,1,32900,32900,1000,33900,Credit Card,Khulna Hub,Delayed,64,True,B-100,Standard,0,None
+ORD-2026-1006,2026-11-03,Sabrina Rahman,sabrina.r@example.com,Dhaka,CK-101,Red Velvet Cake (1kg),2,850,1700,120,1820,Cash on Delivery,Dhaka Central,Delivered,8,False,B-100,Standard,0,None
+ORD-2026-1007,2026-11-03,Kazi Mostafa,kazi.mostafa@example.com,Chittagong,FUR-DR-011,Extendable Solid Ash Dining Table,1,41900,41900,1500,43400,Bank Transfer,Chittagong Port,Processing,16,False,B-100,Standard,0,None
+ORD-2026-1008,2026-11-03,Tasnim Zubaida,tasnim.z@example.com,Dhaka,HB-CEC-004,Croc-Embossed Evening Clutch,1,2100,2100,120,2220,bKash,Dhaka Central,Delivered,20,False,B-100,Standard,0,None
+ORD-2026-1009,2026-11-04,Shahriar Hossain,shahriar.h@example.com,Rajshahi,FUR-LR-003,Boucle Swivel Accent Chair,2,16900,33800,1400,35200,Credit Card,Dhaka Central,Delayed,51,True,B-100,Standard,0,None
+ORD-2026-1010,2026-11-04,Rashedul Islam,rashedul.i@example.com,Chittagong,CK-102,Dark Chocolate Fudge Cake,3,950,2850,150,3000,bKash,Chittagong Port,Delivered,10,False,B-100,Standard,0,None
+ORD-2026-1011,2026-11-04,Nadia Chowdhury,nadia.c@example.com,Sylhet,FUR-BR-006,Upholstered Queen Bed Frame,1,34500,34500,1600,36100,Credit Card,Sylhet Depot,Delayed,72,True,B-100,Standard,0,None
+ORD-2026-1012,2026-11-05,Imtiaz Ali,imtiaz.ali@example.com,Dhaka,EW-DOCK-G4,Echo Workstation Gen-4 Dock,2,1150,2300,120,2420,Cash on Delivery,Dhaka Central,Shipped,24,False,B-404,Standard,0,None
+ORD-2026-1013,2026-11-05,Farzana Haque,farzana.h@example.com,Comilla,FUR-BR-007,2-Drawer Floating Nightstand,2,5900,11800,500,12300,bKash,Chittagong Port,Shipped,30,False,B-100,Standard,0,None
+ORD-2026-1014,2026-11-05,Anisur Rahman,anisur.r@example.com,Khulna,FUR-EN-024,Entryway Shoe Storage Bench,1,6200,6200,350,6550,Cash on Delivery,Khulna Hub,Delayed,54,True,B-100,Standard,0,None
+ORD-2026-1015,2026-11-05,Sadia Mehzabin,sadia.m@example.com,Dhaka,EW-DOCK-G4,Echo Workstation Gen-4 Dock,1,11500,11500,450,11950,Credit Card,Dhaka Central,Processing,14,False,B-404,Standard,0,None
+ORD-2026-1016,2026-11-05,Tareq Mahmud,tareq.m@example.com,Chittagong,EW-COMP-S1,Echo Studio Compute Unit,1,1920,1920,150,2070,bKash,Chittagong Port,Delivered,6,False,B-409,Standard,0,None
+ORD-2026-1017,2026-11-06,Jannatul Ferdous,jannat.f@example.com,Dhaka,EW-DOCK-G4,Echo Workstation Gen-4 Dock,1,5600,5600,300,5900,Credit Card,Dhaka Central,Processing,10,False,B-404,Standard,0,None
+ORD-2026-1018,2026-11-06,Mustafizur Rahman,mustafiz.r@example.com,Sylhet,EW-COMP-S1,Echo Studio Compute Unit,1,8200,8200,450,8650,Bank Transfer,Sylhet Depot,Processing,8,False,B-409,Standard,10,None
+ORD-2026-1019,2026-11-06,Mehedi Hasan,mehedi.h@example.com,Dhaka,EW-RISER-AL,Anodized Aluminum Monitor Riser,1,1550,1550,120,1670,bKash,Dhaka Central,Processing,5,False,B-401,Standard,0,None
+ORD-2026-1020,2026-11-06,Rumana Akter,rumana.a@example.com,Chittagong,EW-COMP-S1,Echo Studio Compute Unit,1,28000,28000,850,28850,Cash on Delivery,Chittagong Port,Processing,4,False,B-409,Standard,15,None
+ORD-2026-1021,2026-11-06,Nafis Iqbal,nafis.i@example.com,Dhaka,EW-KVM-PRO,Echo Pro 4-Port KVM Switch,1,9200,9200,250,9450,Credit Card,Dhaka Central,Processing,9,False,B-412,Standard,0,None
+ORD-2026-1022,2026-11-06,Maliha Tabassum,maliha.t@example.com,Chittagong,EW-KVM-PRO,Echo Pro 4-Port KVM Switch,2,9200,18400,400,18800,bKash,Chittagong Port,Processing,12,False,B-412,Standard,5,None
+ORD-2026-1023,2026-11-07,Sajidul Islam,sajidul.i@example.com,Sylhet,EW-KVM-PRO,Echo Pro 4-Port KVM Switch,1,9200,9200,250,9450,Cash on Delivery,Sylhet Depot,Shipped,21,False,B-412,Standard,0,None
+ORD-2026-1024,2026-11-07,Tasfia Rahman,tasfia.r@example.com,Dhaka,EW-DOCK-G4,Echo Workstation Gen-4 Dock,1,11500,11500,300,11800,bKash,Dhaka Central,Delivered,14,False,B-404,Standard,0,None
+ORD-2026-1025,2026-11-07,Rafiqul Azam,rafiq.a@example.com,Khulna,EW-COMP-S1,Echo Studio Compute Unit,1,28000,28000,850,28850,Cash on Delivery,Khulna Hub,Delivered,18,False,B-409,Standard,0,None
+ORD-2026-1026,2026-11-07,Sharmeen Sultana,sharmeen.s@example.com,Dhaka,FUR-OF-018,Executive Leather Recliner,1,34000,34000,1500,35500,Credit Card,Dhaka Central,Delayed,78,False,B-100,Standard,10,None
+ORD-2026-1027,2026-11-08,Ashraful Alam,ashraful.a@example.com,Chittagong,FUR-DR-012,Walnut Conference Table (6-Seat),1,48000,48000,1800,49800,Bank Transfer,Chittagong Port,Delayed,84,False,B-100,Standard,0,None
+ORD-2026-1028,2026-11-08,Lamia Karim,lamia.k@example.com,Dhaka,CK-103,Hazelnut Praline Tart (1kg),1,1450,1450,120,1570,bKash,Dhaka Central,Delayed,28,False,B-100,Standard,0,None
+ORD-2026-1029,2026-11-08,Zayed Chowdhury,zayed.c@example.com,Sylhet,CK-101,Red Velvet Cake (1kg),2,850,1700,150,1850,bKash,Sylhet Depot,Delivered,6,False,B-100,Standard,0,None
+ORD-2026-1030,2026-11-08,Fariha Tasnim,fariha.t@example.com,Rajshahi,HB-LRG-005,Structured Weekender Duffle,1,6400,6400,280,6680,bKash,Rajshahi Regional,Delayed,53,False,B-100,Standard,15,None
+ORD-2026-1031,2026-11-09,Kamrul Hasan,kamrul.h@example.com,Dhaka,EW-DOCK-G4,Echo Workstation Gen-4 Dock,1,11500,11500,0,11500,Credit Card,Dhaka Central,Ready for Expedited Dispatch,4,False,B-501,Expedited,0,Replacement Swapped (B-501)
+ORD-2026-1032,2026-11-09,Rubaiya Nawar,rubaiya.n@example.com,Dhaka,EW-COMP-S1,Echo Studio Compute Unit,1,1920,1920,150,2070,Cash on Delivery,Dhaka Central,Cancelled,3,False,B-409,Standard,0,None

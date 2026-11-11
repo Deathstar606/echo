@@ -88,6 +88,54 @@ function uploadSingleCsv(req, res, next) {
   });
 }
 
+const ALLOWED_WORKSPACE_EXTENSIONS = new Set([
+  '.pdf',
+  '.md',
+  '.markdown',
+  '.txt',
+  '.csv',
+]);
+
+function workspaceFileFilter(req, file, cb) {
+  const originalName = file.originalname || '';
+  const ext = path.extname(originalName).toLowerCase();
+
+  if (!ALLOWED_WORKSPACE_EXTENSIONS.has(ext)) {
+    return cb(
+      new AppError(
+        `Invalid file type "${ext || 'unknown'}". Accepted types: .pdf, .md, .txt, .csv.`,
+        400
+      )
+    );
+  }
+
+  return cb(null, true);
+}
+
+const workspaceUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: env.maxUploadSizeBytes,
+    files: 10,
+  },
+  fileFilter: workspaceFileFilter,
+});
+
+/**
+ * Middleware that accepts one or more workspace documents (.pdf, .md, .txt, .csv).
+ */
+function uploadWorkspaceFiles(req, res, next) {
+  workspaceUpload.any()(req, res, (err) => {
+    if (err) {
+      return next(err);
+    }
+    const files = req.files || [];
+    req.file = files[0] || undefined;
+    return next();
+  });
+}
+
 module.exports = {
   uploadSingleCsv,
+  uploadWorkspaceFiles,
 };

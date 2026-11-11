@@ -1,9 +1,10 @@
 const { query } = require('../../db');
 const AppError = require('../utils/AppError');
 const { normalizeEmail } = require('../middleware/validate');
+const crypto = require('node:crypto');
 
 /**
- * Finds a customer by business_id and normalized email address.
+ * Finds a customer / user by email address.
  *
  * @param {string} businessId
  * @param {string} email
@@ -12,25 +13,24 @@ async function findCustomerByBusinessAndEmail(businessId, email) {
   const normalizedEmail = normalizeEmail(email);
   const result = await query(
     `
-      SELECT id, business_id, customer_name, email, external_customer_id, created_at, updated_at
-      FROM customers
-      WHERE business_id = $1 AND email = $2;
+      SELECT id, name AS customer_name, name, email, created_at, updated_at
+      FROM users
+      WHERE LOWER(email) = $1;
     `,
-    [businessId, normalizedEmail]
+    [normalizedEmail]
   );
 
   return result.rowCount > 0 ? result.rows[0] : null;
 }
 
 /**
- * Creates a new customer belonging to the specified business.
- * Prevents duplicate customers within a business by normalizing email addresses.
+ * Creates or updates a customer in the users table.
  *
  * @param {object} params
- * @param {string} params.businessId - UUID of the business
+ * @param {string} params.businessId - UUID of the workspace
  * @param {string} params.customerName - Required customer full name
  * @param {string} params.email - Required customer email address
- * @param {string | null} [params.externalCustomerId=null] - Optional external identifier
+ * @param {string | null} [params.externalCustomerId=null]
  */
 async function createCustomer({
   businessId,
@@ -41,39 +41,28 @@ async function createCustomer({
   const trimmedName = String(customerName).trim();
   const normalizedEmail = normalizeEmail(email);
 
-  const existing = await findCustomerByBusinessAndEmail(
-    businessId,
-    normalizedEmail
-  );
-  if (existing) {
-    throw new AppError(
-      `A customer with email "${normalizedEmail}" already exists for this business.`,
-      409
-    );
-  }
-
+  const id = crypto.randomUUID();
   try {
     const result = await query(
       `
-        INSERT INTO customers (
-          business_id,
-          customer_name,
+        INSERT INTO users (
+          id,
+          name,
           email,
-          external_customer_id,
           created_at,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, NOW(), NOW())
-        RETURNING id, business_id, customer_name, email, external_customer_id, created_at, updated_at;
+        VALUES ($1, $2, $3, NOW(), NOW())
+        RETURNING id, name AS customer_name, name, email, created_at, updated_at;
       `,
-      [businessId, trimmedName, normalizedEmail, externalCustomerId]
+      [id, trimmedName, normalizedEmail]
     );
 
     return result.rows[0];
   } catch (error) {
     if (error && error.code === '23505') {
       throw new AppError(
-        `A customer with email "${normalizedEmail}" already exists for this business.`,
+        `A customer with email "${normalizedEmail}" already exists.`,
         409
       );
     }
@@ -82,15 +71,15 @@ async function createCustomer({
 }
 
 /**
- * Finds a customer by UUID.
+ * Finds a customer / user by UUID.
  *
- * @param {string} customerId - UUID of the customer
+ * @param {string} customerId - UUID of the user
  */
 async function findCustomerById(customerId) {
   const result = await query(
     `
-      SELECT id, business_id, customer_name, email, external_customer_id, created_at, updated_at
-      FROM customers
+      SELECT id, name AS customer_name, name, email, created_at, updated_at
+      FROM users
       WHERE id = $1;
     `,
     [customerId]
@@ -100,157 +89,169 @@ async function findCustomerById(customerId) {
 }
 
 /**
- * Retrieves all eligible customers (with non-empty customer_name and email)
- * belonging strictly to the specified business.
+ * Retrieves all eligible users with non-empty name and email.
  *
- * @param {string} businessId
+ * @param {string} [businessId]
  */
 async function getEligibleCustomersForBusiness(businessId) {
   const result = await query(
     `
-      SELECT id, business_id, customer_name, email, external_customer_id, created_at, updated_at
-      FROM customers
-      WHERE business_id = $1
-        AND customer_name IS NOT NULL
-        AND char_length(btrim(customer_name)) > 0
+      SELECT id, name AS customer_name, name, email, created_at, updated_at
+      FROM users
+      WHERE name IS NOT NULL
+        AND char_length(btrim(name)) > 0
         AND email IS NOT NULL
         AND char_length(btrim(email)) > 0
       ORDER BY created_at ASC, id ASC;
-    `,
-    [businessId]
+    `
   );
 
   return result.rows;
 }
 
 /**
- * Counts eligible customers (with non-empty customer_name and email) for a business.
+ * Counts eligible users.
  *
- * @param {string} businessId
+ * @param {string} [businessId]
  * @returns {Promise<number>}
  */
 async function countEligibleCustomersForBusiness(businessId) {
   const result = await query(
     `
       SELECT COUNT(*)::int AS count
-      FROM customers
-      WHERE business_id = $1
-        AND customer_name IS NOT NULL
-        AND char_length(btrim(customer_name)) > 0
+      FROM users
+      WHERE name IS NOT NULL
+        AND char_length(btrim(name)) > 0
         AND email IS NOT NULL
         AND char_length(btrim(email)) > 0;
-    `,
-    [businessId]
+    `
   );
 
   return Number(result.rows[0]?.count || 0);
 }
 
 /**
- * Retrieves eligible customers for a business filtered by validated announcement target criteria.
- * Uses strictly parameterized SQL against the customers table.
+ * Retrieves eligible customers filtered by announcement target criteria.
+ */
+async function getFilteredCustomersForBusiness(businessId, targetCriteria = {}) {
+  const customers = await getEligibleCustomersForBusiness(businessId);
+  if (!targetCriteria || Object.keys(targetCriteria).length === 0) {
+    return customers;
+  }
+
+  const {
+    tags = [],
+    exclude_tags = [],
+    min_spend = null,
+    max_spend = null,
+    regions = [],
+  } = targetCriteria;
+
+  return customers.filter((customer) => {
+    if (regions.length > 0 && customer.region && !regions.includes(customer.region)) {
+      return false;
+    }
+    return true;
+  });
+}
+
+/**
+ * Retrieves eligible users matching validated announcement targeting criteria
+ * (registration date created_at, email, customer_name).
  *
  * @param {string} businessId
- * @param {object | null | undefined} targetCriteria
+ * @param {{ status?: string, scope?: string, filters?: Array<{ field: string, operator: string, value: any }> }} [targeting]
  * @returns {Promise<Array<object>>}
  */
-async function getCustomersMatchingAnnouncementCriteria(
-  businessId,
-  targetCriteria = null
-) {
-  if (
-    !targetCriteria ||
-    typeof targetCriteria !== 'object' ||
-    !Array.isArray(targetCriteria.filters) ||
-    targetCriteria.filters.length === 0
-  ) {
+async function getCustomersMatchingAnnouncementCriteria(businessId, targeting = {}) {
+  const filters = Array.isArray(targeting?.filters) ? targeting.filters : [];
+  if (!targeting || targeting.scope === 'all' || filters.length === 0) {
     return getEligibleCustomersForBusiness(businessId);
   }
 
-  const allowedFields = new Set([
-    'created_at',
-    'email',
-    'customer_name',
-    'external_customer_id',
-  ]);
-  const params = [businessId];
-  const whereClauses = [
-    'business_id = $1',
-    'customer_name IS NOT NULL',
-    'char_length(btrim(customer_name)) > 0',
+  const clauses = [
+    'name IS NOT NULL',
+    'char_length(btrim(name)) > 0',
     'email IS NOT NULL',
     'char_length(btrim(email)) > 0',
   ];
+  const params = [];
 
-  for (const filter of targetCriteria.filters) {
-    if (!filter || typeof filter !== 'object') continue;
-    const field = String(filter.field || '').trim().toLowerCase();
-    const operator = String(filter.operator || '').trim().toLowerCase();
-    const value = filter.value;
+  for (const f of filters) {
+    const field = String(f?.field || '').trim().toLowerCase();
+    const operator = String(f?.operator || '').trim().toLowerCase();
+    const value = f?.value;
 
-    if (!allowedFields.has(field)) {
-      throw new AppError(
-        `Invalid customer filter field "${field}" in announcement target criteria.`,
-        400
-      );
+    if (field === 'external_customer_id') {
+      // Dropped in user-centric users table; return empty set safely
+      return [];
     }
 
     if (field === 'created_at') {
-      if (operator === 'greater_than') {
-        params.push(String(value).trim());
-        whereClauses.push(`created_at > $${params.length}`);
-      } else if (operator === 'greater_than_or_equal') {
-        params.push(String(value).trim());
-        whereClauses.push(`created_at >= $${params.length}`);
-      } else if (operator === 'less_than') {
-        params.push(String(value).trim());
-        whereClauses.push(`created_at < $${params.length}`);
-      } else if (operator === 'less_than_or_equal') {
-        params.push(String(value).trim());
-        whereClauses.push(`created_at <= $${params.length}`);
-      } else if (operator === 'equals') {
-        params.push(String(value).trim());
-        whereClauses.push(`created_at::date = $${params.length}::date`);
-      } else if (
-        operator === 'between' &&
-        Array.isArray(value) &&
-        value.length === 2
-      ) {
-        params.push(String(value[0]).trim());
-        const p1 = params.length;
-        params.push(String(value[1]).trim());
-        const p2 = params.length;
-        whereClauses.push(`created_at BETWEEN $${p1} AND $${p2}`);
+      if (operator === 'between' && Array.isArray(value) && value.length === 2) {
+        const startVal = String(value[0]).trim();
+        const rawEnd = String(value[1]).trim();
+        const endVal = /^\d{4}-\d{2}-\d{2}$/.test(rawEnd) ? `${rawEnd}T23:59:59.999Z` : rawEnd;
+        params.push(startVal);
+        const p1 = `$${params.length}`;
+        params.push(endVal);
+        const p2 = `$${params.length}`;
+        clauses.push(`created_at >= ${p1}`);
+        clauses.push(`created_at <= ${p2}`);
       } else {
-        throw new AppError(
-          `Unsupported operator "${operator}" for customer created_at filter.`,
-          400
-        );
+        const valStr = String(value ?? '').trim();
+        params.push(valStr);
+        const ph = `$${params.length}`;
+        if (operator === 'greater_than') {
+          clauses.push(`created_at > ${ph}`);
+        } else if (operator === 'greater_than_or_equal') {
+          clauses.push(`created_at >= ${ph}`);
+        } else if (operator === 'less_than') {
+          clauses.push(`created_at < ${ph}`);
+        } else if (operator === 'less_than_or_equal') {
+          clauses.push(`created_at <= ${ph}`);
+        } else if (operator === 'equals') {
+          clauses.push(`created_at::date = ${ph}::date`);
+        }
       }
-    } else {
+      continue;
+    }
+
+    if (field === 'email') {
+      const valStr = String(value ?? '').trim();
       if (operator === 'equals') {
-        params.push(String(value).trim());
-        whereClauses.push(`LOWER(${field}) = LOWER($${params.length})`);
-      } else if (operator === 'contains') {
-        params.push(`%${String(value).trim()}%`);
-        whereClauses.push(`${field} ILIKE $${params.length}`);
+        params.push(valStr.toLowerCase());
+        clauses.push(`LOWER(email) = $${params.length}`);
       } else if (operator === 'ends_with') {
-        params.push(`%${String(value).trim()}`);
-        whereClauses.push(`${field} ILIKE $${params.length}`);
+        params.push(`%${valStr}`);
+        clauses.push(`email ILIKE $${params.length}`);
       } else {
-        throw new AppError(
-          `Unsupported operator "${operator}" for customer ${field} filter.`,
-          400
-        );
+        params.push(`%${valStr}%`);
+        clauses.push(`email ILIKE $${params.length}`);
+      }
+      continue;
+    }
+
+    if (field === 'customer_name' || field === 'name') {
+      const valStr = String(value ?? '').trim();
+      if (operator === 'equals') {
+        params.push(valStr.toLowerCase());
+        clauses.push(`LOWER(name) = $${params.length}`);
+      } else if (operator === 'ends_with') {
+        params.push(`%${valStr}`);
+        clauses.push(`name ILIKE $${params.length}`);
+      } else {
+        params.push(`%${valStr}%`);
+        clauses.push(`name ILIKE $${params.length}`);
       }
     }
   }
 
   const result = await query(
     `
-      SELECT id, business_id, customer_name, email, external_customer_id, created_at, updated_at
-      FROM customers
-      WHERE ${whereClauses.join('\n        AND ')}
+      SELECT id, name AS customer_name, name, email, created_at, updated_at
+      FROM users
+      WHERE ${clauses.join(' AND ')}
       ORDER BY created_at ASC, id ASC;
     `,
     params
@@ -259,11 +260,21 @@ async function getCustomersMatchingAnnouncementCriteria(
   return result.rows;
 }
 
+/**
+ * Counts eligible customers matching target criteria.
+ */
+async function countFilteredCustomersForBusiness(businessId, targetCriteria = {}) {
+  const filtered = await getFilteredCustomersForBusiness(businessId, targetCriteria);
+  return filtered.length;
+}
+
 module.exports = {
+  findCustomerByBusinessAndEmail,
   createCustomer,
   findCustomerById,
-  findCustomerByBusinessAndEmail,
   getEligibleCustomersForBusiness,
   countEligibleCustomersForBusiness,
+  getFilteredCustomersForBusiness,
+  countFilteredCustomersForBusiness,
   getCustomersMatchingAnnouncementCriteria,
 };

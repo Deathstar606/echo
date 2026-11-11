@@ -103,8 +103,34 @@ const MUTATION_OPERATIONS = new Set<MutationOperation>([
   'create',
 ]);
 
+export function normalizeMutationOperationAlias(op: unknown): string {
+  if (!isString(op)) return '';
+  const lower = op.trim().toLowerCase();
+  if (
+    lower === 'insert' ||
+    lower === 'insert_many' ||
+    lower === 'add' ||
+    lower === 'add_row' ||
+    lower === 'add_rows' ||
+    lower === 'create_many'
+  ) {
+    return 'create';
+  }
+  if (
+    lower === 'remove' ||
+    lower === 'delete_many' ||
+    lower === 'remove_many' ||
+    lower === 'drop_row' ||
+    lower === 'drop_rows'
+  ) {
+    return 'delete';
+  }
+  return lower;
+}
+
 export function isMutationOperation(op: unknown): op is MutationOperation {
-  return isString(op) && MUTATION_OPERATIONS.has(op as MutationOperation);
+  const normalized = normalizeMutationOperationAlias(op);
+  return MUTATION_OPERATIONS.has(normalized as MutationOperation);
 }
 
 const MUTATION_UPDATE_ACTIONS = new Set<MutationUpdateAction>([
@@ -245,7 +271,7 @@ export function validateMutationPlan(input: unknown): MutationPlan {
     throw new Error('Mutation plan must be an object.');
   }
 
-  const rawOp = isString(input.operation) ? input.operation.toLowerCase() : '';
+  const rawOp = normalizeMutationOperationAlias(input.operation);
   if (!isMutationOperation(rawOp)) {
     throw new Error(
       `Invalid mutation operation "${String(input.operation)}". Expected update, update_many, delete, or create.`
@@ -281,8 +307,23 @@ export function validateMutationPlan(input: unknown): MutationPlan {
     updates,
   };
 
+  if (isNonEmptyString(input.entity)) {
+    plan.entity = input.entity.trim();
+  }
   if (isObject(input.changes)) {
     plan.changes = input.changes;
+  } else if (isObject(input.row)) {
+    plan.changes = input.row;
+  } else if (isObject(input.record)) {
+    plan.changes = input.record;
+  }
+  const rawRows = Array.isArray(input.rows)
+    ? input.rows
+    : Array.isArray(input.records)
+      ? input.records
+      : null;
+  if (rawRows) {
+    plan.rows = rawRows.filter((r): r is Record<string, unknown> => isObject(r));
   }
   if (isNonEmptyString(input.description)) {
     plan.description = input.description.trim();
@@ -318,6 +359,10 @@ export function validateRawGeminiInterpretation(input: unknown): RawGeminiSheetI
   if (input.limit !== undefined) result.limit = input.limit;
   if (Array.isArray(input.updates)) result.updates = input.updates;
   if (isObject(input.changes)) result.changes = input.changes;
+  if (isObject(input.row)) result.row = input.row;
+  if (isObject(input.record)) result.record = input.record;
+  if (Array.isArray(input.rows)) result.rows = input.rows;
+  if (Array.isArray(input.records)) result.records = input.records;
 
   return result;
 }

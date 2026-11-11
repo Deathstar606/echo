@@ -1,0 +1,8 @@
+po_id,supplier_name,origin_port,sku_code,product_name,ordered_qty,unit_cost_bdt,expected_arrival_date,qc_pass_rate_pct,po_status,contact_email
+PO-2026-401,Zhejiang Meridian Knitwear Ltd.,Ningbo,VL-POLO-BLK,Classic Short-Sleeve Polo,60,820,2026-11-04,66.7,Received - Partial QC Fail,exports@meridianknit.example
+PO-2026-402,Guangdong Pearl Weaving Co.,Shenzhen,VL-KNIT-MER,Merino Knit Pullover,30,1450,2026-11-08,90.0,Cleared Air-Freight,qc@pearlweaving.example
+PO-2026-403,Porto Linen Collective S.A.,Porto,VL-SHIRT-LIN,Linen Resort Overshirt,24,1120,2026-11-08,83.3,Cleared Air-Freight,orders@portolinen.example
+PO-2026-404,Dhanmondi Heritage Mills,Dhaka Local,VL-POLO-RET,Retro Knit Polo Shirt,20,1040,2026-11-08,100.0,Staged in Receiving,mill@dhanmondimills.example
+PO-2026-405,Suzhou Fine Cotton Textile,Shanghai,VL-SHIRT-OXF,Oxford Mandarin Collar Shirt,30,840,2026-11-14,100.0,In Transit - Sea,logistics@suzhoucotton.example
+PO-2026-406,Lima Pima Knit Atelier,Callao,VL-POLO-HEN,Pima Cotton Henley,25,790,2026-11-11,96.0,Customs Inspection Hold,customs@limapima.example
+PO-2026-407,Bruges Atelier Flax Ltd.,Antwerp,VL-OUTER-BLZ,Structured Linen Blazer,12,2350,2026-11-18,100.0,In Production,dispatch@brugesflax.example

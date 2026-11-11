@@ -10,7 +10,10 @@
     "start": "node --import tsx src/server.js",
     "dev": "nodemon --exec \"node --import tsx\" src/server.js",
     "db:init": "node db/init.js",
-    "test": "node --import tsx --test test/workflow.test.js test/sheetWorkflow.test.js test/universalSheet.test.js",
+    "test": "node --import tsx --test test/workflow.test.js test/sheetWorkflow.test.js test/universalSheet.test.js test/workspaceContext.test.js",
+    "test:demo": "node --import tsx tests/demo_workflow_verification.js",
+    "test:scenarios": "node --import tsx tests/verify_all_4_scenarios.js",
+    "test:three-new": "node --import tsx tests/verify_three_new_scenarios.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -18,13 +21,15 @@
     "csv-parse": "^5.6.0",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "googleapis": "^189.0.0",
     "helmet": "^8.0.0",
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
     "nodemailer": "^10.2.1",
     "pg": "^8.13.3",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "unpdf": "^2.1.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.9"

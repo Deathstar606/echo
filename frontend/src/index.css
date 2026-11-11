@@ -118,42 +118,86 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   padding: 12px 24px;
-  background-color: var(--bg-header);
+  background: linear-gradient(180deg, #faf6ee 0%, #f5efe4 100%);
   border-bottom: 1px solid var(--border-warm);
+  box-shadow: 0 2px 10px rgba(45, 38, 28, 0.05);
   gap: 16px;
   flex-wrap: wrap;
+  position: relative;
+  z-index: 40;
 }
 
 .brand-cluster {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 11px;
   text-decoration: none;
   color: var(--text-primary);
+}
+
+.brand-text-stack {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
 }
 
 .brand-logo-box {
   width: 36px;
   height: 36px;
-  border-radius: 8px;
-  background: var(--primary-indigo);
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--primary-indigo) 0%, var(--primary-indigo-dark) 100%);
   color: #ffffff;
   font-family: 'Plus Jakarta Sans', sans-serif;
   font-weight: 800;
-  font-size: 20px;
+  font-size: 19px;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 5px rgba(57, 70, 211, 0.3);
+  box-shadow: 0 3px 8px rgba(57, 70, 211, 0.28);
   flex-shrink: 0;
 }
 
 .brand-title {
   font-family: 'Plus Jakarta Sans', sans-serif;
-  font-size: 22px;
+  font-size: 18.5px;
   font-weight: 800;
   letter-spacing: -0.02em;
   color: #181c23;
+}
+
+.brand-subtitle {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.header-divider {
+  color: var(--border-warm);
+  font-size: 18px;
+  font-weight: 300;
+  user-select: none;
+}
+
+.header-google-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid #cbd5e1;
+  background-color: #ffffff;
+  color: #1e293b;
+  font-size: 12.5px;
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
+  transition: all 0.15s ease;
+}
+
+.header-google-btn:hover {
+  background-color: #f8fafc;
+  border-color: #93c5fd;
+  box-shadow: 0 2px 8px rgba(66, 133, 244, 0.14);
 }
 
 .beta-pill {
@@ -420,7 +464,7 @@ button:disabled {
 .inquiry-main-card {
   background-color: var(--bg-panel);
   border: 1px solid var(--border-warm);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
@@ -761,7 +805,7 @@ button:disabled {
 .copilot-side-card {
   background-color: var(--bg-panel);
   border: 1px solid var(--border-warm);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
@@ -1195,7 +1239,7 @@ button:disabled {
   max-width: 100%;
   background-color: var(--bg-panel);
   border: 1px solid var(--border-warm);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
@@ -1537,5 +1581,54 @@ button:disabled {
 
   .sheet-card-body {
     padding: 10px 8px !important;
+  }
+}
+
+/* =========================================================================
+   B2B Operations & Document Intelligence Overhaul Styling
+   ========================================================================= */
+
+.pending-mutation-row {
+  background-color: #fffbeb !important;
+  border-left: 3px solid #f59e0b !important;
+}
+
+.flash-highlighted-row {
+  animation: flashHighlightRow 2.5s ease-out;
+}
+
+@keyframes flashHighlightRow {
+  0% {
+    background-color: #fef08a !important;
+  }
+  40% {
+    background-color: #fef9c3 !important;
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.citation-badge-pill:hover {
+  filter: brightness(0.96);
+  transform: translateY(-1px);
+}
+
+.citation-badge-pill:active {
+  transform: translateY(0);
+}
+
+.socratic-conflict-gate-card {
+  animation: fadeInGate 0.25s ease-out;
+}
+
+@keyframes fadeInGate {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

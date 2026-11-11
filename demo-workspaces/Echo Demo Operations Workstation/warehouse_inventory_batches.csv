@@ -1,0 +1,12 @@
+Batch_Record_ID,Batch_Code,Item_SKU,Item_Name,Fulfillment_Hub,Available_Units,Quarantined_Units,QC_Status,Firmware_Rev,Restock_ETA,Hub_Lead_Email
+BAT-01,B-404,EW-DOCK-G4,Echo Workstation Gen-4 Dock,Dhaka Central,0,42,Recalled - VRM Thermal Hold,v1.8.2,N/A,qa.dhaka@echoworkstation.example
+BAT-02,B-409,EW-COMP-S1,Echo Studio Compute Unit,Chittagong Port,0,28,Recalled - VRM Thermal Hold,v1.9.0,N/A,qa.ctg@echoworkstation.example
+BAT-03,B-409,EW-COMP-S1,Echo Studio Compute Unit,Sylhet Depot,0,14,Recalled - VRM Thermal Hold,v1.9.0,N/A,qa.sylhet@echoworkstation.example
+BAT-04,B-412,EW-KVM-PRO,Echo Pro 4-Port KVM Switch,Dhaka Central,0,18,Firmware Hold (<2.4.1),v2.3.4,2026-11-12,qa.dhaka@echoworkstation.example
+BAT-05,B-412,EW-KVM-PRO,Echo Pro 4-Port KVM Switch,Chittagong Port,0,9,Firmware Hold (<2.4.1),v2.3.4,2026-11-14,qa.ctg@echoworkstation.example
+BAT-06,B-501,EW-DOCK-G4,Echo Workstation Gen-4 Dock,Dhaka Central,280,0,Certified Clean Salvage,v2.1.0,In Stock,hub.dhaka@echoworkstation.example
+BAT-07,B-501,EW-COMP-S1,Echo Studio Compute Unit,Chittagong Port,220,0,Certified Clean Salvage,v2.1.4,In Stock,hub.ctg@echoworkstation.example
+BAT-08,B-502,EW-KVM-PRO,Echo Pro 4-Port KVM Switch,Dhaka Central,120,0,Certified Clean Firmware,v2.4.3,In Stock,hub.dhaka@echoworkstation.example
+BAT-09,B-401,EW-RISER-AL,Anodized Aluminum Monitor Riser,Dhaka Central,450,0,Cleared Passive Hardware,N/A,In Stock,hub.dhaka@echoworkstation.example
+BAT-10,B-100,FUR-OF-018,Executive Leather Recliner,Dhaka Central,18,0,Cleared General Merchandise,N/A,In Stock,freight.dhaka@echoworkstation.example
+BAT-11,B-100,CK-103,Hazelnut Praline Tart (1kg),Dhaka Central,25,0,Cold-Chain Active (24h Window),N/A,Daily Bake,bakery.dhaka@echoworkstation.example

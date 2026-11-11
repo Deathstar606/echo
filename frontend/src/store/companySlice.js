@@ -2,11 +2,13 @@ import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import {
   fetchCompanyConversations,
   fetchCompanyConversationDetail,
+  generateCompanyReplyDraft,
   sendCompanyReply,
   fetchAnnouncementHistory,
   draftAnnouncement,
   sendAnnouncement,
 } from '../services/api';
+import { getActiveBusinessId } from '../config/constants';
 
 /**
  * Helper to extract AI suggestion details from a company conversation object.
@@ -50,9 +52,13 @@ function extractAiSuggestionState(conv) {
  */
 export const loadCompanyConversations = createAsyncThunk(
   'company/loadCompanyConversations',
-  async ({ silent = false } = {}, { rejectWithValue }) => {
+  async ({ silent = false, businessId } = {}, { rejectWithValue }) => {
     try {
-      const data = await fetchCompanyConversations();
+      const targetBiz = businessId !== undefined ? String(businessId || '').trim() : getActiveBusinessId();
+      if (!targetBiz) {
+        return { conversations: [], silent };
+      }
+      const data = await fetchCompanyConversations(targetBiz);
       return {
         conversations: Array.isArray(data.conversations)
           ? data.conversations
@@ -82,6 +88,19 @@ export const selectAndLoadConversation = createAsyncThunk(
       return rejectWithValue({
         message:
           err.message || 'Failed to load the selected conversation thread.',
+      });
+    }
+  }
+);
+
+export const generateConversationReplyDraft = createAsyncThunk(
+  'company/generateConversationReplyDraft',
+  async ({ conversationId, businessId }, { rejectWithValue }) => {
+    try {
+      return await generateCompanyReplyDraft(conversationId, businessId);
+    } catch (err) {
+      return rejectWithValue({
+        message: err.message || 'Failed to generate a reply draft.',
       });
     }
   }
@@ -125,9 +144,16 @@ export const submitCompanyReply = createAsyncThunk(
  */
 export const loadAnnouncementHistory = createAsyncThunk(
   'company/loadAnnouncementHistory',
-  async (_, { rejectWithValue }) => {
+  async (businessIdArg, { rejectWithValue }) => {
     try {
-      const data = await fetchAnnouncementHistory();
+      const targetBiz =
+        typeof businessIdArg === 'string'
+          ? businessIdArg.trim()
+          : getActiveBusinessId();
+      if (!targetBiz) {
+        return [];
+      }
+      const data = await fetchAnnouncementHistory(targetBiz);
       return Array.isArray(data?.announcements) ? data.announcements : [];
     } catch (err) {
       return rejectWithValue({
@@ -194,6 +220,8 @@ const initialState = {
   threadError: null,
   sendReplyStatus: 'idle',
   sendReplyError: null,
+  replyGenerationStatus: 'idle',
+  replyGenerationError: null,
 
   // Phase 2: Announcement Management State
   announcementHistory: [],
@@ -217,6 +245,8 @@ const companySlice = createSlice({
       const convId = action.payload;
       state.activeConversationId = convId;
       state.sendReplyError = null;
+      state.replyGenerationStatus = 'idle';
+      state.replyGenerationError = null;
       state.threadError = null;
 
       const found = state.conversations.find((c) => c.id === convId);
@@ -242,6 +272,15 @@ const companySlice = createSlice({
     clearCompanyReplyError(state) {
       state.sendReplyError = null;
     },
+    clearReplyGenerationError(state) {
+      state.replyGenerationError = null;
+    },
+    setExternalAiSuggestion(state, action) {
+      const { draftText, meta } = action.payload || {};
+      state.aiSuggestionDraft = draftText || '';
+      state.aiSuggestionMeta = meta || null;
+      state.isSuggestionEdited = false;
+    },
     updateAnnouncementDraftFields(state, action) {
       if (state.announcementDraft) {
         if (action.payload.subject !== undefined) {
@@ -262,6 +301,9 @@ const companySlice = createSlice({
       state.announcementSendResult = null;
       state.announcementSendError = null;
       state.announcementSendStatus = 'idle';
+    },
+    resetCompanyWorkspaceState() {
+      return { ...initialState };
     },
   },
   extraReducers: (builder) => {
@@ -324,6 +366,8 @@ const companySlice = createSlice({
       .addCase(selectAndLoadConversation.pending, (state, action) => {
         state.threadStatus = 'loading';
         state.threadError = null;
+        state.replyGenerationStatus = 'idle';
+        state.replyGenerationError = null;
         state.activeConversationId = action.meta.arg;
       })
       .addCase(selectAndLoadConversation.fulfilled, (state, action) => {
@@ -351,6 +395,47 @@ const companySlice = createSlice({
       })
 
       // Submit Company Reply
+      .addCase(generateConversationReplyDraft.pending, (state) => {
+        state.replyGenerationStatus = 'loading';
+        state.replyGenerationError = null;
+      })
+      .addCase(generateConversationReplyDraft.fulfilled, (state, action) => {
+        state.replyGenerationStatus = 'succeeded';
+        const draft = action.payload?.ai_suggestion;
+        const conversationId = action.payload?.conversation_id;
+        if (!draft || !conversationId) return;
+
+        const conversation = state.conversations.find(
+          (item) => item.id === conversationId
+        );
+        if (conversation) {
+          conversation.ai_draft_reply = draft.suggestion;
+          conversation.ai_suggestion = draft;
+        }
+
+        if (state.activeConversation?.id === conversationId) {
+          state.activeConversation.ai_draft_reply = draft.suggestion;
+          state.activeConversation.ai_suggestion = draft;
+          state.aiSuggestionDraft = draft.suggestion;
+          state.aiSuggestionMeta = {
+            originalSuggestion: draft.suggestion,
+            category: draft.category || 'general_inquiry',
+            missingInformation: Array.isArray(draft.missing_information)
+              ? draft.missing_information
+              : [],
+            sourceMessageId: draft.source_message_id || null,
+            sourceMessageContent: draft.source_message_content || null,
+            updatedAt: draft.updated_at || null,
+          };
+          state.isSuggestionEdited = false;
+        }
+      })
+      .addCase(generateConversationReplyDraft.rejected, (state, action) => {
+        state.replyGenerationStatus = 'failed';
+        state.replyGenerationError =
+          action.payload?.message || 'Failed to generate a reply draft.';
+      })
+
       .addCase(submitCompanyReply.pending, (state) => {
         state.sendReplyStatus = 'loading';
         state.sendReplyError = null;
@@ -463,9 +548,12 @@ export const {
   updateAiSuggestionDraft,
   resetAiSuggestionDraftToOriginal,
   clearCompanyReplyError,
+  clearReplyGenerationError,
+  setExternalAiSuggestion,
   updateAnnouncementDraftFields,
   clearAnnouncementDraft,
   clearAnnouncementSendResult,
+  resetCompanyWorkspaceState,
 } = companySlice.actions;
 
 export default companySlice.reducer;

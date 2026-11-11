@@ -1,11 +1,56 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import {
+  fetchBusinessSheets,
   fetchSheetRows,
   querySheet,
   mutateSheet,
   uploadSheetCsv,
   addSheetRow,
 } from '../services/api';
+import { getActiveBusinessId } from '../config/constants';
+
+/**
+ * Thunk: Discover and load all spreadsheet tables that belong to the active businessId.
+ * GET /api/sheets/tables?businessId={BUSINESS_ID}
+ * @type {any}
+ */
+export const loadBusinessSheets = createAsyncThunk(
+  'sheets/loadBusinessSheets',
+  async (arg = null, { rejectWithValue }) => {
+    try {
+      const preferredEntity =
+        typeof arg === 'string'
+          ? arg
+          : arg && typeof arg === 'object'
+            ? arg.preferredEntity
+            : null;
+      const businessId =
+        arg && typeof arg === 'object' && arg.businessId !== undefined
+          ? String(arg.businessId || '').trim()
+          : getActiveBusinessId();
+
+      if (!businessId) {
+        return {
+          businessId: '',
+          tables: [],
+          preferredEntity: null,
+        };
+      }
+
+      const data = await fetchBusinessSheets(businessId);
+      const tables = Array.isArray(data?.tables) ? data.tables : [];
+      return {
+        businessId: data?.business_id || businessId,
+        tables,
+        preferredEntity: preferredEntity ? String(preferredEntity).trim() : null,
+      };
+    } catch (err) {
+      return rejectWithValue({
+        message: err.message || 'Failed to load business sheets.',
+      });
+    }
+  }
+);
 
 /**
  * Thunk: Fetch full active inventory sheet from PostgreSQL.
@@ -14,12 +59,21 @@ import {
  */
 export const loadSheetRows = createAsyncThunk(
   'sheets/loadSheetRows',
-  async (entityArg, { getState, rejectWithValue }) => {
+  async (entityArg, { getState, dispatch, rejectWithValue }) => {
     try {
-      const targetEntity =
-        entityArg || getState().sheets?.activeEntity || 'products';
+      const targetEntity = String(
+        entityArg || getState().sheets?.activeEntity || ''
+      ).trim();
+      if (!targetEntity) {
+        const res = await dispatch(loadBusinessSheets()).unwrap();
+        return {
+          isBusinessDiscovery: true,
+          ...res,
+        };
+      }
       const data = await fetchSheetRows(targetEntity);
       return {
+        isBusinessDiscovery: false,
         entity: data?.entity || targetEntity,
         displayName: data?.displayName || targetEntity,
         columns: Array.isArray(data?.columns) ? data.columns : [],
@@ -96,7 +150,7 @@ export const applySheetMutation = createAsyncThunk(
   'sheets/applySheetMutation',
   async (
     { entity, message, mutation, expectedPreviewHash },
-    { getState, dispatch, rejectWithValue }
+    { getState, rejectWithValue }
   ) => {
     try {
       const targetEntity =
@@ -108,8 +162,6 @@ export const applySheetMutation = createAsyncThunk(
         mutation,
         expectedPreviewHash,
       });
-      // Refresh the active sheet from the database after confirmed mutation
-      await dispatch(loadSheetRows(targetEntity));
       return {
         ...data,
         entity: targetEntity,
@@ -124,18 +176,17 @@ export const applySheetMutation = createAsyncThunk(
 );
 
 /**
- * Thunk: Upload CSV file to replace records in the active sheet.
+ * Thunk: Upload CSV file to replace records in the active sheet or create a new sheet for the business.
  * @type {any}
  */
 export const importSheetCsvFile = createAsyncThunk(
   'sheets/importSheetCsvFile',
-  async ({ file, entity }, { getState, dispatch, rejectWithValue }) => {
+  async ({ file, entity }, { dispatch, rejectWithValue }) => {
     try {
-      const targetEntity =
-        entity || getState().sheets?.activeEntity || 'products';
+      const targetEntity = entity ? String(entity).trim() : '';
       const data = await uploadSheetCsv(targetEntity, file, 'replace');
       const activeEntity = data.entity || targetEntity;
-      await dispatch(loadSheetRows(activeEntity));
+      await dispatch(loadBusinessSheets(activeEntity));
       return {
         ...data,
         entity: activeEntity,
@@ -157,10 +208,10 @@ export const appendSheetCsvFile = createAsyncThunk(
   async ({ file, entity }, { getState, dispatch, rejectWithValue }) => {
     try {
       const targetEntity =
-        entity || getState().sheets?.activeEntity || 'products';
+        entity || getState().sheets?.activeEntity || '';
       const data = await uploadSheetCsv(targetEntity, file, 'append');
       const activeEntity = data.entity || targetEntity;
-      await dispatch(loadSheetRows(activeEntity));
+      await dispatch(loadBusinessSheets(activeEntity));
       return {
         ...data,
         entity: activeEntity,
@@ -182,10 +233,12 @@ export const insertSingleSheetRow = createAsyncThunk(
   async ({ entity, row }, { getState, dispatch, rejectWithValue }) => {
     try {
       const targetEntity =
-        entity || getState().sheets?.activeEntity || 'products';
+        entity || getState().sheets?.activeEntity || '';
       const data = await addSheetRow(targetEntity, row);
       const activeEntity = data.entity || targetEntity;
-      await dispatch(loadSheetRows(activeEntity));
+      if (!Array.isArray(data.rows)) {
+        await dispatch(loadSheetRows(activeEntity));
+      }
       return {
         ...data,
         entity: activeEntity,
@@ -199,17 +252,17 @@ export const insertSingleSheetRow = createAsyncThunk(
 );
 
 const initialState = {
-  activeEntity: 'products',
-  activeDisplayName: 'Products',
-  activeFileName: 'products.csv',
+  businessId: null,
+  activeEntity: '',
+  activeDisplayName: '',
+  activeFileName: '',
   activeColumns: [],
-  rowsByEntity: {
-    products: [],
-  },
+  availableTables: [],
+  rowsByEntity: {},
   sheetLoadStatus: 'idle',
   sheetLoadError: null,
 
-  nlPrompt: 'Show all best-selling products.',
+  nlPrompt: '',
 
   // Natural-Language Query state
   queryStatus: 'idle',
@@ -244,15 +297,64 @@ const sheetSlice = createSlice({
   initialState,
   reducers: {
     setActiveSheetEntity(state, action) {
-      const entity = action.payload || 'products';
+      const entity = String(action.payload || '').trim();
       state.activeEntity = entity;
-      state.activeFileName = `${entity}.csv`;
+      if (!entity) {
+        state.activeDisplayName = '';
+        state.activeFileName = '';
+        state.activeColumns = [];
+      } else {
+        const matched = state.availableTables.find(
+          (t) => t.entity.toLowerCase() === entity.toLowerCase()
+        );
+        state.activeDisplayName =
+          matched?.displayName ||
+          entity.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+        state.activeFileName = matched?.fileName || `${entity}.csv`;
+        if (matched && Array.isArray(matched.columns) && matched.columns.length > 0) {
+          state.activeColumns = matched.columns;
+        }
+      }
       state.queryResult = null;
       state.queryError = null;
       state.queryStatus = 'idle';
     },
     setSheetNlPrompt(state, action) {
       state.nlPrompt = action.payload;
+    },
+    applySheetQueryPayload(state, action) {
+      const payload = action.payload || {};
+      const entity = String(payload.entity || state.activeEntity || '').trim();
+      if (entity && entity.toLowerCase() !== String(state.activeEntity || '').toLowerCase()) {
+        state.activeEntity = entity;
+        const matched = state.availableTables.find(
+          (t) => t.entity.toLowerCase() === entity.toLowerCase()
+        );
+        state.activeDisplayName =
+          matched?.displayName ||
+          entity.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+        state.activeFileName = matched?.fileName || `${entity}.csv`;
+        if (matched && Array.isArray(matched.columns) && matched.columns.length > 0) {
+          state.activeColumns = matched.columns;
+        }
+      }
+      const rows = Array.isArray(payload.rows) ? payload.rows : [];
+      const matchedIds = rows.map((r) => r.id).filter(Boolean);
+      state.queryStatus = 'succeeded';
+      state.queryError = null;
+      state.mutationPreview = null;
+      state.mutationPreviewError = null;
+      state.mutationApplySuccessMessage = null;
+      state.queryResult = {
+        status: 'ok',
+        entity: entity || state.activeEntity,
+        promptUsed: payload.promptUsed || payload.prompt || '',
+        matchedIds,
+        count: Number(payload.count ?? rows.length),
+        message: payload.answer || payload.message || null,
+        interpretedQuery: payload.interpretedQuery || null,
+        rows,
+      };
     },
     clearSheetFiltersAndFeedback(state) {
       state.queryResult = null;
@@ -278,9 +380,88 @@ const sheetSlice = createSlice({
       state.rowInsertError = null;
       state.rowInsertMessage = null;
     },
+    resetSheetWorkspaceState() {
+      return { ...initialState };
+    },
   },
   extraReducers: (builder) => {
     builder
+      // Load Business Sheets (Discovers only tables belonging to active businessId)
+      .addCase(loadBusinessSheets.pending, (state) => {
+        state.sheetLoadStatus = 'loading';
+        state.sheetLoadError = null;
+        const currentBizId = getActiveBusinessId();
+        if (state.businessId && state.businessId !== currentBizId) {
+          state.businessId = currentBizId;
+          state.availableTables = [];
+          state.rowsByEntity = {};
+          state.activeEntity = '';
+          state.activeDisplayName = '';
+          state.activeFileName = '';
+          state.activeColumns = [];
+          state.queryResult = null;
+          state.mutationPreview = null;
+        }
+      })
+      .addCase(loadBusinessSheets.fulfilled, (state, action) => {
+        state.sheetLoadStatus = 'succeeded';
+        state.businessId = action.payload.businessId;
+        const tables = Array.isArray(action.payload.tables)
+          ? action.payload.tables
+          : [];
+
+        state.availableTables = tables.map((t) => ({
+          entity: t.entity,
+          tableName: t.tableName || t.entity,
+          displayName: t.displayName || t.entity,
+          fileName: t.fileName || `${t.entity}.csv`,
+          columns: Array.isArray(t.columns) ? t.columns : [],
+          rowCount:
+            typeof t.rowCount === 'number'
+              ? t.rowCount
+              : Array.isArray(t.rows)
+                ? t.rows.length
+                : 0,
+        }));
+
+        const nextRowsByEntity = {};
+        for (const t of tables) {
+          nextRowsByEntity[t.entity] = Array.isArray(t.rows) ? t.rows : [];
+        }
+        state.rowsByEntity = nextRowsByEntity;
+
+        if (tables.length === 0) {
+          state.activeEntity = '';
+          state.activeDisplayName = '';
+          state.activeFileName = '';
+          state.activeColumns = [];
+          state.queryResult = null;
+          state.mutationPreview = null;
+        } else {
+          const preferred =
+            action.payload.preferredEntity || state.activeEntity;
+          const chosenTable =
+            (preferred &&
+              tables.find(
+                (t) => t.entity.toLowerCase() === preferred.toLowerCase()
+              )) ||
+            tables[0];
+          state.activeEntity = chosenTable.entity;
+          state.activeDisplayName =
+            chosenTable.displayName || chosenTable.entity;
+          state.activeFileName =
+            chosenTable.fileName || `${chosenTable.entity}.csv`;
+          state.activeColumns = Array.isArray(chosenTable.columns)
+            ? chosenTable.columns
+            : [];
+        }
+      })
+      .addCase(loadBusinessSheets.rejected, (state, action) => {
+        state.sheetLoadStatus = 'failed';
+        state.sheetLoadError =
+          action.payload?.message || 'Failed to load business sheets.';
+      })
+
       // Load Sheet Rows
       .addCase(loadSheetRows.pending, (state) => {
         state.sheetLoadStatus = 'loading';
@@ -288,15 +469,42 @@ const sheetSlice = createSlice({
       })
       .addCase(loadSheetRows.fulfilled, (state, action) => {
         state.sheetLoadStatus = 'succeeded';
+        if (action.payload?.isBusinessDiscovery) {
+          return;
+        }
         const { entity, displayName, columns, rows } = action.payload;
+        if (!entity) return;
         state.activeEntity = entity;
         if (displayName) state.activeDisplayName = displayName;
         if (Array.isArray(columns) && columns.length > 0) {
           state.activeColumns = columns;
         }
         state.rowsByEntity[entity] = rows;
-        if (!state.activeFileName) {
-          state.activeFileName = `${entity}.csv`;
+        state.activeFileName = `${entity}.csv`;
+
+        const existingIdx = state.availableTables.findIndex(
+          (t) => t.entity.toLowerCase() === entity.toLowerCase()
+        );
+        if (existingIdx >= 0) {
+          state.availableTables[existingIdx] = {
+            ...state.availableTables[existingIdx],
+            displayName:
+              displayName || state.availableTables[existingIdx].displayName,
+            columns:
+              Array.isArray(columns) && columns.length > 0
+                ? columns
+                : state.availableTables[existingIdx].columns,
+            rowCount: Array.isArray(rows) ? rows.length : 0,
+          };
+        } else if (Array.isArray(rows) && rows.length > 0) {
+          state.availableTables.push({
+            entity,
+            tableName: entity,
+            displayName: displayName || entity,
+            fileName: `${entity}.csv`,
+            columns: Array.isArray(columns) ? columns : [],
+            rowCount: rows.length,
+          });
         }
       })
       .addCase(loadSheetRows.rejected, (state, action) => {
@@ -305,7 +513,7 @@ const sheetSlice = createSlice({
           action.payload?.message || 'Failed to load sheet records.';
       })
 
-      // Natural-Language Query
+      // Natural-Language Query (or auto-detected Mutation Preview)
       .addCase(runSheetQuery.pending, (state) => {
         state.queryStatus = 'loading';
         state.queryError = null;
@@ -316,6 +524,37 @@ const sheetSlice = createSlice({
       .addCase(runSheetQuery.fulfilled, (state, action) => {
         state.queryStatus = 'succeeded';
         const payload = action.payload;
+
+        const isMutationPayload =
+          payload.status === 'preview' ||
+          payload.status === 'not_found' ||
+          ['update', 'update_many', 'create', 'delete'].includes(payload.operation);
+
+        if (isMutationPayload) {
+          state.mutationPreviewStatus = 'succeeded';
+          state.mutationPreview = payload;
+          if (payload.operation === 'create') {
+            state.queryResult = null;
+          } else if (Array.isArray(payload.target_rows)) {
+            const targetIds = payload.target_rows
+              .map((r) => r.id)
+              .filter(Boolean);
+            state.queryResult = {
+              status:
+                payload.status === 'clarification_needed'
+                  ? 'clarification_needed'
+                  : 'mutation_preview',
+              entity: payload.entity || state.activeEntity,
+              promptUsed: payload.promptUsed,
+              matchedIds: targetIds,
+              count: targetIds.length,
+              message: payload.message || null,
+              rows: payload.target_rows,
+            };
+          }
+          return;
+        }
+
         const rows = Array.isArray(payload.rows) ? payload.rows : [];
         const matchedIds = rows.map((r) => r.id).filter(Boolean);
 
@@ -333,22 +572,43 @@ const sheetSlice = createSlice({
       .addCase(runSheetQuery.rejected, (state, action) => {
         state.queryStatus = 'failed';
         state.queryError =
-          action.payload?.message || 'Failed to execute query.';
+          action.payload?.message || 'Failed to execute instruction.';
       })
 
-      // Stage 1: Preview Mutation (confirm = false)
+      // Stage 1: Preview Mutation (confirm = false, or auto-detected Query)
       .addCase(previewSheetMutation.pending, (state) => {
         state.mutationPreviewStatus = 'loading';
         state.mutationPreviewError = null;
         state.mutationApplyError = null;
         state.mutationApplySuccessMessage = null;
+        state.mutationPreview = null;
       })
       .addCase(previewSheetMutation.fulfilled, (state, action) => {
         state.mutationPreviewStatus = 'succeeded';
         const payload = action.payload;
+
+        if (payload.operation === 'filter' && Array.isArray(payload.rows)) {
+          state.mutationPreview = null;
+          const rows = payload.rows;
+          const matchedIds = rows.map((r) => r.id).filter(Boolean);
+          state.queryResult = {
+            status: payload.status || 'ok',
+            entity: payload.entity || state.activeEntity,
+            promptUsed: payload.promptUsed,
+            matchedIds,
+            count: Number(payload.count ?? matchedIds.length),
+            message: payload.message || null,
+            interpretedQuery: payload.interpretedQuery || null,
+            rows,
+          };
+          return;
+        }
+
         state.mutationPreview = payload;
 
-        if (Array.isArray(payload.target_rows)) {
+        if (payload.operation === 'create') {
+          state.queryResult = null;
+        } else if (Array.isArray(payload.target_rows)) {
           const targetIds = payload.target_rows
             .map((r) => r.id)
             .filter(Boolean);
@@ -380,29 +640,75 @@ const sheetSlice = createSlice({
       .addCase(applySheetMutation.fulfilled, (state, action) => {
         state.mutationApplyStatus = 'succeeded';
         const payload = action.payload;
+        const createdRows = Array.isArray(payload.created_rows)
+          ? payload.created_rows
+          : payload.created_row
+            ? [payload.created_row]
+            : [];
         const updatedRows = Array.isArray(payload.updated_rows)
           ? payload.updated_rows
+          : createdRows;
+        const deletedRows = Array.isArray(payload.deleted_rows)
+          ? payload.deleted_rows
           : [];
         const updatedIds = updatedRows.map((r) => r.id).filter(Boolean);
 
         state.mutationPreview = null;
         state.mutationApplySuccessMessage =
           payload.message ||
-          `Successfully updated ${
-            payload.affected_count || updatedIds.length
-          } record(s).`;
+          `Successfully applied modification (${
+            payload.affected_count || updatedIds.length || deletedRows.length
+          } record(s) affected).`;
 
-        // Update rows in place in rowsByEntity so full sheet view shows updated values
         const targetEntity = payload.entity || state.activeEntity;
-        if (state.rowsByEntity[targetEntity] && updatedRows.length > 0) {
+        const currentRows = Array.isArray(state.rowsByEntity[targetEntity])
+          ? state.rowsByEntity[targetEntity]
+          : [];
+
+        if (payload.operation === 'delete') {
+          const deletedIds = new Set(
+            deletedRows.map((r) => r.id).filter(Boolean)
+          );
+          if (deletedIds.size > 0) {
+            state.rowsByEntity[targetEntity] = currentRows.filter(
+              (row) => !deletedIds.has(row.id)
+            );
+          }
+          state.queryResult = null;
+        } else if (payload.operation === 'create' && createdRows.length > 0) {
+          const createdIds = new Set(
+            createdRows.map((r) => r.id).filter(Boolean)
+          );
+          state.rowsByEntity[targetEntity] = [
+            ...createdRows,
+            ...currentRows.filter((row) => !createdIds.has(row.id)),
+          ];
+          state.queryResult = {
+            status: 'ok',
+            entity: targetEntity,
+            promptUsed: payload.promptUsed,
+            matchedIds: updatedIds,
+            count: createdRows.length,
+            message: payload.message || null,
+            rows: createdRows,
+          };
+        } else if (updatedRows.length > 0) {
           const updatedMap = new Map(updatedRows.map((r) => [r.id, r]));
-          state.rowsByEntity[targetEntity] = state.rowsByEntity[targetEntity].map((row) =>
+          state.rowsByEntity[targetEntity] = currentRows.map((row) =>
             updatedMap.has(row.id) ? updatedMap.get(row.id) : row
           );
+          state.queryResult = {
+            status: 'ok',
+            entity: targetEntity,
+            promptUsed: payload.promptUsed,
+            matchedIds: updatedIds,
+            count: updatedRows.length,
+            message: payload.message || null,
+            rows: updatedRows,
+          };
+        } else {
+          state.queryResult = null;
         }
-
-        // Keep the full updated sheet visible after applying mutations
-        state.queryResult = null;
       })
       .addCase(applySheetMutation.rejected, (state, action) => {
         state.mutationApplyStatus = 'failed';
@@ -492,6 +798,10 @@ const sheetSlice = createSlice({
         if (action.payload?.displayName) {
           state.activeDisplayName = action.payload.displayName;
         }
+        const targetEntity = action.payload?.entity || state.activeEntity;
+        if (Array.isArray(action.payload?.rows)) {
+          state.rowsByEntity[targetEntity] = action.payload.rows;
+        }
       })
       .addCase(insertSingleSheetRow.rejected, (state, action) => {
         state.rowInsertStatus = 'failed';
@@ -504,9 +814,11 @@ const sheetSlice = createSlice({
 export const {
   setActiveSheetEntity,
   setSheetNlPrompt,
+  applySheetQueryPayload,
   clearSheetFiltersAndFeedback,
   discardMutationPreview,
   clearRowInsertState,
+  resetSheetWorkspaceState,
 } = sheetSlice.actions;
 
 export default sheetSlice.reducer;

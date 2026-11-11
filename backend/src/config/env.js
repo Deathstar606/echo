@@ -90,6 +90,10 @@ const env = {
       ? process.env.SMTP_USER.trim()
       : '',
   smtpTestMode: parseBoolean(process.env.SMTP_TEST_MODE, false),
+  googleClientId: process.env.GOOGLE_CLIENT_ID ? process.env.GOOGLE_CLIENT_ID.trim() : '',
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ? process.env.GOOGLE_CLIENT_SECRET.trim() : '',
+  googleRedirectUri: process.env.GOOGLE_REDIRECT_URI ? process.env.GOOGLE_REDIRECT_URI.trim() : 'http://localhost:3000/api/auth/google/callback',
+  googleRefreshToken: process.env.GOOGLE_REFRESH_TOKEN ? process.env.GOOGLE_REFRESH_TOKEN.trim() : '',
 };
 
 module.exports = env;

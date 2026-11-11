@@ -1,5 +1,45 @@
 const AppError = require('../utils/AppError');
-const { query } = require('../../db');
+const { query, getPool } = require('../../db');
+
+const SCHEMA_CACHE_TTL_MS = 60000;
+const SCHEMA_CACHE_BY_POOL = new WeakMap();
+
+function getPoolSchemaCache() {
+  try {
+    const pool = getPool();
+    if (!pool || pool.constructor?.name !== 'Pool') {
+      return null;
+    }
+    let store = SCHEMA_CACHE_BY_POOL.get(pool);
+    if (!store) {
+      store = new Map();
+      SCHEMA_CACHE_BY_POOL.set(pool, store);
+    }
+    return store;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Clears cached table schemas for a workspace (and optional table) on the active PostgreSQL pool.
+ */
+function invalidateTableSchemaCache(businessId = null, tableName = null) {
+  const store = getPoolSchemaCache();
+  if (!store) return;
+  if (!businessId) {
+    store.clear();
+    return;
+  }
+  const bizPrefix = `${String(businessId)}::`;
+  const targetNorm = tableName ? normalizeEntityName(tableName) : null;
+  for (const key of store.keys()) {
+    if (!key.startsWith(bizPrefix)) continue;
+    if (!targetNorm || key === `${bizPrefix}${targetNorm}`) {
+      store.delete(key);
+    }
+  }
+}
 
 const APPAREL_SIZE_KEYS = new Set([
   'XS',
@@ -689,11 +729,19 @@ function getOperatorsForType(type) {
  * @param {string} [businessId]
  * @returns {Promise<object>} Active table schema definition
  */
-async function discoverTableSchema(tableName, businessId) {
+async function discoverTableSchema(tableName, businessId, options = {}) {
   if (tableName && typeof tableName === 'object' && tableName.columns) {
     return tableName;
   }
   const normName = normalizeEntityName(tableName);
+  const schemaStore = options.useCache && businessId ? getPoolSchemaCache() : null;
+  const cacheKey = businessId ? `${String(businessId)}::${normName}` : null;
+  if (schemaStore && cacheKey) {
+    const cached = schemaStore.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.schema;
+    }
+  }
 
   const schema = REGISTERED_SCHEMAS.get(normName) || ENTITY_SCHEMAS[normName];
   let discoveredColumns = null;
@@ -716,7 +764,16 @@ async function discoverTableSchema(tableName, businessId) {
         const baseline = schema ? findColumnDef(schema, rawCol) : null;
         const columnKey = baseline ? baseline.key : lowerCol;
         const colType = mapPgDataType(row.udt_name || row.data_type);
-        const isSystem = ['id', 'business_id', 'created_at', 'updated_at'].includes(lowerCol);
+        const isSystem = [
+          'id',
+          'business_id',
+          'workspace_id',
+          'user_id',
+          'workspace_document_id',
+          '_google_row_index',
+          'created_at',
+          'updated_at',
+        ].includes(lowerCol);
         discoveredColumns[columnKey] = {
           ...(baseline ? baseline.colDef : {}),
           exactName: rawCol,
@@ -785,14 +842,45 @@ async function discoverTableSchema(tableName, businessId) {
     ),
   };
 
-  // If businessId is provided and representative values are sparse, query a sample of rows
-  if (businessId) {
+  const prefetchedMeta = options.prefetchedMetadata || null;
+  let hydratedFromMetadata = false;
+  if (prefetchedMeta && Array.isArray(prefetchedMeta.columns_profile)) {
+    for (const colProfile of prefetchedMeta.columns_profile) {
+      const colMatch = findColumnDef(dynamicSchema, colProfile.column_name);
+      const colDef = colMatch ? colMatch.colDef : null;
+      const exactCol = colDef ? colDef.exactName : colProfile.column_name;
+      if (colDef && colProfile.nested_structure && colProfile.nested_structure.observed_keys) {
+        colDef.nestedMap = true;
+        colDef.nestedStructure = Object.fromEntries(
+          colProfile.nested_structure.observed_keys
+            .slice(0, 8)
+            .map((entry) => [entry.name, entry.value_types?.[0] || 'string'])
+        );
+      }
+      if (
+        colProfile.semantic_role !== 'email' &&
+        Array.isArray(colProfile.categorical_values) &&
+        colProfile.categorical_values.length > 0 &&
+        !['description', 'images'].includes(String(exactCol || '').toLowerCase())
+      ) {
+        dynamicSchema.representativeValues[exactCol] = colProfile.categorical_values.slice(0, 15);
+      }
+    }
+    hydratedFromMetadata = true;
+    dynamicSchema.workspaceMetadata = prefetchedMeta;
+  }
+
+  // If businessId is provided and representative values were not hydrated from metadata, sample up to 5 rows
+  if (businessId && !hydratedFromMetadata && !options.skipSampleQuery) {
     try {
       const sampleColumns = Object.values(dynamicSchema.columns)
         .filter((colDef) => colDef.modifiable && !colDef.virtual)
         .map((colDef) => quoteIdentifier(colDef.exactName));
+      const sampleWhere = dynamicSchema.columns?.workspace_id
+        ? '(business_id = $1 OR workspace_id = $1)'
+        : 'business_id = $1';
       const sampleRes = await query(
-        `SELECT ${sampleColumns.length > 0 ? sampleColumns.join(', ') : '*'} FROM ${quoteIdentifier(dynamicSchema.tableName)} WHERE business_id = $1 LIMIT 5;`,
+        `SELECT ${sampleColumns.length > 0 ? sampleColumns.join(', ') : '*'} FROM ${quoteIdentifier(dynamicSchema.tableName)} WHERE ${sampleWhere} LIMIT 5;`,
         [businessId]
       );
       if (sampleRes.rows && sampleRes.rows.length > 0) {
@@ -862,7 +950,20 @@ async function discoverTableSchema(tableName, businessId) {
       Object.entries(dynamicSchema.columns).map(([key, def]) => [key, { ...def }])
     ),
   });
+  if (schemaStore && cacheKey) {
+    schemaStore.set(cacheKey, {
+      schema: dynamicSchema,
+      expiresAt: Date.now() + SCHEMA_CACHE_TTL_MS,
+    });
+  }
   return dynamicSchema;
+}
+
+async function discoverTableSchemaCached(tableName, businessId, options = {}) {
+  return discoverTableSchema(tableName, businessId, {
+    ...options,
+    useCache: true,
+  });
 }
 
 /**
@@ -871,16 +972,30 @@ async function discoverTableSchema(tableName, businessId) {
  * @param {string} tableName
  * @param {object} schemaDef
  */
-function registerTableSchema(tableName, schemaDef) {
-  const norm = normalizeEntityName(tableName);
-  REGISTERED_SCHEMAS.set(norm, schemaDef);
+function registerTableSchema(tableNameOrSchema, schemaDef) {
+  if (
+    tableNameOrSchema &&
+    typeof tableNameOrSchema === 'object' &&
+    !schemaDef
+  ) {
+    const key = normalizeEntityName(
+      tableNameOrSchema.entity || tableNameOrSchema.tableName
+    );
+    REGISTERED_SCHEMAS.set(key, tableNameOrSchema);
+    return;
+  }
+  const norm = normalizeEntityName(tableNameOrSchema);
+  if (schemaDef) {
+    REGISTERED_SCHEMAS.set(norm, schemaDef);
+  }
 }
 
 const CANONICAL_DDL_STATEMENTS = {
   products: [
     `CREATE TABLE IF NOT EXISTS products (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      business_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
       name VARCHAR(255) NOT NULL CHECK (char_length(btrim(name)) > 0),
       category VARCHAR(100),
       description TEXT,
@@ -895,6 +1010,7 @@ const CANONICAL_DDL_STATEMENTS = {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );`,
     `CREATE INDEX IF NOT EXISTS idx_products_business_id ON products (business_id);`,
+    `CREATE INDEX IF NOT EXISTS idx_products_workspace_id ON products (workspace_id);`,
     `CREATE INDEX IF NOT EXISTS idx_products_name ON products (name);`,
     `CREATE INDEX IF NOT EXISTS idx_products_category ON products (category);`,
     `CREATE INDEX IF NOT EXISTS idx_products_price ON products (price);`,
@@ -902,7 +1018,8 @@ const CANONICAL_DDL_STATEMENTS = {
   electronics_inventory: [
     `CREATE TABLE IF NOT EXISTS electronics_inventory (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      business_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
       product_name VARCHAR(255) NOT NULL,
       brand_name VARCHAR(100),
       model VARCHAR(100),
@@ -915,6 +1032,7 @@ const CANONICAL_DDL_STATEMENTS = {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );`,
     `CREATE INDEX IF NOT EXISTS idx_electronics_business_id ON electronics_inventory(business_id);`,
+    `CREATE INDEX IF NOT EXISTS idx_electronics_workspace_id ON electronics_inventory(workspace_id);`,
     `CREATE INDEX IF NOT EXISTS idx_electronics_brand_name ON electronics_inventory(brand_name);`,
     `CREATE INDEX IF NOT EXISTS idx_electronics_warehouse ON electronics_inventory(warehouse);`,
     `CREATE INDEX IF NOT EXISTS idx_electronics_current_price ON electronics_inventory(current_price);`,
@@ -923,7 +1041,8 @@ const CANONICAL_DDL_STATEMENTS = {
   grocery_inventory: [
     `CREATE TABLE IF NOT EXISTS grocery_inventory (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      business_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
       item_name VARCHAR(255) NOT NULL,
       supplier VARCHAR(100),
       unit_cost NUMERIC(10, 2) NOT NULL DEFAULT 0.00 CHECK (unit_cost >= 0),
@@ -938,6 +1057,7 @@ const CANONICAL_DDL_STATEMENTS = {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );`,
     `CREATE INDEX IF NOT EXISTS idx_grocery_business_id ON grocery_inventory(business_id);`,
+    `CREATE INDEX IF NOT EXISTS idx_grocery_workspace_id ON grocery_inventory(workspace_id);`,
     `CREATE INDEX IF NOT EXISTS idx_grocery_supplier ON grocery_inventory(supplier);`,
     `CREATE INDEX IF NOT EXISTS idx_grocery_expiry_date ON grocery_inventory(expiry_date);`,
     `CREATE INDEX IF NOT EXISTS idx_grocery_selling_price ON grocery_inventory(selling_price);`,
@@ -990,20 +1110,7 @@ async function ensureTableExists(entityOrSchema, clientOrPool) {
   const safeTableName = String(rawTableName).replace(/[^a-z0-9_]/gi, '_').toLowerCase();
 
   try {
-    // 1. Ensure businesses table exists first (for foreign key reference)
-    try {
-      await runner.query(`
-        CREATE TABLE IF NOT EXISTS businesses (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          name VARCHAR(255) NOT NULL CHECK (char_length(btrim(name)) > 0),
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-      `);
-    } catch {
-      // Ignore if businesses table already exists or pool is simulated
-    }
-
-    // 2. Check if table already exists in PostgreSQL
+    // 1. Check if table already exists in PostgreSQL
     let tableExists = false;
     try {
       const checkRes = await runner.query(
@@ -1015,8 +1122,21 @@ async function ensureTableExists(entityOrSchema, clientOrPool) {
       tableExists = false;
     }
 
-    // 3. Create table if not present
+    // 2. Create table (and parent workspaces table if needed) only when not present
     if (!tableExists) {
+      try {
+        await runner.query(`
+          CREATE TABLE IF NOT EXISTS workspaces (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id UUID,
+            name VARCHAR(255) NOT NULL CHECK (char_length(btrim(name)) > 0),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          );
+        `);
+      } catch {
+        // Ignore if workspaces table already exists or pool is simulated
+      }
+
       if (CANONICAL_DDL_STATEMENTS[safeTableName]) {
         for (const stmt of CANONICAL_DDL_STATEMENTS[safeTableName]) {
           await runner.query(stmt);
@@ -1029,7 +1149,16 @@ async function ensureTableExists(entityOrSchema, clientOrPool) {
             const rawCol = colDef.exactName || colKey;
             const cleanCol = String(rawCol).replace(/[^a-z0-9_]/gi, '_');
             const lower = cleanCol.toLowerCase();
-            if (['id', 'business_id', 'created_at', 'updated_at'].includes(lower)) {
+            if ([
+              'id',
+              'business_id',
+              'workspace_id',
+              'user_id',
+              'workspace_document_id',
+              '_google_row_index',
+              'created_at',
+              'updated_at',
+            ].includes(lower)) {
               continue;
             }
             colDefs.push(`"${cleanCol}" ${mapTypeToPgColumnDef(colDef.type)}`);
@@ -1040,7 +1169,8 @@ async function ensureTableExists(entityOrSchema, clientOrPool) {
         const createSql = `
           CREATE TABLE IF NOT EXISTS "${safeTableName}" (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE
+            business_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+            workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE
             ${colsSql},
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -1052,13 +1182,16 @@ async function ensureTableExists(entityOrSchema, clientOrPool) {
           await runner.query(
             `CREATE INDEX IF NOT EXISTS "idx_${safeTableName}_business_id" ON "${safeTableName}" (business_id);`
           );
+          await runner.query(
+            `CREATE INDEX IF NOT EXISTS "idx_${safeTableName}_workspace_id" ON "${safeTableName}" (workspace_id);`
+          );
         } catch {
           // Ignore index errors
         }
       }
     }
 
-    // 4. Synchronize any newly added columns and widen integer columns to BIGINT if table exists
+    // 3. Synchronize any newly added columns if table exists
     if (schema && schema.columns) {
       try {
         const colRes = await runner.query(
@@ -1071,22 +1204,22 @@ async function ensureTableExists(entityOrSchema, clientOrPool) {
           const rawCol = colDef.exactName || colKey;
           const cleanCol = String(rawCol).replace(/[^a-z0-9_]/gi, '_');
           const lower = cleanCol.toLowerCase();
-          if (['id', 'business_id', 'created_at', 'updated_at'].includes(lower)) {
+          if ([
+            'id',
+            'business_id',
+            'workspace_id',
+            'user_id',
+            'workspace_document_id',
+            '_google_row_index',
+            'created_at',
+            'updated_at',
+          ].includes(lower)) {
             continue;
           }
           if (!existingCols.has(lower)) {
             await runner.query(
               `ALTER TABLE "${safeTableName}" ADD COLUMN IF NOT EXISTS "${cleanCol}" ${mapTypeToPgColumnDef(colDef.type)};`
             );
-          } else if (colDef.type === 'integer' || colDef.type === 'number') {
-            // Widen existing integer column to BIGINT and drop NOT NULL so values > 2.14B (e.g. Student IDs) never overflow
-            try {
-              await runner.query(
-                `ALTER TABLE "${safeTableName}" ALTER COLUMN "${cleanCol}" TYPE BIGINT, ALTER COLUMN "${cleanCol}" DROP NOT NULL;`
-              );
-            } catch {
-              // Best-effort column alteration
-            }
           }
         }
       } catch {
@@ -1848,9 +1981,158 @@ function validateSingleUpdateTransformation(schema, rawUpdate) {
   throw new AppError(`Unsupported action "${action}" on "${exactName}".`, 400);
 }
 
+function normalizeMutationOperationName(raw) {
+  const lower = String(raw ?? '').trim().toLowerCase();
+  if (
+    lower === 'insert' ||
+    lower === 'insert_many' ||
+    lower === 'add' ||
+    lower === 'add_row' ||
+    lower === 'add_rows' ||
+    lower === 'create_many'
+  ) {
+    return 'create';
+  }
+  if (
+    lower === 'remove' ||
+    lower === 'delete_many' ||
+    lower === 'remove_many' ||
+    lower === 'drop_row' ||
+    lower === 'drop_rows'
+  ) {
+    return 'delete';
+  }
+  return lower;
+}
+
+/**
+ * Validates and normalizes a single row's field assignments for a `create` mutation,
+ * supporting direct column assignments, nested map objects, and dotted nested map keys (e.g. `size.M`).
+ */
+function validateCreateRowAssignments(schema, rawUpdatesList) {
+  const rowChanges = {};
+  const nestedAccumulators = {};
+  const rowUpdates = [];
+
+  for (const item of rawUpdatesList) {
+    if (!item || typeof item !== 'object') continue;
+    const rawVal = item.value;
+    if (rawVal === undefined || rawVal === null || rawVal === '') {
+      continue;
+    }
+
+    const validatedItem = validateSingleUpdateTransformation(schema, {
+      ...item,
+      action: item.action || 'set',
+    });
+
+    if (validatedItem.action !== 'set') {
+      throw new AppError(
+        'Mutation "create" only supports direct field assignments ("action": "set").',
+        400
+      );
+    }
+
+    if (validatedItem.nested_field && validatedItem.nested_key) {
+      const parentField = validatedItem.nested_field;
+      if (!nestedAccumulators[parentField]) {
+        nestedAccumulators[parentField] = {};
+      }
+      nestedAccumulators[parentField][validatedItem.nested_key] = validatedItem.value;
+      continue;
+    }
+
+    // If a nested map column was set directly as a JSON string, merge with any dotted keys
+    const colMatch = findColumnDef(schema, validatedItem.field);
+    if (colMatch && isNestedMapColumn(colMatch.colDef, colMatch.exactName)) {
+      let parsedMap = {};
+      if (typeof validatedItem.value === 'string' && validatedItem.value.trim().startsWith('{')) {
+        try {
+          parsedMap = JSON.parse(validatedItem.value);
+        } catch {
+          parsedMap = {};
+        }
+      } else if (validatedItem.value && typeof validatedItem.value === 'object') {
+        parsedMap = { ...validatedItem.value };
+      }
+      nestedAccumulators[colMatch.exactName] = {
+        ...parsedMap,
+        ...(nestedAccumulators[colMatch.exactName] || {}),
+      };
+      continue;
+    }
+
+    rowChanges[validatedItem.field] = validatedItem.value;
+    rowUpdates.push(validatedItem);
+  }
+
+  for (const [parentField, mapObj] of Object.entries(nestedAccumulators)) {
+    const serialized = JSON.stringify(mapObj);
+    rowChanges[parentField] = serialized;
+    rowUpdates.push({
+      field: parentField,
+      action: 'set',
+      value: serialized,
+      unit: 'absolute',
+    });
+  }
+
+  return { rowChanges, rowUpdates };
+}
+
+/**
+ * Converts a plain row object (`{ [col]: val }`) into a list of raw update items.
+ */
+function rowObjectToRawUpdatesList(rowObj) {
+  const list = [];
+  if (!rowObj || typeof rowObj !== 'object' || Array.isArray(rowObj)) {
+    return list;
+  }
+  for (const [k, v] of Object.entries(rowObj)) {
+    if ([
+      'id',
+      'business_id',
+      'workspace_id',
+      'user_id',
+      'workspace_document_id',
+      '_google_row_index',
+      'created_at',
+      'updated_at',
+    ].includes(k.toLowerCase())) {
+      continue;
+    }
+    if (v === undefined || v === null || v === '') {
+      continue;
+    }
+    if (
+      v &&
+      typeof v === 'object' &&
+      !Array.isArray(v) &&
+      (v.action !== undefined || v.value !== undefined) &&
+      k.toLowerCase() !== 'size'
+    ) {
+      list.push({
+        field: k,
+        action: v.action || 'set',
+        value: v.value,
+        unit: v.unit || 'absolute',
+        size_key: v.size_key,
+      });
+    } else {
+      list.push({
+        field: k,
+        action: 'set',
+        value: v,
+        unit: 'absolute',
+      });
+    }
+  }
+  return list;
+}
+
 /**
  * Validates a mutation payload supporting conditional bulk updates, arithmetic transformations,
- * nested size updates, AND/OR filter combinations, and legacy `changes` objects.
+ * nested size updates, AND/OR filter combinations, single/multi-row creation, and legacy `changes` objects.
  *
  * @param {string | object} entityOrSchema
  * @param {object} mutation
@@ -1862,7 +2144,7 @@ function validateMutation(entityOrSchema, mutation) {
     throw new AppError('Mutation payload must be an object.', 400);
   }
 
-  const rawOp = String(mutation.operation ?? '').trim().toLowerCase();
+  const rawOp = normalizeMutationOperationName(mutation.operation);
   if (!['update', 'update_many', 'delete', 'create'].includes(rawOp)) {
     throw new AppError(
       `Unsupported mutation operation "${mutation.operation}". Supported operations are: update, update_many, delete, create.`,
@@ -1896,7 +2178,7 @@ function validateMutation(entityOrSchema, mutation) {
     }
 
     if (targetFilters.length === 0) {
-      if (rawOp === 'delete') {
+      if (rawOp === 'delete' && !matchAll) {
         throw new AppError(
           'Mutation "delete" requires at least one target filter to identify records safely.',
           400
@@ -1911,6 +2193,93 @@ function validateMutation(entityOrSchema, mutation) {
     }
   }
 
+  // Handle `create` (single-row or multi-row insertion)
+  if (rawOp === 'create') {
+    const rawRowsInput = Array.isArray(mutation.rows)
+      ? mutation.rows
+      : Array.isArray(mutation.records)
+        ? mutation.records
+        : null;
+
+    const validatedRows = [];
+    let primaryUpdates = [];
+
+    if (rawRowsInput && rawRowsInput.length > 0) {
+      for (const rowObj of rawRowsInput) {
+        const rowRawUpdates = Array.isArray(rowObj?.updates)
+          ? rowObj.updates
+          : rowObjectToRawUpdatesList(rowObj);
+        const { rowChanges, rowUpdates } = validateCreateRowAssignments(
+          schema,
+          rowRawUpdates
+        );
+        if (Object.keys(rowChanges).length > 0) {
+          validatedRows.push(rowChanges);
+          if (primaryUpdates.length === 0) {
+            primaryUpdates = rowUpdates;
+          }
+        }
+      }
+    } else {
+      const rawUpdatesList = [];
+      if (Array.isArray(mutation.updates) && mutation.updates.length > 0) {
+        for (const u of mutation.updates) {
+          if (u && (u.value !== undefined && u.value !== null && u.value !== '')) {
+            rawUpdatesList.push(u);
+          }
+        }
+      }
+      const fallbackChangesObj =
+        mutation.changes || mutation.row || mutation.record || null;
+      if (
+        rawUpdatesList.length === 0 &&
+        fallbackChangesObj &&
+        typeof fallbackChangesObj === 'object' &&
+        !Array.isArray(fallbackChangesObj)
+      ) {
+        rawUpdatesList.push(...rowObjectToRawUpdatesList(fallbackChangesObj));
+      }
+
+      if (rawUpdatesList.length === 0) {
+        throw new AppError(
+          'Mutation "create" requires a non-empty "updates" array, "changes" object, or "rows" array specifying the column values to insert.',
+          400
+        );
+      }
+
+      const { rowChanges, rowUpdates } = validateCreateRowAssignments(
+        schema,
+        rawUpdatesList
+      );
+      if (Object.keys(rowChanges).length === 0) {
+        throw new AppError(
+          'Mutation "create" requires at least one valid column value.',
+          400
+        );
+      }
+      validatedRows.push(rowChanges);
+      primaryUpdates = rowUpdates;
+    }
+
+    if (validatedRows.length === 0) {
+      throw new AppError(
+        'Mutation "create" requires at least one non-empty row to insert.',
+        400
+      );
+    }
+
+    return {
+      entity: schema.entity,
+      operation: 'create',
+      filter_logic: rawLogic,
+      match_all: false,
+      target_filters: [],
+      updates: primaryUpdates,
+      changes: validatedRows[0],
+      rows: validatedRows,
+    };
+  }
+
   // Convert `updates` array and/or legacy `changes` object into a unified `updates` list
   const rawUpdatesList = [];
   if (Array.isArray(mutation.updates) && mutation.updates.length > 0) {
@@ -1921,36 +2290,13 @@ function validateMutation(entityOrSchema, mutation) {
     !Array.isArray(mutation.changes) &&
     Object.keys(mutation.changes).length > 0
   ) {
-    for (const [k, v] of Object.entries(mutation.changes)) {
-      if (
-        v &&
-        typeof v === 'object' &&
-        !Array.isArray(v) &&
-        (v.action !== undefined || v.value !== undefined) &&
-        k.toLowerCase() !== 'size'
-      ) {
-        rawUpdatesList.push({
-          field: k,
-          action: v.action || 'set',
-          value: v.value,
-          unit: v.unit || 'absolute',
-          size_key: v.size_key,
-        });
-      } else {
-        rawUpdatesList.push({
-          field: k,
-          action: 'set',
-          value: v,
-          unit: 'absolute',
-        });
-      }
-    }
+    rawUpdatesList.push(...rowObjectToRawUpdatesList(mutation.changes));
   }
 
   const validatedUpdates = [];
   const legacyChangesSummary = {};
 
-  if (rawOp === 'update' || rawOp === 'update_many' || rawOp === 'create') {
+  if (rawOp === 'update' || rawOp === 'update_many') {
     if (rawUpdatesList.length === 0) {
       throw new AppError(
         `Mutation "${rawOp}" requires a non-empty "updates" array or "changes" object.`,
@@ -1960,15 +2306,6 @@ function validateMutation(entityOrSchema, mutation) {
 
     for (const item of rawUpdatesList) {
       const validatedItem = validateSingleUpdateTransformation(schema, item);
-        if (
-          rawOp === 'create' &&
-          (validatedItem.action !== 'set' || validatedItem.nested_field)
-        ) {
-        throw new AppError(
-          'Mutation "create" only supports direct field assignments ("action": "set").',
-          400
-        );
-      }
       validatedUpdates.push(validatedItem);
 
       if (validatedItem.action === 'set') {
@@ -2002,6 +2339,8 @@ module.exports = {
   ENTITY_SCHEMAS,
   REGISTERED_SCHEMAS,
   discoverTableSchema,
+  discoverTableSchemaCached,
+  invalidateTableSchemaCache,
   registerTableSchema,
   getSupportedEntities,
   isEntitySupported,

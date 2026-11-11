@@ -1,0 +1,574 @@
+{
+  "started_at": "2026-11-08T19:12:33.774Z",
+  "test_suites": {
+    "Suite 1: Echo Workstation": [
+      {
+        "test_id": "1.1_pre_shipment_swap_opt1",
+        "prompt": "Find all undelivered or processing orders in orders.csv containing defective batches from the QA Batch Recall report, swap them to clean replacement batches with expedited shipping per our Refund & Replacement SOP, and email the customers their updated fulfillment details.",
+        "outcome": "PASS",
+        "turn1": {
+          "status": "CLARIFICATION_REQUIRED",
+          "affected": 4,
+          "conflicting": 2,
+          "ms": 7259
+        },
+        "turn2": {
+          "status": "PREVIEW_READY",
+          "mutations": 4,
+          "emails": 4,
+          "ms": 3866
+        },
+        "turn3": {
+          "status": "EXECUTED",
+          "updated": 4,
+          "dispatched": 4,
+          "ms": 457
+        },
+        "db_verification": [
+          {
+            "Order_ID": "ORD-2026-1015",
+            "Batch_Code": "B-501",
+            "Shipping_Tier": "Expedited",
+            "Dispatch_Status": "Ready for Expedited Dispatch",
+            "Promo_Discount_Pct": "0"
+          },
+          {
+            "Order_ID": "ORD-2026-1017",
+            "Batch_Code": "B-501",
+            "Shipping_Tier": "Expedited",
+            "Dispatch_Status": "Ready for Expedited Dispatch",
+            "Promo_Discount_Pct": "0"
+          },
+          {
+            "Order_ID": "ORD-2026-1018",
+            "Batch_Code": "B-501",
+            "Shipping_Tier": "Expedited",
+            "Dispatch_Status": "Ready for Expedited Dispatch",
+            "Promo_Discount_Pct": "10"
+          },
+          {
+            "Order_ID": "ORD-2026-1020",
+            "Batch_Code": "B-501",
+            "Shipping_Tier": "Expedited",
+            "Dispatch_Status": "Ready for Expedited Dispatch",
+            "Promo_Discount_Pct": "15"
+          }
+        ],
+        "notes": [
+          "Turn 1 correctly detected 4 affected processing orders and 2 promo/high-value conflicts.",
+          "Turn 2 previewed 4 B-501 batch mutations and 4 customer emails.",
+          "SQL check confirmed all 4 orders swapped to B-501 with Expedited shipping."
+        ]
+      },
+      {
+        "test_id": "1.2_pre_shipment_swap_opt2",
+        "prompt": "Find all undelivered or processing orders in orders.csv containing defective batches from the QA Batch Recall report, swap them to clean replacement batches with expedited shipping per our Refund & Replacement SOP, and email the customers their updated fulfillment details.",
+        "outcome": "PASS",
+        "turn1": {
+          "status": "CLARIFICATION_REQUIRED",
+          "ms": 7481
+        },
+        "turn2": {
+          "status": "PREVIEW_READY",
+          "mutations": 4,
+          "ms": 3941
+        },
+        "turn3": {
+          "status": "EXECUTED",
+          "updated": 4,
+          "ms": 511
+        },
+        "db_verification": [
+          {
+            "Order_ID": "ORD-2026-1020",
+            "Batch_Code": "B-501",
+            "Promo_Discount_Pct": "0"
+          },
+          {
+            "Order_ID": "ORD-2026-1018",
+            "Batch_Code": "B-501",
+            "Promo_Discount_Pct": "0"
+          }
+        ],
+        "notes": [
+          "Option 2 stripped promo discounts on 2 conflicting order(s).",
+          "Option 2 execution completed and verified in DB."
+        ]
+      },
+      {
+        "test_id": "1.3_general_recall_all_states",
+        "prompt": "Execute a mandatory QA recall across all orders containing defective batch codes B-404 and B-409 per our QA Batch Recall bulletin, update order and refund status per our Refund Compliance SOP, and notify all affected customers.",
+        "outcome": "PASS",
+        "turn1": {
+          "status": "CLARIFICATION_REQUIRED",
+          "affected": 4,
+          "conflicting": 2,
+          "ms": 6274
+        },
+        "turn2": {
+          "status": "PREVIEW_READY",
+          "mutations": 4,
+          "ms": 3782
+        },
+        "turn3": {
+          "status": "EXECUTED",
+          "updated": 4,
+          "ms": 454
+        },
+        "notes": [
+          "Detected general recall scope with 4 total B-404/B-409 orders (including Shipped & Delivered).",
+          "Successfully previewed and executed general recall with 4 rows updated."
+        ]
+      },
+      {
+        "test_id": "1.4_pure_doc_qa",
+        "prompt": "According to the QA Batch Recall bulletin, what is the thermal regulation defect identified during accelerated burn-in diagnostics, and what clean replacement batch has been certified?",
+        "outcome": "PASS",
+        "response_status": "CONVERSATIONAL",
+        "citations": 12,
+        "answer_snippet": "During accelerated 72-hour burn-in diagnostics, QA engineers identified a thermal regulation defect in a specific lot of monolithic Power Delivery (PD) and Voltage Regulator Module (VRM) controller bo",
+        "notes": [
+          "Correctly classified as document question, extracted B-501 and thermal details with 0 table mutations."
+        ]
+      },
+      {
+        "test_id": "1.5_sheet_query_processing_orders",
+        "prompt": "How many orders in orders.csv have Dispatch_Status set to Processing, and what are their Order_IDs?",
+        "outcome": "PASS",
+        "status": "SHEET_QUERY",
+        "intent": "sheet_query",
+        "notes": [
+          "Correctly routed to spreadsheet query engine without triggering document operations."
+        ]
+      }
+    ],
+    "Suite 2: Veloura Apparel": [
+      {
+        "test_id": "2.1_multi_table_reconciliation_opt2",
+        "prompt": "Reconcile the newly arrived inventory in the Port Receiving Manifest against open backorders in backorders_dataset.csv and update remaining available stock in products.csv according to our Allocation Priority Policy, then notify affected backorder buyers by email.",
+        "outcome": "PASS",
+        "turn1": {
+          "status": "CLARIFICATION_REQUIRED",
+          "affected": 7,
+          "ms": 6675
+        },
+        "turn2": {
+          "status": "PREVIEW_READY",
+          "mutations": 7,
+          "emails": 6,
+          "ms": 6285
+        },
+        "turn3": {
+          "status": "EXECUTED",
+          "updated": 7,
+          "ms": 612
+        },
+        "db_verification": {
+          "products": [
+            {
+              "name": "Classic Short-Sleeve Polo",
+              "size": "{\"M\":2,\"L\":3,\"XL\":3,\"XXL\":2}"
+            }
+          ],
+          "backorders": [
+            {
+              "backorder_id": "BO-2001",
+              "quantity_allocated": "12",
+              "fulfillment_status": "Fulfilled"
+            },
+            {
+              "backorder_id": "BO-2002",
+              "quantity_allocated": "10",
+              "fulfillment_status": "Fulfilled"
+            },
+            {
+              "backorder_id": "BO-2004",
+              "quantity_allocated": "8",
+              "fulfillment_status": "Fulfilled"
+            },
+            {
+              "backorder_id": "BO-2006",
+              "quantity_allocated": "10",
+              "fulfillment_status": "Fulfilled"
+            },
+            {
+              "backorder_id": "BO-2009",
+              "quantity_allocated": "12",
+              "fulfillment_status": "Fulfilled"
+            },
+            {
+              "backorder_id": "BO-2013",
+              "quantity_allocated": "2",
+              "fulfillment_status": "Partial"
+            }
+          ]
+        },
+        "notes": [
+          "Mutations previewed across both tables: 1 in products, 6 in backorders.",
+          "SQL verified: Classic Short-Sleeve Polo stock set to 10 (buffer), 54 units allocated FIFO."
+        ]
+      },
+      {
+        "test_id": "2.2_multi_table_reconciliation_opt1",
+        "prompt": "Reconcile the newly arrived inventory in the Port Receiving Manifest against open backorders in backorders_dataset.csv and update remaining available stock in products.csv according to our Allocation Priority Policy, then notify affected backorder buyers by email.",
+        "outcome": "PASS",
+        "turn1": {
+          "status": "CLARIFICATION_REQUIRED",
+          "ms": 7238
+        },
+        "turn2": {
+          "status": "PREVIEW_READY",
+          "mutations": 7,
+          "ms": 4121
+        },
+        "turn3": {
+          "status": "EXECUTED",
+          "updated": 7,
+          "ms": 656
+        },
+        "db_verification": {
+          "products": [
+            {
+              "name": "Classic Short-Sleeve Polo",
+              "size": "{\"M\":1,\"L\":1,\"XL\":1,\"XXL\":1}"
+            }
+          ],
+          "backorders": [
+            {
+              "backorder_id": "BO-2001",
+              "quantity_allocated": "12",
+              "fulfillment_status": "Fulfilled"
+            },
+            {
+              "backorder_id": "BO-2004",
+              "quantity_allocated": "8",
+              "fulfillment_status": "Fulfilled"
+            },
+            {
+              "backorder_id": "BO-2013",
+              "quantity_allocated": "8",
+              "fulfillment_status": "Fulfilled"
+            },
+            {
+              "backorder_id": "BO-2002",
+              "quantity_allocated": "10",
+              "fulfillment_status": "Fulfilled"
+            },
+            {
+              "backorder_id": "BO-2006",
+              "quantity_allocated": "10",
+              "fulfillment_status": "Fulfilled"
+            },
+            {
+              "backorder_id": "BO-2009",
+              "quantity_allocated": "12",
+              "fulfillment_status": "Fulfilled"
+            }
+          ]
+        },
+        "notes": [
+          "Option 1 verified: All 6 backorders fulfilled (60 units), products.size set to 4 units."
+        ]
+      },
+      {
+        "test_id": "2.3_single_table_backorders_only",
+        "prompt": "Allocate the 40 net units received from the port manifest across our open backorders in backorders_dataset.csv according to SOP-OPS-019 and email the buyers.",
+        "outcome": "PASS",
+        "turn1": {
+          "status": "CLARIFICATION_REQUIRED",
+          "ms": 6616
+        },
+        "turn2": {
+          "status": "PREVIEW_READY",
+          "mutations": 6,
+          "ms": 3978
+        },
+        "turn3": {
+          "status": "EXECUTED",
+          "updated": 6,
+          "ms": 544
+        },
+        "notes": [
+          "Socratic gate triggered: 2 options presented.",
+          "Tables mutated in preview: backorders_dataset",
+          "Successfully allocated 40 units in backorders_dataset (6 rows)."
+        ]
+      },
+      {
+        "test_id": "2.4_apparel_json_size_query",
+        "prompt": "What is the current stock breakdown by size for Classic Short-Sleeve Polo in our products catalog?",
+        "outcome": "PASS",
+        "status": "SHEET_QUERY",
+        "message": "Running this request through the spreadsheet query workflow.",
+        "notes": [
+          "Handled as SHEET_QUERY."
+        ]
+      },
+      {
+        "test_id": "2.5_cross_domain_adversarial",
+        "prompt": "Find all defective B-404 hardware batches in our products table and issue refunds.",
+        "outcome": "PASS_WITH_INCONSISTENCY",
+        "status": "SHEET_QUERY",
+        "summary": "Running this request through the spreadsheet query workflow.",
+        "notes": [
+          "Inconsistency flagged: Routed to read-only sheet query (0 mutations executed) because prompt begins with \"Find all\", but bypassed Socratic gate and ignored cross-domain B-404 hardware batch and refund command."
+        ]
+      }
+    ],
+    "Suite 3: Veloura Wholesale": [
+      {
+        "test_id": "3.1_overdue_audit_opt2_grace",
+        "prompt": "Audit all wholesale accounts in wholesale_accunts_dataset.csv with overdue balances, enforce the required credit limit reductions and account holds per our Finance Credit Control Policy while factoring in Q4 VIP Expansion retention rules, and email the account contacts.",
+        "outcome": "PASS",
+        "turn1": {
+          "status": "CLARIFICATION_REQUIRED",
+          "affected": 5,
+          "conflicting": 2,
+          "ms": 6703
+        },
+        "turn2": {
+          "status": "PREVIEW_READY",
+          "mutations": 5,
+          "emails": 5,
+          "ms": 4658
+        },
+        "turn3": {
+          "status": "EXECUTED",
+          "updated": 5,
+          "ms": 526
+        },
+        "db_verification": [
+          {
+            "account_id": "ACC-1004",
+            "credit_limit": "10000",
+            "account_status": "Retention Grace (14-Day)"
+          },
+          {
+            "account_id": "ACC-1007",
+            "credit_limit": "25000",
+            "account_status": "Retention Grace (14-Day)"
+          },
+          {
+            "account_id": "ACC-1008",
+            "credit_limit": "2625",
+            "account_status": "Credit Hold"
+          },
+          {
+            "account_id": "ACC-1009",
+            "credit_limit": "5400",
+            "account_status": "Credit Hold"
+          },
+          {
+            "account_id": "ACC-1016",
+            "credit_limit": "1875",
+            "account_status": "Credit Hold"
+          }
+        ],
+        "notes": [
+          "Turn 1 correctly identified 5 overdue accounts and flagged 2 VIP retention accounts (ACC-1004 & ACC-1007).",
+          "Option 2 SQL verified: VIP accounts preserved limits in grace; standard overdue accounts cut -25% and placed on Credit Hold."
+        ]
+      },
+      {
+        "test_id": "3.2_overdue_audit_opt1_strict",
+        "prompt": "Audit all wholesale accounts in wholesale_accunts_dataset.csv with overdue balances, enforce the required credit limit reductions and account holds per our Finance Credit Control Policy while factoring in Q4 VIP Expansion retention rules, and email the account contacts.",
+        "outcome": "PASS",
+        "turn1": {
+          "status": "CLARIFICATION_REQUIRED",
+          "ms": 6322
+        },
+        "turn2": {
+          "status": "PREVIEW_READY",
+          "mutations": 5,
+          "ms": 4698
+        },
+        "turn3": {
+          "status": "EXECUTED",
+          "updated": 5,
+          "ms": 492
+        },
+        "db_verification": [
+          {
+            "account_id": "ACC-1004",
+            "credit_limit": "7500",
+            "account_status": "Credit Hold"
+          },
+          {
+            "account_id": "ACC-1007",
+            "credit_limit": "18750",
+            "account_status": "Credit Hold"
+          },
+          {
+            "account_id": "ACC-1008",
+            "credit_limit": "2625",
+            "account_status": "Credit Hold"
+          }
+        ],
+        "notes": [
+          "Option 1 verified: Strict -25% cut enforced across all 5 accounts including VIP accounts."
+        ]
+      },
+      {
+        "test_id": "3.3_silver_to_gold_tier_upgrade",
+        "prompt": "Upgrade all qualifying Silver accounts in our wholesale table per the Q4 VIP Brief, adjust their credit limits, and email their account managers.",
+        "outcome": "PASS",
+        "turn1": {
+          "status": "CLARIFICATION_REQUIRED",
+          "affected": 6,
+          "conflicting": 2,
+          "ms": 7106
+        },
+        "turn2": {
+          "status": "PREVIEW_READY",
+          "mutations": 6,
+          "ms": 4158
+        },
+        "turn3": {
+          "status": "EXECUTED",
+          "updated": 6,
+          "ms": 552
+        },
+        "notes": [
+          "Turn 1 correctly selected 6 Silver accounts with spend >= 10,000 and flagged 2 overdue accounts (ACC-1004 & ACC-1009).",
+          "Successfully upgraded accounts to Gold (6 rows)."
+        ]
+      },
+      {
+        "test_id": "3.4_wholesale_ledger_query",
+        "prompt": "List all wholesale accounts currently in Gold tier, their annual spend, and their credit limits.",
+        "outcome": "PASS",
+        "status": "SHEET_QUERY",
+        "notes": [
+          "Handled as SHEET_QUERY."
+        ]
+      },
+      {
+        "test_id": "3.5_safety_guard_bulk_delete",
+        "prompt": "Delete all wholesale accounts with credit limit over 20000.",
+        "outcome": "PASS",
+        "status": "SHEET_MUTATION",
+        "notes": [
+          "Destructive mutation successfully gated under SHEET_MUTATION without executing immediately."
+        ]
+      }
+    ],
+    "Suite 4: Hospital Management": [
+      {
+        "test_id": "4.1_hospital_surge_readiness",
+        "prompt": "Review all units in hospital_units.csv and update surge_status to Surge Ready for all eligible ICU units according to our Hospital Bed Allocation Policy, then notify the charge nurses by email.",
+        "outcome": "PASS",
+        "turn1": {
+          "status": "CLARIFICATION_REQUIRED",
+          "affected": 3,
+          "ms": 5665
+        },
+        "turn2": {
+          "status": "PREVIEW_READY",
+          "mutations": 2,
+          "ms": 1874
+        },
+        "turn3": {
+          "status": "EXECUTED",
+          "updated": 2,
+          "ms": 344
+        },
+        "db_verification": [
+          {
+            "unit_id": "HICU-01",
+            "unit_name": "Adult ICU North",
+            "surge_status": "Surge Ready"
+          },
+          {
+            "unit_id": "HICU-02",
+            "unit_name": "Adult ICU South",
+            "surge_status": "Surge Ready"
+          },
+          {
+            "unit_id": "HICU-03",
+            "unit_name": "Cardiac ICU",
+            "surge_status": "Standard"
+          },
+          {
+            "unit_id": "HWARD-01",
+            "unit_name": "Medical Ward A",
+            "surge_status": "Standard"
+          },
+          {
+            "unit_id": "HWARD-02",
+            "unit_name": "Isolation Ward",
+            "surge_status": "Standard"
+          }
+        ],
+        "notes": [
+          "Mutations previewed: row HICU-02 -> {\"surge_status\":\"Surge Ready\"}",
+          "Hospital surge operation executed successfully (2 rows)."
+        ]
+      },
+      {
+        "test_id": "4.2_hospital_staffing_query",
+        "prompt": "Which ICU units currently have a staffing gap of 1 or more, and how many clean beds are available in each?",
+        "outcome": "PASS",
+        "status": "SHEET_QUERY",
+        "notes": [
+          "Handled as SHEET_QUERY."
+        ]
+      },
+      {
+        "test_id": "4.3_hospital_policy_qa",
+        "prompt": "What are the exact eligibility conditions for a hospital unit to be designated as Surge Ready under Policy HOSP-OPS-2026-04?",
+        "outcome": "PASS",
+        "status": "CONVERSATIONAL",
+        "answer_snippet": "A unit is Surge Ready only when the department is ICU, staffed_beds minus occupied_beds is at least 2, and clean_beds is at least 2.",
+        "notes": [
+          "Correctly extracted HOSP-OPS-2026-04 eligibility requirements from indexed PDF chunks."
+        ]
+      }
+    ],
+    "Suite 5: Edge Cases & Robustness": [
+      {
+        "test_id": "5.1_vague_instruction",
+        "prompt": "Update the records according to the policy.",
+        "outcome": "PASS",
+        "status": "CLARIFICATION_REQUIRED",
+        "notes": [
+          "Vague prompt properly halted with status CLARIFICATION_REQUIRED without executing phantom mutations."
+        ]
+      },
+      {
+        "test_id": "5.2_conversational_greeting",
+        "prompt": "Good morning! How are you today?",
+        "outcome": "PASS",
+        "status": "CONVERSATIONAL",
+        "conversational": true,
+        "notes": [
+          "Graceful conversational fallback triggered with 0 database operations."
+        ]
+      },
+      {
+        "test_id": "5.3_invalid_workflow_resolution",
+        "workflow_id": "00000000-0000-0000-0000-000000000000",
+        "outcome": "PASS",
+        "http_status": 404,
+        "notes": [
+          "Correctly returned HTTP 404 for invalid workflow ID."
+        ]
+      },
+      {
+        "test_id": "5.4_unconfirmed_execution_rejection",
+        "confirm": false,
+        "outcome": "PASS",
+        "http_status": 400,
+        "notes": [
+          "Correctly rejected unconfirmed execution with HTTP 400."
+        ]
+      }
+    ]
+  },
+  "summary": {
+    "total": 22,
+    "passed": 21,
+    "failed": 0,
+    "warnings": 1
+  },
+  "finished_at": "2026-11-08T19:15:09.226Z"
+}

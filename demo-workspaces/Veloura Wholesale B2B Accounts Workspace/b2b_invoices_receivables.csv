@@ -1,0 +1,11 @@
+invoice_id,account_id,company_name,invoice_date,due_date,days_past_due,invoice_amount_usd,amount_overdue_usd,currency,dispute_status,wire_reference,escalation_stage
+INV-2026-8801,ACC-1004,Vanguard Garment Distributors,2026-07-11,2026-08-10,92,6400,1850,USD,None,SWIFT-HK-90412 (Pending Clearing),90+ Days / VIP Retention Check
+INV-2026-8802,ACC-1007,Monarch Textile Traders,2026-08-17,2026-09-16,55,9800,1200,USD,Partial FX Fee Dispute,None,31-60 Days / Gold Discretionary Grace
+INV-2026-8803,ACC-1008,Pinecrest Dry Goods,2026-08-07,2026-09-06,66,3100,450,USD,None,None,61-90 Days / Mandatory Credit Hold
+INV-2026-8804,ACC-1009,Crestview Department Stores,2026-08-03,2026-09-02,69,5900,920,USD,Short-Ship Invoice Query,None,61-90 Days / Arrears vs Dispute Review
+INV-2026-8805,ACC-1016,Redstone Menswear Guild,2026-07-30,2026-08-29,73,2100,310,USD,None,None,61-90 Days / Mandatory Credit Hold
+INV-2026-8806,ACC-1017,Kensington Bespoke Clothiers,2026-10-05,2026-11-04,0,18500,0,GBP-Pegged USD,None,WIRE-UK-33219 (Settled),Current / Platinum Candidate
+INV-2026-8807,ACC-1018,Mitsukoshi Sartorial Group,2026-10-09,2026-11-08,0,16200,0,JPY-Hedged USD,None,WIRE-JP-77410 (Settled),Current / Platinum Candidate
+INV-2026-8808,ACC-1023,Valparaiso Boutique Syndicate,2026-10-12,2026-11-11,0,7800,0,USD (LATAM FX +3% Buffer),None,WIRE-CL-51002 (Settled),Current / LATAM FX Verified
+INV-2026-8809,ACC-1001,Apex Apparel Group,2026-10-14,2026-11-13,0,5400,0,USD,None,WIRE-US-11820 (Settled),Current / Clean Upgrade Eligible
+INV-2026-8810,ACC-1012,Sterling Heritage Apparel,2026-10-18,2026-11-17,0,12400,0,USD,None,WIRE-UK-88341 (Settled),Current / Benchmark Gold

@@ -6,11 +6,20 @@ const assert = require('node:assert/strict');
 const { parse } = require('csv-parse/sync');
 const app = require('../src/app');
 const { setPool } = require('../db');
+const AppError = require('../src/utils/AppError');
 const {
   setGeminiGenerator,
   setAnnouncementGeminiGenerator,
 } = require('../src/services/geminiService');
 const { setMailTransporter } = require('../src/services/emailService');
+const {
+  getSchema,
+  registerTableSchema,
+} = require('../src/services/sheetSchemaService');
+const {
+  ingestDocument,
+  clearDocumentsForBusiness,
+} = require('../src/services/documentIngestionService');
 const {
   retrieveRelevantContextForBusiness,
 } = require('../src/services/contextRetrievalService');
@@ -32,6 +41,7 @@ function createInMemoryPostgresPool() {
   let messages = []; // Array of { id, conversation_id, sender_type, content, created_at }
   let announcements = new Map(); // id -> announcement object
   let announcementRecipients = []; // Array of recipient delivery objects
+  let dynamicTableRows = new Map();
   let nextEntryId = 1;
   let monotonicClock = Date.now();
 
@@ -57,6 +67,12 @@ function createInMemoryPostgresPool() {
         Array.from(announcements.entries()).map(([k, v]) => [k, { ...v }])
       ),
       announcementRecipients: announcementRecipients.map((r) => ({ ...r })),
+      dynamicTableRows: new Map(
+        Array.from(dynamicTableRows.entries()).map(([key, rows]) => [
+          key,
+          rows.map((row) => ({ ...row })),
+        ])
+      ),
       nextEntryId,
     };
   }
@@ -69,6 +85,7 @@ function createInMemoryPostgresPool() {
     messages = snapshot.messages;
     announcements = snapshot.announcements;
     announcementRecipients = snapshot.announcementRecipients;
+    dynamicTableRows = snapshot.dynamicTableRows;
     nextEntryId = snapshot.nextEntryId;
   }
 
@@ -79,12 +96,60 @@ function createInMemoryPostgresPool() {
       return { rows: [{ '?column?': 1 }], rowCount: 1 };
     }
 
-    // Businesses
-    if (normalized.startsWith('INSERT INTO BUSINESSES')) {
-      const [id, name] = params;
+    if (
+      normalized.startsWith(
+        'SELECT ID, WORKSPACE_ID, TABLE_NAME, SOURCE_FILENAME, ROW_COUNT, PRIMARY_KEY_COLUMN, EMAIL_COLUMN, COLUMNS_PROFILE, SAMPLE_ROWS, TABLE_SUMMARY, UPDATED_AT FROM WORKSPACE_TABLE_METADATA'
+      )
+    ) {
+      return { rows: [], rowCount: 0 };
+    }
+    if (
+      normalized.startsWith(
+        'SELECT TABLE_NAME FROM INFORMATION_SCHEMA.COLUMNS'
+      )
+    ) {
+      const tableNames = new Set(
+        Array.from(dynamicTableRows.keys()).map((key) => key.split(':')[0])
+      );
+      return {
+        rows: Array.from(tableNames).map((table_name) => ({ table_name })),
+        rowCount: tableNames.size,
+      };
+    }
+    if (normalized.includes('FROM INFORMATION_SCHEMA.COLUMNS')) {
+      const schema = getSchema(params[0]);
+      const rows = schema
+        ? Object.entries(schema.columns)
+            .filter(([, column]) => !column.virtual)
+            .map(([columnName, column]) => ({
+              column_name: column.exactName || columnName,
+              data_type: column.type === 'number' ? 'numeric' : column.type,
+              udt_name: column.storageType || column.type,
+              is_nullable: column.required ? 'NO' : 'YES',
+            }))
+        : [];
+      return { rows, rowCount: rows.length };
+    }
+
+    // Workspaces / Businesses
+    if (
+      normalized.startsWith('SELECT ID FROM USERS ORDER BY CREATED_AT ASC LIMIT 1')
+    ) {
+      const firstUser = Array.from(customers.values())[0];
+      return firstUser
+        ? { rows: [{ id: firstUser.id }], rowCount: 1 }
+        : { rows: [], rowCount: 0 };
+    }
+
+    if (
+      normalized.startsWith('INSERT INTO BUSINESSES') ||
+      normalized.startsWith('INSERT INTO WORKSPACES')
+    ) {
+      const [id, name, userId] = params;
       const row = {
         id: id || crypto.randomUUID(),
         name,
+        user_id: userId || null,
         created_at: nextIsoTimestamp(),
       };
       businesses.set(row.id, row);
@@ -94,6 +159,9 @@ function createInMemoryPostgresPool() {
     if (
       normalized.startsWith(
         'SELECT ID, NAME, CREATED_AT FROM BUSINESSES WHERE ID = $1'
+      ) ||
+      normalized.startsWith(
+        'SELECT ID, NAME, USER_ID, CREATED_AT FROM WORKSPACES WHERE ID = $1'
       )
     ) {
       const [id] = params;
@@ -104,7 +172,23 @@ function createInMemoryPostgresPool() {
       return { rows: [{ ...biz }], rowCount: 1 };
     }
 
+    if (normalized.startsWith('SELECT USER_ID FROM WORKSPACES WHERE ID = $1')) {
+      const workspace = businesses.get(params[0]);
+      return workspace
+        ? { rows: [{ user_id: workspace.user_id }], rowCount: 1 }
+        : { rows: [], rowCount: 0 };
+    }
+
     // Context Entries
+    if (
+      normalized.startsWith('DELETE FROM WORKSPACE_DOCUMENT_CHUNKS') ||
+      normalized.startsWith('DELETE FROM WORKSPACE_DOCUMENTS') ||
+      normalized.startsWith('INSERT INTO WORKSPACE_DOCUMENTS') ||
+      normalized.startsWith('INSERT INTO WORKSPACE_DOCUMENT_CHUNKS')
+    ) {
+      return { rows: [], rowCount: 1 };
+    }
+
     if (normalized.startsWith('INSERT INTO CONTEXT_ENTRIES')) {
       const [businessId, category, title, content, sourceFile] = params;
       if (!businesses.has(businessId)) {
@@ -161,7 +245,21 @@ function createInMemoryPostgresPool() {
       return { rows, rowCount: rows.length };
     }
 
-    // Customers
+    // Users / Customers
+    if (
+      normalized.startsWith(
+        'SELECT ID, NAME AS CUSTOMER_NAME, NAME, EMAIL, CREATED_AT, UPDATED_AT FROM USERS WHERE LOWER(EMAIL) = $1'
+      )
+    ) {
+      const [email] = params;
+      const found = Array.from(customers.values()).find(
+        (c) => String(c.email || '').toLowerCase() === String(email || '').toLowerCase()
+      );
+      return found
+        ? { rows: [{ ...found }], rowCount: 1 }
+        : { rows: [], rowCount: 0 };
+    }
+
     if (
       normalized.startsWith(
         'SELECT ID, BUSINESS_ID, CUSTOMER_NAME, EMAIL, EXTERNAL_CUSTOMER_ID, CREATED_AT, UPDATED_AT FROM CUSTOMERS WHERE BUSINESS_ID = $1 AND EMAIL = $2'
@@ -174,6 +272,34 @@ function createInMemoryPostgresPool() {
       return found
         ? { rows: [{ ...found }], rowCount: 1 }
         : { rows: [], rowCount: 0 };
+    }
+
+    if (normalized.startsWith('INSERT INTO USERS')) {
+      const [id, name, email] = params;
+      const now = nextIsoTimestamp();
+      const existing = Array.from(customers.values()).find(
+        (c) =>
+          c.email !== null &&
+          c.email !== undefined &&
+          String(c.email).toLowerCase() === String(email || '').toLowerCase()
+      );
+      if (existing) {
+        const uqErr = new Error(
+          'duplicate key value violates unique constraint "users_email_key"'
+        );
+        uqErr.code = '23505';
+        throw uqErr;
+      }
+      const row = {
+        id: id || crypto.randomUUID(),
+        customer_name: name,
+        name,
+        email,
+        created_at: now,
+        updated_at: now,
+      };
+      customers.set(row.id, row);
+      return { rows: [{ ...row }], rowCount: 1 };
     }
 
     if (normalized.startsWith('INSERT INTO CUSTOMERS')) {
@@ -245,6 +371,9 @@ function createInMemoryPostgresPool() {
 
     if (
       normalized.startsWith(
+        'SELECT ID, NAME AS CUSTOMER_NAME, NAME, EMAIL, CREATED_AT, UPDATED_AT FROM USERS WHERE ID = $1'
+      ) ||
+      normalized.startsWith(
         'SELECT ID, BUSINESS_ID, CUSTOMER_NAME, EMAIL, EXTERNAL_CUSTOMER_ID, CREATED_AT, UPDATED_AT FROM CUSTOMERS WHERE ID = $1'
       )
     ) {
@@ -256,13 +385,94 @@ function createInMemoryPostgresPool() {
       return { rows: [{ ...cust }], rowCount: 1 };
     }
 
-    if (normalized.startsWith('UPDATE CUSTOMERS SET CREATED_AT = $2 WHERE ID = $1')) {
+    if (
+      normalized.startsWith('UPDATE CUSTOMERS SET CREATED_AT = $2 WHERE ID = $1') ||
+      normalized.startsWith('UPDATE USERS SET CREATED_AT = $2 WHERE ID = $1')
+    ) {
       const [id, createdAt] = params;
       const cust = customers.get(id);
       if (!cust) return { rows: [], rowCount: 0 };
       cust.created_at = new Date(createdAt).toISOString();
       customers.set(id, cust);
       return { rows: [{ ...cust }], rowCount: 1 };
+    }
+
+    if (
+      normalized.startsWith(
+        'SELECT ID, NAME AS CUSTOMER_NAME, NAME, EMAIL, CREATED_AT, UPDATED_AT FROM USERS WHERE NAME IS NOT NULL'
+      )
+    ) {
+      let rows = Array.from(customers.values()).filter(
+        (c) =>
+          (c.name || c.customer_name) &&
+          String(c.name || c.customer_name).trim().length > 0 &&
+          c.email &&
+          String(c.email).trim().length > 0
+      );
+
+      for (let i = 0; i < params.length; i += 1) {
+        const val = params[i];
+        const ph = `$${i + 1}`;
+        if (normalized.includes(`CREATED_AT > ${ph}`)) {
+          const cutoff = new Date(val).getTime();
+          rows = rows.filter((c) => new Date(c.created_at).getTime() > cutoff);
+        } else if (normalized.includes(`CREATED_AT >= ${ph}`)) {
+          const cutoff = new Date(val).getTime();
+          rows = rows.filter((c) => new Date(c.created_at).getTime() >= cutoff);
+        } else if (normalized.includes(`CREATED_AT < ${ph}`)) {
+          const cutoff = new Date(val).getTime();
+          rows = rows.filter((c) => new Date(c.created_at).getTime() < cutoff);
+        } else if (normalized.includes(`CREATED_AT <= ${ph}`)) {
+          const cutoff = new Date(val).getTime();
+          rows = rows.filter((c) => new Date(c.created_at).getTime() <= cutoff);
+        } else if (normalized.includes(`CREATED_AT::DATE = ${ph}::DATE`)) {
+          const targetDate = String(val).slice(0, 10);
+          rows = rows.filter((c) => String(c.created_at).slice(0, 10) === targetDate);
+        } else if (normalized.includes(`LOWER(EMAIL) = ${ph}`)) {
+          rows = rows.filter((c) => String(c.email).toLowerCase() === String(val).toLowerCase());
+        } else if (normalized.includes(`EMAIL ILIKE ${ph}`)) {
+          const rawPat = String(val).toLowerCase();
+          if (rawPat.startsWith('%') && rawPat.endsWith('%')) {
+            rows = rows.filter((c) => c.email.toLowerCase().includes(rawPat.slice(1, -1)));
+          } else if (rawPat.startsWith('%')) {
+            rows = rows.filter((c) => c.email.toLowerCase().endsWith(rawPat.slice(1)));
+          } else {
+            rows = rows.filter((c) => c.email.toLowerCase().includes(rawPat));
+          }
+        } else if (normalized.includes(`LOWER(NAME) = ${ph}`)) {
+          rows = rows.filter((c) => String(c.name || c.customer_name).toLowerCase() === String(val).toLowerCase());
+        } else if (normalized.includes(`NAME ILIKE ${ph}`)) {
+          const rawPat = String(val).toLowerCase();
+          if (rawPat.startsWith('%') && rawPat.endsWith('%')) {
+            rows = rows.filter((c) => String(c.name || c.customer_name).toLowerCase().includes(rawPat.slice(1, -1)));
+          } else if (rawPat.startsWith('%')) {
+            rows = rows.filter((c) => String(c.name || c.customer_name).toLowerCase().endsWith(rawPat.slice(1)));
+          } else {
+            rows = rows.filter((c) => String(c.name || c.customer_name).toLowerCase().includes(rawPat));
+          }
+        }
+      }
+
+      rows = rows
+        .sort((a, b) => {
+          const tDiff =
+            new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+          if (tDiff !== 0) return tDiff;
+          return a.id.localeCompare(b.id);
+        })
+        .map((c) => ({ ...c }));
+      return { rows, rowCount: rows.length };
+    }
+
+    if (normalized.startsWith('SELECT COUNT(*)::INT AS COUNT FROM USERS')) {
+      const count = Array.from(customers.values()).filter(
+        (c) =>
+          (c.name || c.customer_name) &&
+          String(c.name || c.customer_name).trim().length > 0 &&
+          c.email &&
+          String(c.email).trim().length > 0
+      ).length;
+      return { rows: [{ count }], rowCount: 1 };
     }
 
     if (
@@ -336,18 +546,17 @@ function createInMemoryPostgresPool() {
     if (normalized.startsWith('INSERT INTO CONVERSATIONS')) {
       const [businessId, customerId, status] = params;
       if (!businesses.has(businessId)) {
-        const fkErr = new Error('Foreign key violation on businesses');
+        const fkErr = new Error('Foreign key violation on workspaces');
         fkErr.code = '23503';
         throw fkErr;
       }
       const cust = customers.get(customerId);
       if (!cust) {
-        const fkErr = new Error('Foreign key violation on customers');
+        const fkErr = new Error('Foreign key violation on users');
         fkErr.code = '23503';
         throw fkErr;
       }
-      // Composite FK constraint (customer_id, business_id) REFERENCES customers(id, business_id)
-      if (cust.business_id !== businessId) {
+      if (cust.business_id && cust.business_id !== businessId) {
         const fkErr = new Error(
           'insert or update on table "conversations" violates foreign key constraint "fk_conversations_customer_business"'
         );
@@ -388,6 +597,19 @@ function createInMemoryPostgresPool() {
         return { rows: [], rowCount: 0 };
       }
       return { rows: [{ ...conv }], rowCount: 1 };
+    }
+
+    if (
+      normalized.startsWith(
+        'SELECT ID, STATUS FROM CONVERSATIONS WHERE ID = $1 AND BUSINESS_ID = $2 FOR UPDATE'
+      )
+    ) {
+      const [conversationId, businessId] = params;
+      const conv = conversations.get(conversationId);
+      if (!conv || conv.business_id !== businessId) {
+        return { rows: [], rowCount: 0 };
+      }
+      return { rows: [{ id: conv.id, status: conv.status }], rowCount: 1 };
     }
 
     if (
@@ -529,6 +751,25 @@ function createInMemoryPostgresPool() {
 
     if (
       normalized.startsWith(
+        'UPDATE MESSAGES SET AI_SUGGESTION = $3, AI_CATEGORY = $4, AI_MISSING_INFO = $5::JSONB WHERE ID = $1 AND CONVERSATION_ID = $2'
+      )
+    ) {
+      const [messageId, conversationId, suggestion, category, missingInfo] =
+        params;
+      const msg = messages.find(
+        (m) => m.id === messageId && m.conversation_id === conversationId
+      );
+      if (!msg) {
+        return { rows: [], rowCount: 0 };
+      }
+      msg.ai_suggestion = suggestion;
+      msg.ai_category = category;
+      msg.ai_missing_info = missingInfo;
+      return { rows: [{ ...msg }], rowCount: 1 };
+    }
+
+    if (
+      normalized.startsWith(
         'UPDATE MESSAGES SET AI_SUGGESTION = $2, AI_CATEGORY = $3, AI_MISSING_INFO = $4::JSONB WHERE ID = $1'
       )
     ) {
@@ -544,6 +785,27 @@ function createInMemoryPostgresPool() {
     }
 
     // Full chronological messages for a conversation
+    if (
+      normalized.startsWith(
+        'SELECT ID, SENDER_TYPE FROM MESSAGES WHERE CONVERSATION_ID = $1 ORDER BY CREATED_AT DESC, ID DESC LIMIT 1'
+      )
+    ) {
+      const [conversationId] = params;
+      const conversationMessages = messages
+        .filter((m) => m.conversation_id === conversationId)
+        .sort((a, b) => {
+          const timeDiff =
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+          if (timeDiff !== 0) return timeDiff;
+          return b.id.localeCompare(a.id);
+        });
+      const latest = conversationMessages[0];
+      return {
+        rows: latest ? [{ id: latest.id, sender_type: latest.sender_type }] : [],
+        rowCount: latest ? 1 : 0,
+      };
+    }
+
     if (
       normalized.startsWith(
         'SELECT ID, CONVERSATION_ID, SENDER_TYPE, CONTENT, CREATED_AT FROM MESSAGES WHERE CONVERSATION_ID = $1 ORDER BY CREATED_AT ASC, ID ASC'
@@ -759,6 +1021,23 @@ function createInMemoryPostgresPool() {
       return { rows: [{ ...row }], rowCount: 1 };
     }
 
+    const dynamicTableQuery = normalized.match(
+      /^SELECT \* FROM "?([A-Z0-9_]+)"? WHERE (.+) LIMIT \d+;?$/
+    );
+    if (
+      dynamicTableQuery &&
+      /(?:BUSINESS_ID|WORKSPACE_ID)"?\s*=\s*\$1/.test(dynamicTableQuery[2])
+    ) {
+      const workspaceRows =
+        dynamicTableRows.get(
+          `${dynamicTableQuery[1].toLowerCase()}:${params[0]}`
+        ) || [];
+      return {
+        rows: workspaceRows.map((row) => ({ ...row })),
+        rowCount: workspaceRows.length,
+      };
+    }
+
     throw new Error(`Unsupported SQL in test pool: ${normalized}`);
   }
 
@@ -807,6 +1086,12 @@ function createInMemoryPostgresPool() {
     getInternalAnnouncementRecipients() {
       return announcementRecipients;
     },
+    setTableRows(tableName, workspaceId, rows) {
+      dynamicTableRows.set(
+        `${String(tableName).toLowerCase()}:${workspaceId}`,
+        rows.map((row) => ({ ...row }))
+      );
+    },
   };
 }
 
@@ -817,6 +1102,8 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
   let businessAId;
   let businessBId;
   let lastDispatchedPrompt = '';
+  let replyGenerationCount = 0;
+  let supportGenerator;
   let lastDispatchedAnnouncementPrompt = '';
   let sentEmailsLog = [];
   let failingEmailsSet = new Set();
@@ -825,17 +1112,26 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     mockPool = createInMemoryPostgresPool();
     setPool(mockPool);
 
-    setGeminiGenerator(async (promptText) => {
+    supportGenerator = async (promptText) => {
+      replyGenerationCount += 1;
       lastDispatchedPrompt = promptText;
+      const lowerPrompt = promptText.toLowerCase();
+      const groundedReply = lowerPrompt.includes('available_time: 2 pm')
+        ? 'We have a renovation consultation opening at 2 PM. Our policy asks for rescheduling requests at least 24 hours before the appointment; please confirm if you would like us to hold that time.'
+        : lowerPrompt.includes('gadget shipping policy')
+          ? 'Our active workspace shipping policy says gadget orders ship within 2 business days.'
+          : lowerPrompt.includes('3-day grace extension')
+            ? 'Our active workspace billing policy allows a 3-day grace extension. Please share your account reference so the team can review your balance.'
+            : 'Thank you for reaching out. I do not have enough information in this workspace to confirm that, so I will ask the support team to review it.';
       return {
-        category: 'cancellation_policy',
-        suggestions: [
-          'We would be happy to help you reschedule your appointment. Please let us know at least 24 hours in advance and share your preferred time.',
-          'Extra suggestion that must be stripped to enforce singularity.',
-        ],
-        missing_information: ['Preferred new appointment date and time'],
+        category: 'workspace_support',
+        suggestions: [groundedReply, 'Extra suggestion that must be stripped.'],
+        missing_information: lowerPrompt.includes('active_workspace_context')
+          ? []
+          : ['Relevant workspace records'],
       };
-    });
+    };
+    setGeminiGenerator(supportGenerator);
 
     setAnnouncementGeminiGenerator(async (promptText) => {
       lastDispatchedAnnouncementPrompt = promptText;
@@ -1149,7 +1445,9 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.deepEqual(getBody.messages, []);
   });
 
-  it('9. First and second customer messages save AI suggestion server-side without exposing it to customer, include earlier conversation in prompt, preserve chronological order, and do not fabricate agent messages', async () => {
+  it('9. Customer messages do not generate replies automatically; an explicit reply draft uses only active-workspace docs and sheet rows', async () => {
+    lastDispatchedPrompt = '';
+    replyGenerationCount = 0;
     const beforeConvRes = await fetch(
       `${baseUrl}/api/businesses/${businessAId}/conversations/${conversationAId}`
     );
@@ -1180,12 +1478,8 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.equal(savedMsg1.ai_draft_reply, undefined);
     assert.equal(savedMsg1.category, undefined);
 
-    const prompt1 = lastDispatchedPrompt;
-
-    // On first message, there was no prior history before this message
-    assert.ok(prompt1.includes('No prior messages in this conversation.'));
-    assert.ok(prompt1.includes('Can you reschedule my appointment?'));
-    assert.ok(prompt1.includes('Title: Appointment Cancellation'));
+    assert.equal(replyGenerationCount, 0);
+    assert.equal(lastDispatchedPrompt, '');
 
     // Second customer message ("Tomorrow afternoon.")
     const msg2Res = await fetch(
@@ -1203,22 +1497,8 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.equal(savedMsg2.sender_type, 'customer');
     assert.equal(savedMsg2.suggestions, undefined);
     assert.equal(savedMsg2.ai_suggestion, undefined);
-    const prompt2 = lastDispatchedPrompt;
-
-    // Prompt 2 MUST include the earlier conversation in CONVERSATION HISTORY
-    assert.ok(
-      prompt2.includes(
-        '[Message 1] Customer (customer): Can you reschedule my appointment?'
-      )
-    );
-    // And the latest customer message in CUSTOMER MESSAGE
-    assert.match(
-      prompt2,
-      /<customer_message>\s*Tomorrow afternoon\.\s*<\/customer_message>/
-    );
-    // And relevant business context for Business A only
-    assert.ok(prompt2.includes('Business Name: Example Home Renovations'));
-    assert.ok(prompt2.includes('Title: Appointment Cancellation'));
+    assert.equal(replyGenerationCount, 0);
+    assert.equal(lastDispatchedPrompt, '');
 
     // Third customer message to further verify chronological ordering
     const msg3Res = await fetch(
@@ -1235,14 +1515,107 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     const savedMsg3 = await msg3Res.json();
     assert.equal(savedMsg3.sender_type, 'customer');
     assert.equal(savedMsg3.suggestions, undefined);
-    const prompt3 = lastDispatchedPrompt;
-    const idxMsg1 = prompt3.indexOf(
-      '[Message 1] Customer (customer): Can you reschedule my appointment?'
+    assert.equal(replyGenerationCount, 0);
+    assert.equal(lastDispatchedPrompt, '');
+
+    await clearDocumentsForBusiness(businessAId);
+    await clearDocumentsForBusiness(businessBId);
+    await ingestDocument({
+      businessId: businessAId,
+      filename: 'appointment-policy.txt',
+      buffer:
+        'Appointment policy: rescheduling requests made at least 24 hours before the appointment can be accommodated. A 2 PM renovation appointment is available when the appointment schedule shows an open slot.',
+    });
+    await ingestDocument({
+      businessId: businessBId,
+      filename: 'private-gadget-policy.txt',
+      buffer: 'OTHER_WORKSPACE_SECRET: gadget warranty coverage is 9 years.',
+    });
+
+    const tableName = `appointment_slots_${businessAId.replace(/-/g, '').slice(0, 8)}`;
+    registerTableSchema(tableName, {
+      entity: tableName,
+      tableName,
+      displayName: 'Appointment Slots',
+      columns: {
+        id: { exactName: 'id', type: 'uuid' },
+        business_id: { exactName: 'business_id', type: 'uuid' },
+        workspace_id: { exactName: 'workspace_id', type: 'uuid' },
+        appointment_type: { exactName: 'Appointment_Type', type: 'string' },
+        available_time: { exactName: 'Available_Time', type: 'string' },
+        status: { exactName: 'Status', type: 'string' },
+      },
+      representativeValues: {
+        Appointment_Type: ['renovation'],
+        Available_Time: ['2 PM'],
+        Status: ['Available'],
+      },
+    });
+    mockPool.setTableRows(tableName, businessAId, [
+      {
+        id: crypto.randomUUID(),
+        business_id: businessAId,
+        workspace_id: businessAId,
+        Appointment_Type: 'Renovation consultation',
+        Available_Time: '2 PM',
+        Status: 'Available',
+      },
+    ]);
+    mockPool.setTableRows(tableName, businessBId, [
+      {
+        id: crypto.randomUUID(),
+        business_id: businessBId,
+        workspace_id: businessBId,
+        Appointment_Type: 'OTHER_WORKSPACE_ROW_SECRET',
+        Available_Time: '11 PM',
+        Status: 'Unavailable',
+      },
+    ]);
+
+    const deniedDraftRes = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/conversations/${conversationAId}/reply-draft`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        },
+        body: JSON.stringify({}),
+      }
     );
-    const idxMsg2 = prompt3.indexOf(
-      '[Message 2] Customer (customer): Tomorrow afternoon.'
+    assert.equal(deniedDraftRes.status, 403);
+    assert.equal(replyGenerationCount, 0);
+
+    const generateRes = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/conversations/${conversationAId}/reply-draft`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': '48244777-c7a4-4e30-be4b-fe1104e443b8',
+        },
+        body: JSON.stringify({}),
+      }
     );
-    assert.ok(idxMsg1 !== -1 && idxMsg2 !== -1 && idxMsg1 < idxMsg2);
+    assert.equal(generateRes.status, 200);
+    const generatedDraft = await generateRes.json();
+    assert.equal(generatedDraft.source_message_id, savedMsg3.id);
+    assert.match(generatedDraft.ai_draft_reply, /reschedul/i);
+    assert.equal(replyGenerationCount, 1);
+    assert.ok(lastDispatchedPrompt.includes('Example Home Renovations'));
+    assert.ok(lastDispatchedPrompt.includes('appointment-policy.txt'));
+    assert.ok(lastDispatchedPrompt.includes('24 hours'));
+    assert.ok(lastDispatchedPrompt.includes('Available_Time: 2 PM'));
+    assert.ok(lastDispatchedPrompt.includes('Status: Available'));
+    assert.ok(!lastDispatchedPrompt.includes('OTHER_WORKSPACE_ROW_SECRET'));
+    assert.ok(lastDispatchedPrompt.includes('Can you reschedule my appointment?'));
+    assert.ok(lastDispatchedPrompt.includes('Tomorrow afternoon.'));
+    assert.match(
+      lastDispatchedPrompt,
+      /<customer_message>\s*Around 2 PM works best for me\.\s*<\/customer_message>/
+    );
+    assert.ok(!lastDispatchedPrompt.includes('OTHER_WORKSPACE_SECRET'));
+    assert.ok(!lastDispatchedPrompt.includes('gadget warranty coverage'));
 
     // Fetch conversation metadata and history via company GET endpoint
     const afterConvRes = await fetch(
@@ -1254,13 +1627,13 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     // Verify updated_at was updated when new messages were added
     assert.notEqual(afterConv.updated_at, beforeConv.updated_at);
 
-    // Confirm AI suggestion IS available on the company endpoint
+    // Explicitly generated AI draft is available on the company endpoint.
     assert.ok(afterConv.ai_draft_reply);
     assert.ok(afterConv.ai_suggestion);
-    assert.equal(afterConv.ai_suggestion.category, 'cancellation_policy');
+    assert.equal(afterConv.ai_suggestion.category, 'workspace_support');
     assert.ok(
       afterConv.ai_suggestion.suggestion.includes(
-        'We would be happy to help you reschedule your appointment.'
+        '2 PM'
       )
     );
 
@@ -1288,8 +1661,9 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     );
   });
 
-  it('10. Rejects a conversation ID that belongs to another business and prevents cross-business customer assignment', async () => {
-    // Prevent a customer from Business B from being assigned to a conversation under Business A
+  it('10. Rejects a conversation ID that belongs to another business while allowing platform-global users across workspaces', async () => {
+    // Under the user-centric architecture, a platform user can initiate their own workspace conversation
+    // in Business A, while Business A's conversationAId remains strictly isolated from Business B (404).
     const crossCustomerConvRes = await fetch(
       `${baseUrl}/api/businesses/${businessAId}/conversations`,
       {
@@ -1298,9 +1672,10 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
         body: JSON.stringify({ customer_id: customerBId }),
       }
     );
-    assert.equal(crossCustomerConvRes.status, 400);
-    const crossCustomerErr = await crossCustomerConvRes.json();
-    assert.match(crossCustomerErr.error, /does not belong to the specified business/i);
+    assert.equal(crossCustomerConvRes.status, 201);
+    const crossConv = await crossCustomerConvRes.json();
+    assert.equal(crossConv.business_id, businessAId);
+    assert.equal(crossConv.customer_id, customerBId);
 
     // Reject GET for Business A's conversation when accessed under Business B
     const wrongBizGetRes = await fetch(
@@ -1406,7 +1781,7 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.equal(checkConv.messages.length, 3);
   });
 
-  it('13. Bounds prompt conversation history to the latest 20 messages and isolates business context', async () => {
+  it('13. Generates only on demand, limits reply context to five prior messages, and isolates the active workspace', async () => {
     // Seed context specifically for Business B
     await mockPool.query(
       'INSERT INTO context_entries (business_id, category, title, content, source_file) VALUES ($1, $2, $3, $4, $5)',
@@ -1431,8 +1806,9 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.equal(convBRes.status, 201);
     const convB = await convBRes.json();
 
-    // Send 22 messages in Business B's conversation
-    let latestPrompt = '';
+    // Send 22 messages in Business B's conversation without invoking Gemini.
+    replyGenerationCount = 0;
+    lastDispatchedPrompt = '';
     for (let i = 1; i <= 22; i += 1) {
       const res = await fetch(
         `${baseUrl}/api/businesses/${businessBId}/conversations/${convB.id}/messages`,
@@ -1448,28 +1824,52 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
       const savedMsg = await res.json();
       assert.equal(savedMsg.sender_type, 'customer');
       assert.equal(savedMsg.suggestions, undefined);
-      latestPrompt = lastDispatchedPrompt;
     }
 
-    // Earliest messages (Turn-1 and Turn-2) must be dropped by the 20-message bound
+    assert.equal(replyGenerationCount, 0);
+    assert.equal(lastDispatchedPrompt, '');
+
+    await ingestDocument({
+      businessId: businessBId,
+      filename: 'gadget-shipping-policy.txt',
+      buffer: 'Gadget Shipping Policy: orders ship within 2 business days.',
+    });
+
+    const generateRes = await fetch(
+      `${baseUrl}/api/businesses/${businessBId}/conversations/${convB.id}/reply-draft`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': '48244777-c7a4-4e30-be4b-fe1104e443b8',
+        },
+        body: JSON.stringify({}),
+      }
+    );
+    assert.equal(generateRes.status, 200);
+    assert.equal(replyGenerationCount, 1);
+    const latestPrompt = lastDispatchedPrompt;
+
+    assert.ok(!latestPrompt.includes('Turn-16:'));
     assert.ok(!latestPrompt.includes('Turn-1:'));
-    assert.ok(!latestPrompt.includes('Turn-2:'));
-    // Turn-3 through Turn-21 are in CONVERSATION HISTORY, and Turn-22 is in CUSTOMER MESSAGE
-    assert.ok(latestPrompt.includes('Turn-3:'));
+    assert.ok(latestPrompt.includes('Turn-17:'));
     assert.ok(latestPrompt.includes('Turn-21:'));
     assert.match(
       latestPrompt,
       /<customer_message>\s*Turn-22: When will my gadget ship\?\s*<\/customer_message>/
     );
 
-    // Business B's prompt must include Business B's context and NEVER Business A's context
-    assert.ok(latestPrompt.includes('Business Name: Other Gadgets Corp'));
-    assert.ok(latestPrompt.includes('Title: Gadget Shipping'));
+    assert.ok(latestPrompt.includes('Name: Other Gadgets Corp'));
+    assert.ok(latestPrompt.includes('gadget-shipping-policy.txt'));
+    assert.ok(latestPrompt.includes('2 business days'));
+    assert.ok(!latestPrompt.includes('appointment-policy.txt'));
     assert.ok(!latestPrompt.includes('Example Home Renovations'));
-    assert.ok(!latestPrompt.includes('Appointment Cancellation'));
+    assert.ok(!latestPrompt.includes('24 hours'));
   });
 
-  it('14. Saves agent/user replies directly to DB without generating an AI prompt, and includes both customer and agent messages when the customer replies next', async () => {
+  it('14. Keeps every message generation-free and uses both customer and agent history only after explicit generation', async () => {
+    replyGenerationCount = 0;
+    lastDispatchedPrompt = '';
     // Create a fresh open conversation under Business A
     const convRes = await fetch(
       `${baseUrl}/api/businesses/${businessAId}/conversations`,
@@ -1482,7 +1882,7 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.equal(convRes.status, 201);
     const conv = await convRes.json();
 
-    // Turn 1: Customer sends initial message -> saves AI response server-side and returns only customer message
+    // Turn 1: Customer message is saved without generating a response.
     const custTurn1Res = await fetch(
       `${baseUrl}/api/businesses/${businessAId}/conversations/${conv.id}/messages`,
       {
@@ -1501,9 +1901,8 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     const savedCustTurn1 = await custTurn1Res.json();
     assert.equal(savedCustTurn1.sender_type, 'customer');
     assert.equal(savedCustTurn1.suggestions, undefined);
-    const promptTurn1 = lastDispatchedPrompt;
-    assert.ok(promptTurn1.includes('No prior messages in this conversation.'));
-    assert.ok(promptTurn1.includes('Can we reschedule the appointment?'));
+    assert.equal(replyGenerationCount, 0);
+    assert.equal(lastDispatchedPrompt, '');
 
     // Turn 2: User / Support Agent replies via dedicated /replies endpoint -> saves directly as JSON (201) WITHOUT generating a prompt
     const agentReply1Res = await fetch(
@@ -1528,8 +1927,21 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
       savedAgentReply1.content,
       'Yes of course, when do you prefer it?'
     );
+    const noPendingReplyRes = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/conversations/${conv.id}/reply-draft`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': '48244777-c7a4-4e30-be4b-fe1104e443b8',
+        },
+        body: JSON.stringify({}),
+      }
+    );
+    assert.equal(noPendingReplyRes.status, 409);
+    assert.equal(replyGenerationCount, 0);
 
-    // Turn 3: Customer responds seeing the agent reply -> generates singular AI response with BOTH Customer and Agent turns in CONVERSATION HISTORY
+    // Turn 3: Customer responds; this still does not trigger generation.
     const custTurn2Res = await fetch(
       `${baseUrl}/api/businesses/${businessAId}/conversations/${conv.id}/messages`,
       {
@@ -1548,8 +1960,46 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     const savedCustTurn2 = await custTurn2Res.json();
     assert.equal(savedCustTurn2.sender_type, 'customer');
     assert.equal(savedCustTurn2.suggestions, undefined);
-    const promptTurn2 = lastDispatchedPrompt;
+    assert.equal(replyGenerationCount, 0);
+    assert.equal(lastDispatchedPrompt, '');
 
+    setGeminiGenerator(async () => {
+      throw new AppError('Simulated Gemini failure', 502);
+    });
+    const failedGenerationRes = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/conversations/${conv.id}/reply-draft`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': '48244777-c7a4-4e30-be4b-fe1104e443b8',
+        },
+        body: JSON.stringify({}),
+      }
+    );
+    setGeminiGenerator(supportGenerator);
+    assert.equal(failedGenerationRes.status, 502);
+    const failedGenerationBody = await failedGenerationRes.json();
+    assert.match(failedGenerationBody.error, /simulated Gemini failure/i);
+    const noFailedDraftRes = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/conversations/${conv.id}`
+    );
+    const noFailedDraft = await noFailedDraftRes.json();
+    assert.equal(noFailedDraft.ai_draft_reply, null);
+
+    const generateTurn2Res = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/conversations/${conv.id}/reply-draft`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': '48244777-c7a4-4e30-be4b-fe1104e443b8',
+        },
+        body: JSON.stringify({}),
+      }
+    );
+    assert.equal(generateTurn2Res.status, 200);
+    const promptTurn2 = lastDispatchedPrompt;
     assert.ok(
       promptTurn2.includes(
         '[Message 1] Customer (customer): Can we reschedule the appointment?'
@@ -1564,7 +2014,8 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
       promptTurn2,
       /<customer_message>\s*Tomorrow afternoon at 3 PM\.\s*<\/customer_message>/
     );
-    assert.ok(promptTurn2.includes('Title: Appointment Cancellation'));
+    assert.ok(promptTurn2.includes('appointment-policy.txt'));
+    assert.equal(replyGenerationCount, 1);
 
     // Turn 4: User / Support Agent also can reply via /messages with sender_type: "agent" -> saves directly as JSON (201) WITHOUT generating a prompt
     const agentReply2Res = await fetch(
@@ -1586,7 +2037,7 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     const savedAgentReply2 = await agentReply2Res.json();
     assert.equal(savedAgentReply2.sender_type, 'agent');
 
-    // Turn 5: Customer replies with booking reference -> generates singular AI response with all 4 prior messages in chronological order
+    // Turn 5: The new customer message clears the previous draft but does not generate another one.
     const custTurn3Res = await fetch(
       `${baseUrl}/api/businesses/${businessAId}/conversations/${conv.id}/messages`,
       {
@@ -1601,7 +2052,27 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     const savedCustTurn3 = await custTurn3Res.json();
     assert.equal(savedCustTurn3.sender_type, 'customer');
     assert.equal(savedCustTurn3.suggestions, undefined);
+    assert.equal(replyGenerationCount, 1);
+    const pendingDraftRes = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/conversations/${conv.id}`
+    );
+    const pendingDraft = await pendingDraftRes.json();
+    assert.equal(pendingDraft.ai_draft_reply, null);
+
+    const generateTurn3Res = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/conversations/${conv.id}/reply-draft`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': '48244777-c7a4-4e30-be4b-fe1104e443b8',
+        },
+        body: JSON.stringify({}),
+      }
+    );
+    assert.equal(generateTurn3Res.status, 200);
     const promptTurn3 = lastDispatchedPrompt;
+    assert.equal(replyGenerationCount, 2);
     assert.ok(
       promptTurn3.includes(
         '[Message 1] Customer (customer): Can we reschedule the appointment?'
@@ -1686,25 +2157,39 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     );
     assert.equal(dupRes.status, 409);
 
-    // Same email under Business B is allowed (business scoping)
+    // Same email under Business B also violates global users email uniqueness -> 409 Conflict
+    const crossBizDupRes = await fetch(
+      `${baseUrl}/api/businesses/${businessBId}/customers`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_name: 'Alice Duplicate Global',
+          email: 'ALICE.RENOVATOR@EXAMPLE.TEST',
+        }),
+      }
+    );
+    assert.equal(crossBizDupRes.status, 409);
+
+    // Distinct valid email under Business B succeeds -> 201 Created
     const crossBizAllowedRes = await fetch(
       `${baseUrl}/api/businesses/${businessBId}/customers`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customer_name: 'Alice In Business B',
-          email: 'ALICE.RENOVATOR@EXAMPLE.TEST',
+          customer_name: 'Charlie Buyer',
+          email: 'charlie.buyer@example.test',
         }),
       }
     );
     assert.equal(crossBizAllowedRes.status, 201);
     const crossBizCust = await crossBizAllowedRes.json();
     assert.equal(crossBizCust.business_id, businessBId);
-    assert.equal(crossBizCust.email, 'alice.renovator@example.test');
+    assert.equal(crossBizCust.email, 'charlie.buyer@example.test');
   });
 
-  it('16. Deprecated customers/upload returns 404 and individual customer creation populates customer list', async () => {
+  it('16. Deprecated customers/upload returns 404 and individual customer creation populates user list', async () => {
     // Verify deprecated endpoint returns 404
     const resUpload = await fetch(
       `${baseUrl}/api/businesses/${businessAId}/customers/upload`,
@@ -1728,12 +2213,10 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
       assert.equal(res.status, 201);
     }
 
-    // Verify Business A has 5 customers: Alice Renovator + Sarah Khan + David Lee + Alex Rahman + Nadia Islam
-    const custsA = mockPool
-      .getInternalCustomers()
-      .filter((c) => c.business_id === businessAId);
-    assert.equal(custsA.length, 5);
-    const sarah = custsA.find((c) => c.email === 'sarah@example.test');
+    // Verify platform users count: Alice, Bob, Charlie, Sarah, David, Alex, Nadia = 7
+    const allUsers = mockPool.getInternalCustomers();
+    assert.equal(allUsers.length, 7);
+    const sarah = allUsers.find((c) => c.email === 'sarah@example.test');
     assert.equal(sarah.customer_name, 'Sarah Khan Updated');
   });
 
@@ -1769,7 +2252,7 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.equal(draft.subject, 'Enjoy 10% Off Service X');
     assert.ok(draft.body.includes('{{customer_name}}'));
     assert.equal(draft.status, 'draft');
-    assert.equal(draft.recipient_count, 5);
+    assert.equal(draft.recipient_count, 7);
     draftedAnnouncementId = draft.id;
 
     // Verify prompt builder rules were included in the prompt sent to Gemini
@@ -1842,13 +2325,13 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.equal(sendSummary.business_id, businessAId);
     assert.equal(sendSummary.subject, 'Final Approved: 10% Off Service X');
     assert.equal(sendSummary.status, 'sent');
-    assert.equal(sendSummary.recipient_count, 5);
-    assert.equal(sendSummary.sent_count, 5);
+    assert.equal(sendSummary.recipient_count, 7);
+    assert.equal(sendSummary.sent_count, 7);
     assert.equal(sendSummary.failed_count, 0);
-    assert.equal(sendSummary.recipients.length, 5);
+    assert.equal(sendSummary.recipients.length, 7);
 
-    // Verify 5 separate emails were sent, personalized, and without CC/BCC
-    assert.equal(sentEmailsLog.length, 5);
+    // Verify 7 separate emails were sent, personalized, and without CC/BCC
+    assert.equal(sentEmailsLog.length, 7);
     for (const mail of sentEmailsLog) {
       assert.equal(mail.cc, undefined);
       assert.equal(mail.bcc, undefined);
@@ -1879,10 +2362,10 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     );
     assert.equal(duplicateSendRes.status, 409);
     // Ensure no extra emails were sent
-    assert.equal(sentEmailsLog.length, 5);
+    assert.equal(sentEmailsLog.length, 7);
   });
 
-  it('19. Tracks partial SMTP failures without losing successful sends and rejects sending when business has 0 customers', async () => {
+  it('19. Tracks partial SMTP failures without losing successful sends and rejects sending when no eligible recipients match', async () => {
     // 1. Draft and send a second announcement where 1 recipient fails SMTP delivery
     const draftRes = await fetch(
       `${baseUrl}/api/businesses/${businessAId}/announcements/draft`,
@@ -1915,8 +2398,8 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.equal(partialSendRes.status, 200);
     const partialBody = await partialSendRes.json();
     assert.equal(partialBody.status, 'partially_sent');
-    assert.equal(partialBody.recipient_count, 5);
-    assert.equal(partialBody.sent_count, 4);
+    assert.equal(partialBody.recipient_count, 7);
+    assert.equal(partialBody.sent_count, 6);
     assert.equal(partialBody.failed_count, 1);
 
     const davidRecipient = partialBody.recipients.find(
@@ -1933,11 +2416,11 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
 
     failingEmailsSet.clear();
 
-    // 2. Create a business with 0 customers and verify sending an announcement returns 400
+    // 2. Verify sending an announcement whose criteria match 0 users returns 400
     const emptyBizRes = await fetch(`${baseUrl}/api/businesses`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Zero Customers Co' }),
+      body: JSON.stringify({ name: 'Zero Matching Recipients Co' }),
     });
     const emptyBiz = await emptyBizRes.json();
 
@@ -1947,7 +2430,7 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          announcement: 'Welcome to our new store!',
+          announcement: 'Welcome users who registered after 2099-01-01!',
         }),
       }
     );
@@ -2010,7 +2493,7 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.equal(histNoConv.conversation, null);
     assert.deepEqual(histNoConv.messages, []);
 
-    // 3. Reject cross-business customer ID on /conversations/history
+    // 3. Cross-business /conversations/history isolation: global user has no conversation in Business B and never sees Business A's conversation
     const crossBizHistRes = await fetch(
       `${baseUrl}/api/businesses/${businessBId}/conversations/history`,
       {
@@ -2019,7 +2502,10 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
         body: JSON.stringify({ customer_id: newCust.customer_id }),
       }
     );
-    assert.equal(crossBizHistRes.status, 400);
+    assert.equal(crossBizHistRes.status, 200);
+    const crossBizHist = await crossBizHistRes.json();
+    assert.equal(crossBizHist.has_conversation, false);
+    assert.deepEqual(crossBizHist.messages, []);
 
     // 4. Create conversation and send a customer message
     const convCreateRes = await fetch(
@@ -2066,7 +2552,7 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.equal(histWithConv.messages[0].ai_suggestion, undefined);
     assert.equal(histWithConv.conversation.ai_draft_reply, undefined);
 
-    // 6. Company GET /conversations lists business conversations with customer info and AI draft
+    // 6. Company GET /conversations lists the conversation but does not auto-generate a draft.
     const listRes = await fetch(
       `${baseUrl}/api/businesses/${businessAId}/conversations`
     );
@@ -2081,13 +2567,23 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.equal(janeConv.customer_name, 'Jane Smith');
     assert.equal(janeConv.unread_count, 1);
     assert.equal(janeConv.needs_reply, true);
-    assert.ok(janeConv.ai_draft_reply);
-    assert.ok(janeConv.ai_suggestion);
-    assert.ok(
-      janeConv.ai_suggestion.suggestion.includes(
-        'We would be happy to help you reschedule your appointment.'
-      )
+    assert.equal(janeConv.ai_draft_reply, null);
+    assert.equal(janeConv.ai_suggestion, null);
+
+    const generateReplyRes = await fetch(
+      `${baseUrl}/api/businesses/${businessAId}/conversations/${createdConv.conversation_id}/reply-draft`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': '48244777-c7a4-4e30-be4b-fe1104e443b8',
+        },
+        body: JSON.stringify({}),
+      }
     );
+    assert.equal(generateReplyRes.status, 200);
+    const explicitDraft = await generateReplyRes.json();
+    assert.ok(explicitDraft.ai_draft_reply);
 
     // 7. Company sends reply -> clears active AI draft and resets unread_count to 0
     const replyRes = await fetch(
@@ -2120,23 +2616,21 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
   // =========================================================================
 
   it('21. Filters announcement recipients by created_at from natural-language criteria, blocks ambiguous audiences, sends with { confirm: true }, and returns Announcement History', async () => {
-    // 1. Set two customers in Business A to have registered in 2025 (before 2026-01-01)
-    const custsA = mockPool
-      .getInternalCustomers()
-      .filter((c) => c.business_id === businessAId);
-    assert.equal(custsA.length, 6); // 5 earlier + Jane Smith
+    // 1. Set two users to have registered in 2025 (before 2026-01-01) and the remaining 6 in 2026
+    const allUsers = mockPool.getInternalCustomers();
+    assert.equal(allUsers.length, 8); // 7 earlier + Jane Smith
 
-    await mockPool.query('UPDATE customers SET created_at = $2 WHERE id = $1', [
-      custsA[0].id,
+    await mockPool.query('UPDATE users SET created_at = $2 WHERE id = $1', [
+      allUsers[0].id,
       '2025-11-15T10:00:00Z',
     ]);
-    await mockPool.query('UPDATE customers SET created_at = $2 WHERE id = $1', [
-      custsA[1].id,
+    await mockPool.query('UPDATE users SET created_at = $2 WHERE id = $1', [
+      allUsers[1].id,
       '2025-12-20T10:00:00Z',
     ]);
-    for (let i = 2; i < custsA.length; i += 1) {
-      await mockPool.query('UPDATE customers SET created_at = $2 WHERE id = $1', [
-        custsA[i].id,
+    for (let i = 2; i < allUsers.length; i += 1) {
+      await mockPool.query('UPDATE users SET created_at = $2 WHERE id = $1', [
+        allUsers[i].id,
         '2026-03-10T10:00:00Z',
       ]);
     }
@@ -2175,7 +2669,7 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.equal(filteredDraftRes.status, 201);
     const filteredDraft = await filteredDraftRes.json();
     assert.equal(filteredDraft.status, 'draft');
-    assert.equal(filteredDraft.recipient_count, 4); // 4 customers registered in 2026, 2 in 2025
+    assert.equal(filteredDraft.recipient_count, 6); // 6 users registered in 2026, 2 in 2025
     assert.match(filteredDraft.audience_description, /after 2026-01-01/i);
     assert.equal(filteredDraft.target_criteria.scope, 'filtered');
 
@@ -2193,10 +2687,10 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     assert.equal(sendFilteredRes.status, 200);
     const sendFilteredBody = await sendFilteredRes.json();
     assert.equal(sendFilteredBody.status, 'sent');
-    assert.equal(sendFilteredBody.recipient_count, 4);
-    assert.equal(sendFilteredBody.sent_count, 4);
+    assert.equal(sendFilteredBody.recipient_count, 6);
+    assert.equal(sendFilteredBody.sent_count, 6);
     assert.equal(sendFilteredBody.failed_count, 0);
-    assert.equal(sentEmailsLog.length, 4);
+    assert.equal(sentEmailsLog.length, 6);
 
     // 5. Retrieve Announcement History via GET /api/businesses/:businessId/announcements
     const historyRes = await fetch(
@@ -2210,7 +2704,7 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
       (a) => a.id === filteredDraft.id
     );
     assert.ok(latestHistoryItem);
-    assert.equal(latestHistoryItem.sent_count, 4);
+    assert.equal(latestHistoryItem.sent_count, 6);
     assert.equal(latestHistoryItem.status, 'sent');
     assert.ok(latestHistoryItem.failed_recipients);
   });
@@ -2225,7 +2719,14 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
     const velouraBiz = await bizRes.json();
 
     const sampleContextPath = path.resolve(__dirname, '../sample-context.csv');
-    const sampleContextCsv = fs.readFileSync(sampleContextPath, 'utf8');
+    const sampleContextCsv = fs.existsSync(sampleContextPath)
+      ? fs.readFileSync(sampleContextPath, 'utf8')
+      : [
+          'category,title,content',
+          'shipping_policy,Delivery Timeframes & Fees,"Standard delivery inside Khulna costs 70 BDT and takes 1 to 3 business days. Outside Khulna delivery costs 120 BDT and takes 3 to 5 business days."',
+          'payment_policy,Accepted Payment Methods,"We accept Cash on Delivery (COD), bKash, Nagad, and credit/debit cards. Custom SPACES furniture orders require a 10% advance deposit via bKash or bank transfer."',
+          'refund_policy,Refund Eligibility,"Refund requests must be submitted within 3 days of delivery via support@velourabd.com."',
+        ].join('\n');
     const rows = parse(sampleContextCsv, {
       bom: true,
       skip_empty_lines: true,

@@ -1,10 +1,10 @@
-const env = require('../config/env');
 const AppError = require('../utils/AppError');
 const { isValidUuid } = require('../middleware/validate');
 const { findBusinessOrThrow } = require('./businessController');
 const {
   ALLOWED_SENDER_TYPES,
   createConversation,
+  findConversationForBusinessOrThrow,
   getConversationWithMessages,
   findCustomerConversationWithMessages,
   listConversationsForBusiness,
@@ -14,12 +14,8 @@ const {
   updateConversationStatus,
 } = require('../services/conversationService');
 const {
-  extractQueryKeywords,
-  compactDynamicContent,
-  retrieveRelevantContextForBusiness,
-} = require('../services/contextRetrievalService');
-const { buildContextualPrompt } = require('../services/promptBuilderService');
-const { generateAiSupportResponse } = require('../services/geminiService');
+  generateWorkspaceCustomerReply,
+} = require('../services/workspaceReplyService');
 
 const MAX_MESSAGE_LENGTH = 5000;
 
@@ -103,9 +99,12 @@ function formatCompanyConversationResponse({
     }
   }
 
-  const latestCustomerMsgWithSuggestion = [...formattedMessages]
-    .reverse()
-    .find((m) => m.sender_type === 'customer' && m.ai_suggestion);
+  const latestCustomerMessage =
+    latestMessage && latestMessage.sender_type === 'customer'
+      ? latestMessage
+      : null;
+  const latestCustomerMsgWithSuggestion =
+    latestCustomerMessage?.ai_suggestion ? latestCustomerMessage : null;
 
   const activeDraftReply =
     conversation.ai_draft_reply ||
@@ -237,32 +236,6 @@ function resolveSenderType(body, defaultSenderType = 'customer') {
   }
 
   return normalized;
-}
-
-function buildFallbackSupportSuggestion(business, relevantRecords, messageText) {
-  const topRecord = Array.isArray(relevantRecords) && relevantRecords.length > 0
-    ? relevantRecords[0]
-    : null;
-
-  if (topRecord) {
-    const queryKeywords = extractQueryKeywords(messageText);
-    const conciseExcerpt = compactDynamicContent(topRecord.content, queryKeywords, 450);
-    return {
-      category: topRecord.category || 'general_inquiry',
-      suggestions: [
-        `Thank you for reaching out to ${business.name}. Regarding ${topRecord.title.toLowerCase()}: ${conciseExcerpt} Please let us know how you would like to proceed.`,
-      ],
-      missing_information: [],
-    };
-  }
-
-  return {
-    category: 'general_inquiry',
-    suggestions: [
-      `Thank you for contacting ${business.name}. We have received your inquiry ("${messageText.slice(0, 80)}${messageText.length > 80 ? '...' : ''}") and a team member is reviewing your account details now. How can we best assist you today?`,
-    ],
-    missing_information: ['Account or booking reference if applicable'],
-  };
 }
 
 /**
@@ -470,17 +443,9 @@ async function updateBusinessConversationStatus(req, res, next) {
 
 /**
  * POST /api/businesses/:businessId/conversations/:conversationId/messages
- * - When sender_type is 'customer' (or omitted):
- *   Saves the incoming customer message, retrieves recent chronological conversation history
- *   (bounded to the latest 20 messages) and relevant business context, generates the AI
- *   suggested response, saves the AI suggestion server-side for the company interface,
- *   and returns ONLY the customer-safe message record (never exposing the AI suggestion
- *   in the customer API response).
- * - When sender_type is 'agent':
- *   Saves the agent/user reply directly to the database without generating an AI prompt
- *   and returns the persisted message record as JSON (201 Created).
+ * Saves a customer or agent message without triggering reply generation.
  */
-async function postCustomerMessageAndGeneratePrompt(req, res, next) {
+async function postConversationMessage(req, res, next) {
   try {
     const { businessId, conversationId } = req.params;
     const senderType = resolveSenderType(req.body, 'customer');
@@ -498,122 +463,90 @@ async function postCustomerMessageAndGeneratePrompt(req, res, next) {
       content: messageText,
     });
 
-    // If this message is an agent/user reply (AI-generated, edited, or manual),
-    // save it directly to the conversation and do NOT generate a new AI prompt.
-    if (senderType === 'agent') {
-      return res.status(201).json(formatCustomerMessageResponse(savedMessage));
+    const formatted = formatCustomerMessageResponse(savedMessage);
+    return res.status(201).json({
+      ...formatted,
+      message: formatted,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+/**
+ * POST /api/businesses/:businessId/conversations/:conversationId/reply-draft
+ * Generates and stores an editable reply using only the active workspace's
+ * relevant documents and sheet rows. It never sends or persists an agent message.
+ */
+async function generateConversationReplyDraft(req, res, next) {
+  try {
+    const { businessId, conversationId } = req.params;
+    const requestUserId =
+      req.headers['x-user-id'] ||
+      req.query?.userId ||
+      req.query?.user_id ||
+      req.body?.userId ||
+      req.body?.user_id ||
+      null;
+    if (!requestUserId) {
+      throw new AppError('A logged-in user is required to generate a workspace reply.', 401);
     }
 
-    // 3. Retrieve recent messages (bounded to the latest 20 messages) in chronological order
+    const business = await findBusinessOrThrow(businessId, requestUserId);
+    const conversation = await findConversationForBusinessOrThrow(
+      business.id,
+      conversationId
+    );
+    if (conversation.status !== 'open') {
+      throw new AppError('Cannot generate a reply for a closed conversation.', 400);
+    }
+
     const recentMessages = await getRecentConversationMessages(
       conversationId,
-      env.conversationHistoryLimit
+      6
     );
-
-    // Exclude the just-saved current message from prior history block so it is not duplicated
-    const conversationHistory = recentMessages.filter(
-      (msg) => msg.id !== savedMessage.id
-    );
-
-    // 4. Retrieve relevant business context scoped to this business.
-    //    Prioritize the latest customer message so topic shifts stay focused and compact,
-    //    while falling back to or blending the last 2 customer turns for short/pronoun follow-ups.
-    let relevantRecords = await retrieveRelevantContextForBusiness(
-      business.id,
-      messageText
-    );
-
-    const recentCustomerTurns = conversationHistory
-      .filter((msg) => msg.sender_type === 'customer')
-      .slice(-2)
-      .map((msg) => msg.content);
-
-    const hasCoreference = /\b(it|its|that|this|those|these|they|them)\b/i.test(
-      messageText
-    );
-    const isShortFollowUp = messageText.trim().split(/\s+/).length <= 4;
-
-    if (
-      recentCustomerTurns.length > 0 &&
-      (relevantRecords.length === 0 || hasCoreference || isShortFollowUp)
-    ) {
-      const combinedSearchText = [
-        ...recentCustomerTurns,
-        messageText,
-        messageText,
-      ].join(' ');
-      const historyAwareRecords = await retrieveRelevantContextForBusiness(
-        business.id,
-        combinedSearchText
+    const latestMessage = recentMessages[recentMessages.length - 1];
+    if (!latestMessage || latestMessage.sender_type !== 'customer') {
+      throw new AppError(
+        'There is no unanswered customer message to generate a reply for.',
+        409
       );
-      if (relevantRecords.length === 0) {
-        relevantRecords = historyAwareRecords;
-      } else {
-        const seenKeys = new Set(
-          relevantRecords.map((r) => `${r.category}::${r.title}`)
-        );
-        for (const rec of historyAwareRecords) {
-          if (relevantRecords.length >= env.promptTopK) break;
-          const key = `${rec.category}::${rec.title}`;
-          if (!seenKeys.has(key)) {
-            seenKeys.add(key);
-            relevantRecords.push(rec);
-          }
-        }
-      }
     }
 
-    // 5. Construct the dynamic prompt with conversation history, latest message, and business context
-    const promptText = buildContextualPrompt({
-      business,
-      relevantRecords,
-      customerMessage: messageText,
+    const conversationHistory = recentMessages.slice(0, -1).slice(-5);
+    const { aiResponse, suggestion } = await generateWorkspaceCustomerReply({
+      workspace: business,
+      customerMessage: latestMessage.content,
+      customerContext: {
+        customer_name: conversation.customer_name || conversation.customerName,
+        reference_id: conversation.reference_id || conversation.referenceId,
+        inquiry_id: conversation.id,
+      },
       conversationHistory,
     });
 
-    // Optional debug mode: ?format=prompt returns the raw prompt string
-    if (req.query && req.query.format === 'prompt') {
-      return res
-        .status(200)
-        .set('Content-Type', 'text/plain; charset=utf-8')
-        .send(promptText);
-    }
+    await saveAiSuggestionForMessageAndConversation({
+      businessId: business.id,
+      conversationId,
+      messageId: latestMessage.id,
+      suggestion,
+      category: aiResponse.category,
+      missingInformation: aiResponse.missing_information,
+    });
 
-    // 6. Generate the AI suggested response and persist it server-side for the company panel
-    let aiResponse;
-    try {
-      aiResponse = await generateAiSupportResponse(promptText);
-    } catch (aiError) {
-      // If upstream Gemini fails during live usage, fall back to a contextual draft
-      // so the customer's message submission still succeeds cleanly.
-      aiResponse = buildFallbackSupportSuggestion(
-        business,
-        relevantRecords,
-        messageText
-      );
-    }
-
-    const suggestionText =
-      Array.isArray(aiResponse.suggestions) && aiResponse.suggestions.length > 0
-        ? aiResponse.suggestions[0]
-        : '';
-
-    if (suggestionText) {
-      await saveAiSuggestionForMessageAndConversation({
-        businessId: business.id,
-        conversationId,
-        messageId: savedMessage.id,
-        suggestion: suggestionText,
-        category: aiResponse.category || 'general_inquiry',
-        missingInformation: aiResponse.missing_information || [],
-      });
-    }
-
-    // 7. Return ONLY customer-safe message data (never expose AI suggestion to the customer)
-    const customerSafeMessage = formatCustomerMessageResponse(savedMessage);
-    return res.status(201).json({
-      ...customerSafeMessage,
-      message: customerSafeMessage,
+    return res.status(200).json({
+      conversation_id: conversationId,
+      source_message_id: latestMessage.id,
+      source_message_content: latestMessage.content,
+      ai_draft_reply: suggestion,
+      ai_suggestion: {
+        suggestion,
+        category: aiResponse.category,
+        missing_information: aiResponse.missing_information,
+        source_message_id: latestMessage.id,
+        source_message_content: latestMessage.content,
+        updated_at: new Date().toISOString(),
+      },
     });
   } catch (error) {
     return next(error);
@@ -660,6 +593,7 @@ module.exports = {
   createBusinessConversation,
   getBusinessConversation,
   updateBusinessConversationStatus,
-  postCustomerMessageAndGeneratePrompt,
+  postConversationMessage,
+  generateConversationReplyDraft,
   postAgentReplyToConversation,
 };

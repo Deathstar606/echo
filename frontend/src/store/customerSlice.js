@@ -15,6 +15,14 @@ function getStoredCustomerId() {
   }
 }
 
+function getStoredCustomerBusinessId() {
+  try {
+    return localStorage.getItem(STORAGE_KEYS.CUSTOMER_BUSINESS_ID) || null;
+  } catch {
+    return null;
+  }
+}
+
 function getStoredConversationId() {
   try {
     return localStorage.getItem(STORAGE_KEYS.CONVERSATION_ID) || null;
@@ -33,27 +41,33 @@ function getStoredCustomerProfile() {
 }
 
 /**
- * Thunk: Register a new customer for BUSINESS_ID.
+ * Thunk: Register a new customer for a specified or active business.
  * Stores the returned customer_id in localStorage and opens the one-time ID modal.
  */
 export const registerNewCustomer = createAsyncThunk(
   'customer/registerNewCustomer',
-  async ({ customerName, email, externalCustomerId }, { rejectWithValue }) => {
+  async ({ customerName, email, externalCustomerId, businessId }, { rejectWithValue }) => {
     try {
       const response = await registerCustomer({
         customerName,
         email,
         externalCustomerId,
+        businessId,
       });
       const generatedId = response.customer_id || response.id;
+      const verifiedBizId = response.business_id || businessId;
       const profile = {
         customer_name: response.customer_name,
         email: response.email,
         external_customer_id: response.external_customer_id || null,
+        business_id: verifiedBizId,
       };
 
       try {
         localStorage.setItem(STORAGE_KEYS.CUSTOMER_ID, generatedId);
+        if (verifiedBizId) {
+          localStorage.setItem(STORAGE_KEYS.CUSTOMER_BUSINESS_ID, verifiedBizId);
+        }
         localStorage.setItem(
           STORAGE_KEYS.CUSTOMER_PROFILE,
           JSON.stringify(profile)
@@ -65,6 +79,7 @@ export const registerNewCustomer = createAsyncThunk(
 
       return {
         customerId: generatedId,
+        businessId: verifiedBizId,
         profile,
       };
     } catch (err) {
@@ -78,14 +93,22 @@ export const registerNewCustomer = createAsyncThunk(
 );
 
 /**
- * Thunk: Validate customer_id against BUSINESS_ID and load existing conversation
- * history via POST /api/businesses/{BUSINESS_ID}/conversations/history.
- * If valid customer has no conversation yet, creates one via POST /conversations.
+ * Thunk: Validate customer_id against business and load existing conversation
+ * history via POST /api/businesses/{businessId}/conversations/history.
  */
 export const loginAndLoadCustomerConversation = createAsyncThunk(
   'customer/loginAndLoadCustomerConversation',
-  async (customerIdInput, { rejectWithValue }) => {
-    const trimmedId = String(customerIdInput || '').trim();
+  async (customerIdOrPayload, { getState, rejectWithValue }) => {
+    let trimmedId = '';
+    let businessId = null;
+
+    if (customerIdOrPayload && typeof customerIdOrPayload === 'object') {
+      trimmedId = String(customerIdOrPayload.customerId || '').trim();
+      businessId = customerIdOrPayload.businessId ? String(customerIdOrPayload.businessId).trim() : null;
+    } else {
+      trimmedId = String(customerIdOrPayload || '').trim();
+    }
+
     if (!trimmedId) {
       return rejectWithValue({
         message: 'Please enter a valid Customer ID.',
@@ -93,16 +116,22 @@ export const loginAndLoadCustomerConversation = createAsyncThunk(
       });
     }
 
+    if (!businessId) {
+      businessId = getState()?.customer?.businessId || localStorage.getItem(STORAGE_KEYS.CUSTOMER_BUSINESS_ID) || undefined;
+    }
+
     try {
       // Step 1: Validate customer and retrieve conversation history
-      const historyData = await fetchCustomerConversationHistory(trimmedId);
+      const historyData = await fetchCustomerConversationHistory(trimmedId, businessId);
       const verifiedCustomerId = historyData.customer_id || trimmedId;
+      const verifiedBizId = historyData.business_id || businessId;
       const profile = historyData.customer
         ? {
             customer_name: historyData.customer.customer_name,
             email: historyData.customer.email,
             external_customer_id:
               historyData.customer.external_customer_id || null,
+            business_id: verifiedBizId,
           }
         : null;
 
@@ -111,7 +140,7 @@ export const loginAndLoadCustomerConversation = createAsyncThunk(
       let messages = [];
 
       if (historyData.has_conversation && historyData.conversation) {
-        // Existing conversation found — use its history instead of creating a duplicate
+        // Existing conversation found — use its history
         conversationId =
           historyData.conversation_id || historyData.conversation.id;
         conversationStatus = historyData.conversation.status || 'open';
@@ -122,7 +151,6 @@ export const loginAndLoadCustomerConversation = createAsyncThunk(
             : [];
       } else {
         // Customer is valid for this business but has no conversation yet.
-        // A conversation is ONLY created when the customer actually sends their first message.
         conversationId = null;
         conversationStatus = 'open';
         messages = [];
@@ -130,6 +158,9 @@ export const loginAndLoadCustomerConversation = createAsyncThunk(
 
       try {
         localStorage.setItem(STORAGE_KEYS.CUSTOMER_ID, verifiedCustomerId);
+        if (verifiedBizId) {
+          localStorage.setItem(STORAGE_KEYS.CUSTOMER_BUSINESS_ID, verifiedBizId);
+        }
         if (profile) {
           localStorage.setItem(
             STORAGE_KEYS.CUSTOMER_PROFILE,
@@ -142,11 +173,12 @@ export const loginAndLoadCustomerConversation = createAsyncThunk(
           localStorage.removeItem(STORAGE_KEYS.CONVERSATION_ID);
         }
       } catch {
-        // Ignore localStorage write errors
+        // Ignore storage write error
       }
 
       return {
         customerId: verifiedCustomerId,
+        businessId: verifiedBizId,
         profile,
         conversationId,
         conversationStatus,
@@ -170,13 +202,14 @@ export const loginAndLoadCustomerConversation = createAsyncThunk(
 export const refreshCustomerConversation = createAsyncThunk(
   'customer/refreshCustomerConversation',
   async (_, { getState, rejectWithValue }) => {
-    const { customerId } = getState().customer;
+    const { customerId, businessId } = getState().customer;
     if (!customerId) {
       return rejectWithValue({ message: 'No active customer session.' });
     }
+    const bizId = businessId || localStorage.getItem(STORAGE_KEYS.CUSTOMER_BUSINESS_ID) || undefined;
 
     try {
-      const historyData = await fetchCustomerConversationHistory(customerId);
+      const historyData = await fetchCustomerConversationHistory(customerId, bizId);
       if (!historyData.has_conversation || !historyData.conversation) {
         return {
           messages: [],
@@ -201,7 +234,7 @@ export const refreshCustomerConversation = createAsyncThunk(
 );
 
 /**
- * Thunk: Send a customer message via POST /api/businesses/{BUSINESS_ID}/conversations/{conversation_id}/messages.
+ * Thunk: Send a customer message.
  * If the conversation has not been created yet (first message from new customer), lazily creates it first!
  */
 export const submitCustomerMessage = createAsyncThunk(
@@ -209,16 +242,17 @@ export const submitCustomerMessage = createAsyncThunk(
   async ({ conversationId, message }, { getState, rejectWithValue }) => {
     try {
       let activeConversationId = conversationId;
+      const { customerId, businessId } = getState().customer;
+      const bizId = businessId || localStorage.getItem(STORAGE_KEYS.CUSTOMER_BUSINESS_ID) || undefined;
 
       // Lazy conversation creation: conversation is created ONLY when customer sends their first message!
       if (!activeConversationId) {
-        const { customerId } = getState().customer;
         if (!customerId) {
           return rejectWithValue({
             message: 'No active customer session found. Please log in first.',
           });
         }
-        const newConv = await createCustomerConversation(customerId);
+        const newConv = await createCustomerConversation(customerId, bizId);
         activeConversationId = newConv.conversation_id || newConv.id;
         try {
           localStorage.setItem(STORAGE_KEYS.CONVERSATION_ID, activeConversationId);
@@ -227,7 +261,7 @@ export const submitCustomerMessage = createAsyncThunk(
         }
       }
 
-      const response = await sendCustomerMessage(activeConversationId, message);
+      const response = await sendCustomerMessage(activeConversationId, message, bizId);
       const savedMsg = response.message || {
         id: response.id,
         conversation_id: response.conversation_id || activeConversationId,
@@ -251,6 +285,7 @@ export const submitCustomerMessage = createAsyncThunk(
 
 const initialState = {
   customerId: getStoredCustomerId(),
+  businessId: getStoredCustomerBusinessId(),
   customerProfile: getStoredCustomerProfile(),
   conversationId: getStoredConversationId(),
   conversationStatus: 'open',
@@ -315,6 +350,7 @@ const customerSlice = createSlice({
       .addCase(registerNewCustomer.fulfilled, (state, action) => {
         state.registerStatus = 'succeeded';
         state.customerId = action.payload.customerId;
+        state.businessId = action.payload.businessId;
         state.customerProfile = action.payload.profile;
         state.newlyGeneratedCustomerId = action.payload.customerId;
         state.showOneTimeIdModal = true;
@@ -336,6 +372,9 @@ const customerSlice = createSlice({
       .addCase(loginAndLoadCustomerConversation.fulfilled, (state, action) => {
         state.loginStatus = 'succeeded';
         state.customerId = action.payload.customerId;
+        if (action.payload.businessId) {
+          state.businessId = action.payload.businessId;
+        }
         if (action.payload.profile) {
           state.customerProfile = action.payload.profile;
         }
@@ -343,7 +382,6 @@ const customerSlice = createSlice({
         state.conversationStatus = action.payload.conversationStatus;
         state.messages = action.payload.messages;
         state.isSessionActive = true;
-        // Ensure one-time ID is never lingered after entering conversation
         state.showOneTimeIdModal = false;
         state.newlyGeneratedCustomerId = null;
       })

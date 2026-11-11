@@ -55,6 +55,37 @@ function errorHandler(err, req, res, next) {
     return res.status(err.statusCode || 400).json(payload);
   }
 
+  // Handle Google API (GaxiosError) errors cleanly
+  if (
+    err &&
+    (err.name === 'GaxiosError' ||
+      (err.response && err.response.data) ||
+      Array.isArray(err.errors))
+  ) {
+    const gData = err.response?.data;
+    const gError = gData?.error;
+    const gDesc = gData?.error_description;
+    const msg =
+      (typeof gError === 'string' && gDesc ? `${gError}: ${gDesc}` : null) ||
+      (typeof gError === 'string' ? gError : null) ||
+      gError?.message ||
+      gDesc ||
+      (Array.isArray(err.errors) && err.errors[0]?.message) ||
+      err.message ||
+      'Google Workspace API error.';
+    const rawStatus = Number(
+      err.status ?? err.response?.status ?? gError?.code ?? err.code
+    );
+    const statusCode =
+      Number.isInteger(rawStatus) && rawStatus >= 400 && rawStatus <= 599
+        ? rawStatus
+        : 502;
+    return res.status(statusCode).json({
+      error: msg,
+      details: gError?.errors || err.errors || null,
+    });
+  }
+
   // Handle PostgreSQL-specific errors cleanly
   if (err && typeof err.code === 'string') {
     if (err.code === '22P02') {

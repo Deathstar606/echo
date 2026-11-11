@@ -5,7 +5,10 @@ const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const app = require('../src/app');
 const { setPool } = require('../db');
-const { setSheetGeminiGenerator } = require('../src/services/geminiService');
+const {
+  setSheetGeminiGenerator,
+  setWorkspaceGeminiGenerator,
+} = require('../src/services/geminiService');
 const {
   discoverTableSchema,
   getSchema,
@@ -17,6 +20,9 @@ const {
   buildParameterizedUpdateStatement,
 } = require('../src/services/sheetMutationService');
 const { buildSheetQueryPrompt } = require('../src/services/sheetQueryPromptBuilder');
+const {
+  retrieveRelevantContextForBusiness,
+} = require('../src/services/contextRetrievalService');
 
 /**
  * Creates an in-memory PostgreSQL simulator supporting products, electronics_inventory,
@@ -26,6 +32,7 @@ function createUniversalSheetPool() {
   const businesses = new Map();
   const tables = new Map();
   const queryLog = [];
+  let workspaceTableMetadata = [];
 
   let monotonicClock = Date.now();
   let failNextUpdate = false;
@@ -53,6 +60,7 @@ function createUniversalSheetPool() {
       tables: new Map(
         Array.from(tables.entries()).map(([k, rows]) => [k, rows.map((r) => ({ ...r }))])
       ),
+      workspaceTableMetadata: workspaceTableMetadata.map((row) => ({ ...row })),
     };
   }
 
@@ -60,6 +68,7 @@ function createUniversalSheetPool() {
     for (const [k, rows] of snap.tables.entries()) {
       tables.set(k, rows);
     }
+    workspaceTableMetadata = snap.workspaceTableMetadata;
   }
 
   function compareNumbers(actual, op, target) {
@@ -272,6 +281,10 @@ function createUniversalSheetPool() {
 
     // information_schema.tables introspection
     if (normalized.includes('FROM INFORMATION_SCHEMA.TABLES')) {
+      if (normalized.startsWith('SELECT TABLE_NAME')) {
+        const rows = Array.from(tables.keys()).map((table_name) => ({ table_name }));
+        return { rows, rowCount: rows.length };
+      }
       const requestedTable = String(params[0] || '').toLowerCase();
       const exists = tables.has(requestedTable);
       return {
@@ -280,8 +293,25 @@ function createUniversalSheetPool() {
       };
     }
 
-    // 2. Business lookup
-    if (normalized.startsWith('SELECT ID, NAME, CREATED_AT FROM BUSINESSES WHERE ID = $1')) {
+    // 2. Workspace / Business lookup & insert
+    if (normalized.startsWith('SELECT ID FROM USERS ORDER BY CREATED_AT ASC LIMIT 1')) {
+      return { rows: [], rowCount: 0 };
+    }
+    if (
+      normalized.startsWith('INSERT INTO BUSINESSES') ||
+      normalized.startsWith('INSERT INTO WORKSPACES')
+    ) {
+      const id = params[0] || crypto.randomUUID();
+      const name = params[1] || 'Test Business';
+      const userId = params[2] || null;
+      const created = { id, name, user_id: userId, created_at: nextIsoTimestamp() };
+      businesses.set(id, created);
+      return { rows: [created], rowCount: 1 };
+    }
+    if (
+      normalized.startsWith('SELECT ID, NAME, CREATED_AT FROM BUSINESSES WHERE ID = $1') ||
+      normalized.startsWith('SELECT ID, NAME, USER_ID, CREATED_AT FROM WORKSPACES WHERE ID = $1')
+    ) {
       const b = businesses.get(params[0]);
       return b ? { rows: [{ ...b }], rowCount: 1 } : { rows: [], rowCount: 0 };
     }
@@ -302,9 +332,82 @@ function createUniversalSheetPool() {
       return { rows, rowCount: rows.length };
     }
 
+    if (normalized.includes('FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS')) {
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (normalized.startsWith('SELECT COUNT(*)::BIGINT AS ROW_COUNT')) {
+      const tableMatch = rawSql.match(/FROM\s+"?([a-z0-9_]+)"?\s+WHERE/i);
+      const rows = tableMatch
+        ? (tables.get(tableMatch[1].toLowerCase()) || []).filter(
+            (row) => row.business_id === params[0] || row.workspace_id === params[0]
+          )
+        : [];
+      return {
+        rows: [{ row_count: rows.length, column_stats: {} }],
+        rowCount: 1,
+      };
+    }
+
+    if (normalized.startsWith('SELECT * FROM') && /\sLIMIT 3;?$/i.test(rawSql)) {
+      const tableMatch = rawSql.match(/FROM\s+"?([a-z0-9_]+)"?\s+WHERE/i);
+      const rows = tableMatch
+        ? (tables.get(tableMatch[1].toLowerCase()) || [])
+            .filter((row) => row.business_id === params[0] || row.workspace_id === params[0])
+            .slice(0, 3)
+            .map((row) => ({ ...row }))
+        : [];
+      return { rows, rowCount: rows.length };
+    }
+
+    if (normalized.startsWith('SELECT SOURCE_FILENAME FROM WORKSPACE_TABLE_METADATA')) {
+      const row = workspaceTableMetadata.find(
+        (metadata) =>
+          metadata.workspace_id === params[0] && metadata.table_name === params[1]
+      );
+      return { rows: row ? [{ source_filename: row.source_filename }] : [], rowCount: row ? 1 : 0 };
+    }
+
+    if (normalized.startsWith('INSERT INTO WORKSPACE_TABLE_METADATA')) {
+      const row = {
+        id: crypto.randomUUID(),
+        workspace_id: params[0],
+        table_name: params[1],
+        source_filename: params[2],
+        row_count: params[3],
+        primary_key_column: params[4],
+        email_column: params[5],
+        columns_profile: JSON.parse(params[6]),
+        sample_rows: JSON.parse(params[7]),
+        table_summary: params[8],
+      };
+      workspaceTableMetadata = workspaceTableMetadata.filter(
+        (metadata) =>
+          metadata.workspace_id !== row.workspace_id ||
+          metadata.table_name !== row.table_name
+      );
+      workspaceTableMetadata.push(row);
+      return { rows: [{ ...row }], rowCount: 1 };
+    }
+
+    if (normalized.startsWith('SELECT ID, WORKSPACE_ID, TABLE_NAME, SOURCE_FILENAME')) {
+      const rows = workspaceTableMetadata
+        .filter((metadata) => metadata.workspace_id === params[0])
+        .sort((a, b) => a.table_name.localeCompare(b.table_name))
+        .map((metadata) => ({ ...metadata }));
+      return { rows, rowCount: rows.length };
+    }
+
+    if (normalized.startsWith('SELECT INDEXDEF FROM PG_INDEXES')) {
+      return { rows: [], rowCount: 0 };
+    }
+    if (normalized.startsWith('CREATE INDEX IF NOT EXISTS')) {
+      return { rows: [], rowCount: 0 };
+    }
+
     // Representative-value sample with a schema-whitelisted column projection.
     const sampleMatch = rawSql.match(
-      /^SELECT\s+([\s\S]+?)\s+FROM\s+"?([a-z0-9_]+)"?\s+WHERE\s+business_id\s*=\s*\$1\s+LIMIT\s+5;?$/i
+      /^SELECT\s+([\s\S]+?)\s+FROM\s+"?([a-z0-9_]+)"?\s+WHERE\s+(?:business_id\s*=\s*\$1|\(\s*business_id\s*=\s*\$1\s+OR\s+workspace_id\s*=\s*\$1\s*\))\s+LIMIT\s+5;?$/i
     );
     if (sampleMatch && !sampleMatch[1].trim().startsWith('*')) {
       const selectedColumns = sampleMatch[1]
@@ -323,7 +426,7 @@ function createUniversalSheetPool() {
     }
 
     const distinctCatalogMatch = rawSql.match(
-      /^SELECT\s+DISTINCT\s+"([^"]+)"\s+AS\s+(name|category)\s+FROM\s+"?([a-z0-9_]+)"?\s+WHERE\s+business_id\s*=\s*\$1\s+AND\s+"([^"]+)"\s+IS\s+NOT\s+NULL\s+ORDER\s+BY\s+\2\s+LIMIT\s+\$2;?$/i
+      /^SELECT\s+DISTINCT\s+"([^"]+)"\s+AS\s+(name|category)\s+FROM\s+"?([a-z0-9_]+)"?\s+WHERE\s+(?:business_id\s*=\s*\$1|\(\s*business_id\s*=\s*\$1\s+OR\s+workspace_id\s*=\s*\$1\s*\))\s+AND\s+"([^"]+)"\s+IS\s+NOT\s+NULL\s+ORDER\s+BY\s+\2\s+LIMIT\s+\$2;?$/i
     );
     if (distinctCatalogMatch) {
       const [, column, alias, tableName] = distinctCatalogMatch;
@@ -339,8 +442,28 @@ function createUniversalSheetPool() {
       return { rows, rowCount: rows.length };
     }
 
-    // 4. Catalog names lookup: SELECT ... FROM <table> WHERE business_id = $1 ORDER BY ...
-    const catMatch = rawSql.match(/SELECT\s+([^FROM]+)\s+FROM\s+["']?([a-z0-9_]+)["']?\s+WHERE\s+business_id\s*=\s*\$1\s+ORDER\s+BY/i);
+    // 4a. Context entries lookup
+    if (normalized.includes('FROM CONTEXT_ENTRIES WHERE BUSINESS_ID = $1')) {
+      const rows = (tables.get('context_entries') || []).filter(
+        (r) => r.business_id === params[0]
+      );
+      return { rows: rows.map((r) => ({ ...r })), rowCount: rows.length };
+    }
+
+    // 4b. Full products lookup with explicit column list
+    if (
+      normalized.startsWith(
+        'SELECT ID, BUSINESS_ID, NAME, CATEGORY, DESCRIPTION, BEST, COLOR, DISCOUNT, ORDERED, IMAGES, SIZE, PRICE'
+      )
+    ) {
+      const rows = (tables.get('products') || []).filter(
+        (r) => r.business_id === params[0]
+      );
+      return { rows: rows.map((r) => ({ ...r })), rowCount: rows.length };
+    }
+
+    // 4c. Catalog names lookup: SELECT ... FROM <table> WHERE business_id = $1 ORDER BY ...
+    const catMatch = rawSql.match(/SELECT\s+([^FROM]+)\s+FROM\s+["']?([a-z0-9_]+)["']?\s+WHERE\s+(?:business_id\s*=\s*\$1|\(\s*business_id\s*=\s*\$1\s+OR\s+workspace_id\s*=\s*\$1\s*\))\s+ORDER\s+BY/i);
     if (catMatch && !rawSql.includes('FOR UPDATE') && !rawSql.includes('*')) {
       const tableName = catMatch[2].toLowerCase();
       const rows = tables.get(tableName) || [];
@@ -354,7 +477,7 @@ function createUniversalSheetPool() {
     }
 
     // 5. DELETE FROM <table> WHERE business_id = $1
-    const delAllMatch = rawSql.match(/^DELETE\s+FROM\s+["']?([a-z0-9_]+)["']?\s+WHERE\s+business_id\s*=\s*\$1;?$/i);
+    const delAllMatch = rawSql.match(/^DELETE\s+FROM\s+["']?([a-z0-9_]+)["']?\s+WHERE\s+(?:business_id\s*=\s*\$1(?:\s+OR\s+workspace_id\s*=\s*\$1)?|\(\s*business_id\s*=\s*\$1\s+OR\s+workspace_id\s*=\s*\$1\s*\));?$/i);
     if (delAllMatch) {
       const tableName = delAllMatch[1].toLowerCase();
       const before = tables.get(tableName) || [];
@@ -399,7 +522,7 @@ function createUniversalSheetPool() {
     }
 
     // 7. SELECT * FROM <table>
-    const selectMatch = rawSql.match(/SELECT\s+\*\s+FROM\s+["']?([a-z0-9_]+)["']?\s+WHERE\s+business_id\s*=\s*\$1/i);
+    const selectMatch = rawSql.match(/SELECT\s+\*\s+FROM\s+["']?([a-z0-9_]+)["']?\s+WHERE\s+(?:business_id\s*=\s*\$1|\(\s*business_id\s*=\s*\$1\s+OR\s+workspace_id\s*=\s*\$1\s*\))/i);
     if (selectMatch) {
       const tableName = selectMatch[1].toLowerCase();
       const rows = tables.get(tableName) || [];
@@ -413,7 +536,7 @@ function createUniversalSheetPool() {
       }
 
       // Extra conditions
-      const wherePartMatch = rawSql.match(/WHERE\s+business_id\s*=\s*\$1(?:\s+AND\s+([\s\S]+?))?(?:\s+ORDER\s+BY|\s+LIMIT|$)/i);
+      const wherePartMatch = rawSql.match(/WHERE\s+(?:business_id\s*=\s*\$1|\(\s*business_id\s*=\s*\$1\s+OR\s+workspace_id\s*=\s*\$1\s*\))(?:\s+AND\s+([\s\S]+?))?(?:\s+ORDER\s+BY|\s+LIMIT|$)/i);
       const extraWhere = wherePartMatch && wherePartMatch[1] ? wherePartMatch[1].trim() : '';
 
       if (extraWhere) {
@@ -453,7 +576,7 @@ function createUniversalSheetPool() {
     }
 
     // 9. DELETE FROM <table> WHERE business_id = $1 AND id = ANY($2::uuid[])
-    const deleteMatch = rawSql.match(/DELETE\s+FROM\s+["']?([a-z0-9_]+)["']?\s+WHERE\s+business_id\s*=\s*\$1\s+AND\s+id\s*=\s*ANY/i);
+    const deleteMatch = rawSql.match(/DELETE\s+FROM\s+["']?([a-z0-9_]+)["']?\s+WHERE\s+(?:business_id\s*=\s*\$1|\(\s*business_id\s*=\s*\$1\s+OR\s+workspace_id\s*=\s*\$1\s*\))\s+AND\s+id\s*=\s*ANY/i);
     if (deleteMatch) {
       const tableName = deleteMatch[1].toLowerCase();
       const bizId = params[0];
@@ -1954,5 +2077,507 @@ describe('Universal Business Inventory Editor — Dynamic Discovery & Multi-Sche
     });
     assert.match(updateSql, /THEN \$\d+::jsonb/);
     assert.deepEqual(updateParams.at(-1), { M: 13, XXL: 15 });
+  });
+
+  it('41. Executes natural-language row insertion (single and bulk create) with nested map keys and dynamic schemas', async () => {
+    resetAllTables();
+
+    setSheetGeminiGenerator(async (promptText) => {
+      const userMessageMatch = promptText.match(
+        /<user_message>\s*([\s\S]*?)\s*<\/user_message>/i
+      );
+      const userMsg = userMessageMatch ? userMessageMatch[1].trim().toLowerCase() : '';
+
+      if (userMsg.includes('insert a new product linen summer shirt')) {
+        return {
+          status: 'ok',
+          entity: 'products',
+          operation: 'create',
+          updates: [
+            { field: 'name', action: 'set', value: 'Linen Summer Shirt', unit: 'absolute' },
+            { field: 'category', action: 'set', value: 'summer shirt', unit: 'absolute' },
+            { field: 'price', action: 'set', value: 1650, unit: 'absolute' },
+            { field: 'discount', action: 'set', value: 5, unit: 'absolute' },
+            { field: 'color', action: 'set', value: 'Beige', unit: 'absolute' },
+            { field: 'size.M', action: 'set', value: 10, unit: 'absolute' },
+            { field: 'size.L', action: 'set', value: 8, unit: 'absolute' },
+          ],
+        };
+      }
+
+      if (userMsg.includes('add two laptops to electronics')) {
+        return {
+          status: 'ok',
+          entity: 'electronics_inventory',
+          operation: 'insert_many',
+          rows: [
+            {
+              Product_Name: 'ThinkPad X1 Carbon',
+              Brand_Name: 'Lenovo',
+              Model: 'Gen 11',
+              Current_Price: 1600,
+              Stock_Qty: 12,
+              Warehouse: 'Dhaka',
+              Reorder_Level: 5,
+              Warranty_Months: 24,
+            },
+            {
+              Product_Name: 'Spectre x360',
+              Brand_Name: 'HP',
+              Model: '14-ef20',
+              Current_Price: 1450,
+              Stock_Qty: 7,
+              Warehouse: 'Chittagong',
+              Reorder_Level: 5,
+              Warranty_Months: 12,
+            },
+          ],
+        };
+      }
+
+      return { status: 'clarification_needed', message: 'Unhandled test prompt' };
+    });
+
+    // 1. Single-row NL create with dotted nested size.M and size.L via unified /query endpoint
+    const previewRes = await fetch(
+      `${baseUrl}/api/sheets/query?businessId=${businessId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entity: 'products',
+          message:
+            'Insert a new product Linen Summer Shirt in category summer shirt with price 1650, discount 5%, color Beige, size M 10 and L 8.',
+        }),
+      }
+    );
+    assert.equal(previewRes.status, 200);
+    const previewData = await previewRes.json();
+    assert.equal(previewData.status, 'preview');
+    assert.equal(previewData.operation, 'create');
+    assert.equal(previewData.affected_count, 1);
+    assert.equal(previewData.diff.length, 1);
+    assert.equal(previewData.diff[0].after.name, 'Linen Summer Shirt');
+    assert.deepEqual(JSON.parse(previewData.diff[0].after.size), { M: 10, L: 8 });
+
+    // Confirm Stage 2
+    const confirmRes = await fetch(
+      `${baseUrl}/api/sheets/mutate?businessId=${businessId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entity: 'products',
+          confirm: true,
+          mutation: previewData.approved_mutation,
+          expected_preview_hash: previewData.preview_hash,
+        }),
+      }
+    );
+    assert.equal(confirmRes.status, 200);
+    const confirmData = await confirmRes.json();
+    assert.equal(confirmData.status, 'success');
+    assert.equal(confirmData.operation, 'create');
+    assert.equal(confirmData.affected_count, 1);
+    assert.equal(confirmData.created_row.name, 'Linen Summer Shirt');
+
+    // 2. Multi-row NL create on dynamic electronics_inventory schema
+    const multiPreviewRes = await fetch(
+      `${baseUrl}/api/sheets/mutate?businessId=${businessId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entity: 'electronics_inventory',
+          confirm: false,
+          message: 'Add two laptops to electronics: Lenovo ThinkPad X1 Carbon and HP Spectre x360.',
+        }),
+      }
+    );
+    assert.equal(multiPreviewRes.status, 200);
+    const multiPreview = await multiPreviewRes.json();
+    assert.equal(multiPreview.status, 'preview');
+    assert.equal(multiPreview.operation, 'create');
+    assert.equal(multiPreview.affected_count, 2);
+    assert.equal(multiPreview.diff.length, 2);
+
+    const multiConfirmRes = await fetch(
+      `${baseUrl}/api/sheets/mutate?businessId=${businessId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entity: 'electronics_inventory',
+          confirm: true,
+          mutation: multiPreview.approved_mutation,
+          expected_preview_hash: multiPreview.preview_hash,
+        }),
+      }
+    );
+    assert.equal(multiConfirmRes.status, 200);
+    const multiConfirm = await multiConfirmRes.json();
+    assert.equal(multiConfirm.status, 'success');
+    assert.equal(multiConfirm.affected_count, 2);
+    assert.equal(multiConfirm.created_rows.length, 2);
+  });
+
+  it('42. Executes natural-language row deletion (single and conditional bulk delete) with preview diff and confirmation', async () => {
+    resetAllTables();
+
+    setSheetGeminiGenerator(async (promptText) => {
+      const userMessageMatch = promptText.match(
+        /<user_message>\s*([\s\S]*?)\s*<\/user_message>/i
+      );
+      const userMsg = userMessageMatch ? userMessageMatch[1].trim().toLowerCase() : '';
+
+      if (userMsg.includes('delete stripe shirt and summer breeze shirt')) {
+        return {
+          status: 'ok',
+          entity: 'products',
+          operation: 'delete',
+          target_filters: [
+            {
+              field: 'name',
+              operator: 'in',
+              value: ['Stripe Shirt', 'Summer Breeze Shirt'],
+            },
+          ],
+        };
+      }
+
+      return { status: 'clarification_needed', message: 'Unhandled test prompt' };
+    });
+
+    // Stage 1: Preview deletion via unified /query endpoint
+    const delPreviewRes = await fetch(
+      `${baseUrl}/api/sheets/query?businessId=${businessId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entity: 'products',
+          message: 'Delete Stripe Shirt and Summer Breeze Shirt from products.',
+        }),
+      }
+    );
+    assert.equal(delPreviewRes.status, 200);
+    const delPreview = await delPreviewRes.json();
+    assert.equal(delPreview.status, 'preview');
+    assert.equal(delPreview.operation, 'delete');
+    assert.equal(delPreview.affected_count, 2);
+    assert.equal(delPreview.diff.length, 2);
+    assert.equal(delPreview.diff[0].after, null);
+
+    // Stage 2: Confirm deletion
+    const delConfirmRes = await fetch(
+      `${baseUrl}/api/sheets/mutate?businessId=${businessId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entity: 'products',
+          confirm: true,
+          mutation: delPreview.approved_mutation,
+          expected_preview_hash: delPreview.preview_hash,
+        }),
+      }
+    );
+    assert.equal(delConfirmRes.status, 200);
+    const delConfirm = await delConfirmRes.json();
+    assert.equal(delConfirm.status, 'success');
+    assert.equal(delConfirm.operation, 'delete');
+    assert.equal(delConfirm.affected_count, 2);
+
+    const remainingProducts = universalPool.getTableRows('products');
+    assert.equal(remainingProducts.length, 1);
+    assert.equal(remainingProducts[0].name, 'Nightfall Oxford Shirt');
+  });
+
+  it('43. Retrieves customer response context ONLY from the relevant business CSV sheet (products.csv vs services.csv)', async () => {
+    resetAllTables();
+
+    // Register and seed a second business sheet: services.csv (`services`)
+    const servicesSchema = {
+      entity: 'services',
+      tableName: 'services',
+      displayName: 'Services',
+      columns: {
+        id: { exactName: 'id', type: 'uuid', modifiable: false, queryable: true },
+        business_id: { exactName: 'business_id', type: 'uuid', modifiable: false, queryable: false },
+        service_name: { exactName: 'Service_Name', type: 'string', modifiable: true, queryable: true },
+        category: { exactName: 'Category', type: 'string', modifiable: true, queryable: true },
+        duration: { exactName: 'Duration', type: 'string', modifiable: true, queryable: true },
+        hourly_rate: { exactName: 'Hourly_Rate', type: 'number', modifiable: true, queryable: true },
+        description: { exactName: 'Description', type: 'string', modifiable: true, queryable: true },
+      },
+      representativeValues: {
+        Service_Name: ['Express Suit Tailoring', 'Personal Wardrobe Styling Session'],
+        Category: ['alteration service', 'consultation service'],
+      },
+    };
+    registerTableSchema(servicesSchema);
+
+    universalPool.setTableRows('services', [
+      {
+        id: '77777777-7777-4777-8777-777777777771',
+        business_id: businessId,
+        Service_Name: 'Express Suit Tailoring',
+        Category: 'alteration service',
+        Duration: '45 minutes',
+        Hourly_Rate: 800,
+        Description: 'Bespoke hemming and sleeve alteration service by master tailor.',
+      },
+      {
+        id: '77777777-7777-4777-8777-777777777772',
+        business_id: businessId,
+        Service_Name: 'Personal Wardrobe Styling Session',
+        Category: 'consultation service',
+        Duration: '60 minutes',
+        Hourly_Rate: 1500,
+        Description: 'One-on-one styling consultation and outfit planning session.',
+      },
+    ]);
+
+    // 1. Customer asks about a PRODUCT -> must ONLY query `products`, NEVER `services`
+    universalPool.clearQueryLog();
+    const productContext = await retrieveRelevantContextForBusiness(
+      businessId,
+      'Do you have the Stripe Shirt available in size XL and what is its price?'
+    );
+    const productQueries = universalPool.getQueryLog();
+    const queriedServicesForProductMsg = productQueries.some(({ sql }) =>
+      /\bFROM\s+"?services"?\b/i.test(sql)
+    );
+    const queriedProductsForProductMsg = productQueries.some(({ sql }) =>
+      /\bFROM\s+"?products"?\b/i.test(sql)
+    );
+    assert.equal(
+      queriedProductsForProductMsg,
+      true,
+      'Product inquiry must query products table'
+    );
+    assert.equal(
+      queriedServicesForProductMsg,
+      false,
+      'Product inquiry must NOT query services table'
+    );
+    assert.ok(productContext.length > 0);
+    assert.ok(productContext.every((entry) => entry.source_file === 'products.csv'));
+    assert.ok(productContext.some((entry) => entry.title === 'Stripe Shirt'));
+
+    // 2. Customer asks about a SERVICE -> must ONLY query `services`, NEVER `products`
+    universalPool.clearQueryLog();
+    const serviceContext = await retrieveRelevantContextForBusiness(
+      businessId,
+      'How much is the Express Suit Tailoring alteration service and what is the session duration?'
+    );
+    const serviceQueries = universalPool.getQueryLog();
+    const queriedServicesForServiceMsg = serviceQueries.some(({ sql }) =>
+      /\bFROM\s+"?services"?\b/i.test(sql)
+    );
+    const queriedProductsForServiceMsg = serviceQueries.some(({ sql }) =>
+      /\bFROM\s+"?products"?\b/i.test(sql)
+    );
+    assert.equal(
+      queriedServicesForServiceMsg,
+      true,
+      'Service inquiry must query services table'
+    );
+    assert.equal(
+      queriedProductsForServiceMsg,
+      false,
+      'Service inquiry must NOT query products table'
+    );
+    assert.ok(serviceContext.length > 0);
+    assert.ok(serviceContext.every((entry) => entry.source_file === 'services.csv'));
+    assert.ok(
+      serviceContext.some((entry) => entry.title === 'Express Suit Tailoring')
+    );
+  });
+
+  it('44. Routes ordinary table queries and mutations back to their existing Gemini-backed sheet workflows', async () => {
+    const routingPrompts = [];
+    setWorkspaceGeminiGenerator(async (promptText) => {
+      routingPrompts.push(promptText);
+      if (promptText.toLowerCase().includes('decrease discount')) {
+        return { intent: 'sheet_mutation', entity: 'products' };
+      }
+      return { intent: 'sheet_query', entity: 'products' };
+    });
+
+    try {
+      const queryResponse = await fetch(
+        `${baseUrl}/api/workspace/execute?business_id=${businessId}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            business_id: businessId,
+            entity: 'products',
+            prompt: 'Show luxury shirts.',
+          }),
+        }
+      );
+      const queryResult = await queryResponse.json();
+      assert.equal(queryResult.status, 'SHEET_QUERY');
+      assert.equal(queryResult.entity, 'products');
+
+      const mutationResponse = await fetch(
+        `${baseUrl}/api/workspace/execute?business_id=${businessId}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            business_id: businessId,
+            entity: 'products',
+            prompt: 'Decrease discount by 10% for all luxury shirts.',
+            history: [{ role: 'user', content: 'I am working with the apparel sheet.' }],
+          }),
+        }
+      );
+      const mutationResult = await mutationResponse.json();
+      assert.equal(mutationResult.status, 'SHEET_MUTATION');
+      assert.equal(mutationResult.entity, 'products');
+      assert.equal(routingPrompts.length, 2);
+      assert.match(routingPrompts[1], /apparel sheet/i);
+    } finally {
+      setWorkspaceGeminiGenerator(null);
+    }
+  });
+
+  it('45. GET /api/sheets/tables returns only tables belonging to the logged-in business_id and empty array when none belong', async () => {
+    const demoOpsBizId = '11111111-2222-3333-4444-555555555555';
+    const emptyBizId = '99999999-9999-4999-8999-999999999999';
+
+    await universalPool.query('INSERT INTO businesses (id, name) VALUES ($1, $2)', [
+      demoOpsBizId,
+      'Echo Demo Operations Workspace',
+    ]);
+    await universalPool.query('INSERT INTO businesses (id, name) VALUES ($1, $2)', [
+      emptyBizId,
+      'Empty Business Workspace',
+    ]);
+
+    registerTableSchema({
+      entity: 'orders',
+      tableName: 'orders',
+      displayName: 'Orders',
+      columns: {
+        id: { exactName: 'id', type: 'uuid' },
+        business_id: { exactName: 'business_id', type: 'uuid' },
+        order_id: { exactName: 'order_id', type: 'string' },
+        customer_name: { exactName: 'customer_name', type: 'string' },
+        status: { exactName: 'status', type: 'string' },
+      },
+    });
+    universalPool.setTableRows('orders', [
+      {
+        id: '44444444-4444-4444-8444-444444444441',
+        business_id: demoOpsBizId,
+        order_id: 'ORD-1001',
+        customer_name: 'Alice',
+        status: 'Delayed',
+      },
+    ]);
+
+    // 1. Echo Demo Operations Workspace (11111111-2222-3333-4444-555555555555) ONLY sees orders.csv, NOT products.csv
+    const demoRes = await fetch(`${baseUrl}/api/sheets/tables?businessId=${demoOpsBizId}`);
+    assert.equal(demoRes.status, 200);
+    const demoBody = await demoRes.json();
+    assert.equal(demoBody.business_id, demoOpsBizId);
+    assert.deepEqual(
+      demoBody.tables.map((t) => t.entity),
+      ['orders']
+    );
+    assert.equal(demoBody.tables[0].fileName, 'orders.csv');
+
+    // 2. Empty Business Workspace (99999999-9999-4999-8999-999999999999) sees 0 tables
+    const emptyRes = await fetch(`${baseUrl}/api/sheets/tables?businessId=${emptyBizId}`);
+    assert.equal(emptyRes.status, 200);
+    const emptyBody = await emptyRes.json();
+    assert.equal(emptyBody.business_id, emptyBizId);
+    assert.deepEqual(emptyBody.tables, []);
+    assert.equal(emptyBody.count, 0);
+  });
+
+  it('46. Requires explicit whole-table scope before previewing an unfiltered match_all mutation', async () => {
+    setSheetGeminiGenerator(async () => ({
+      status: 'ok',
+      entity: 'products',
+      operation: 'update_many',
+      match_all: true,
+      target_filters: [],
+      updates: [{ field: 'discount', action: 'add', value: 5, unit: 'absolute' }],
+    }));
+
+    try {
+      const requestPreview = async (message) => {
+        const response = await fetch(
+          `${baseUrl}/api/sheets/products/mutate?businessId=${businessId}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              entity: 'products',
+              message,
+              confirm: false,
+            }),
+          }
+        );
+        return response.json();
+      };
+
+      const missingScope = await requestPreview('Increase the discount by 5%.');
+      assert.equal(missingScope.status, 'clarification_needed');
+      assert.match(missingScope.message, /does not clearly ask for a whole-table operation/i);
+      assert.equal(missingScope.affected_count, 0);
+      assert.equal(missingScope.preview_hash, undefined);
+
+      const beforeUnsafeExecution = universalPool
+        .getTableRows('products')
+        .map((row) => row.discount);
+      const unsafeExecutionResponse = await fetch(
+        `${baseUrl}/api/sheets/products/mutate?businessId=${businessId}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            entity: 'products',
+            message: 'Increase the discount by 5%.',
+            mutation: {
+              operation: 'update_many',
+              match_all: true,
+              target_filters: [],
+              updates: [
+                { field: 'discount', action: 'add', value: 5, unit: 'absolute' },
+              ],
+            },
+            confirm: true,
+          }),
+        }
+      );
+      const unsafeExecution = await unsafeExecutionResponse.json();
+      assert.equal(unsafeExecution.status, 'clarification_needed');
+      assert.deepEqual(
+        universalPool.getTableRows('products').map((row) => row.discount),
+        beforeUnsafeExecution,
+        'An unscoped match_all plan must not change any rows during confirmation.'
+      );
+
+      const qualifiedScope = await requestPreview(
+        'Increase stock for all luxury shirts for all sizes by 10.'
+      );
+      assert.equal(qualifiedScope.status, 'clarification_needed');
+      assert.equal(qualifiedScope.affected_count, 0);
+
+      const explicitScope = await requestPreview(
+        'Increase the discount by 5% for all rows in the table.'
+      );
+      assert.equal(explicitScope.status, 'preview');
+      assert.ok(explicitScope.affected_count > 0);
+      assert.ok(explicitScope.preview_hash);
+    } finally {
+      setSheetGeminiGenerator(null);
+    }
   });
 });

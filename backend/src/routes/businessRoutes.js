@@ -1,5 +1,5 @@
 const express = require('express');
-const { createBusiness } = require('../controllers/businessController');
+const { createBusiness, getBusiness } = require('../controllers/businessController');
 const { createBusinessCustomer } = require('../controllers/customerController');
 const {
   listBusinessConversations,
@@ -7,7 +7,8 @@ const {
   createBusinessConversation,
   getBusinessConversation,
   updateBusinessConversationStatus,
-  postCustomerMessageAndGeneratePrompt,
+  postConversationMessage,
+  generateConversationReplyDraft,
   postAgentReplyToConversation,
 } = require('../controllers/conversationController');
 const {
@@ -27,6 +28,10 @@ const router = express.Router();
 // Business Creation Endpoint
 // POST /api/businesses
 router.post('/', createBusiness);
+
+// Business Lookup Endpoint
+// GET /api/businesses/:businessId
+router.get('/:businessId', validateBusinessIdParam, getBusiness);
 
 // Individual Customer Creation Endpoint
 // POST /api/businesses/:businessId/customers
@@ -103,14 +108,21 @@ router.patch(
   updateBusinessConversationStatus
 );
 
-// Phase 2: Incoming Customer Message & Multi-Turn Contextual Prompt Generation
-// (Also supports sender_type: 'agent' to persist a reply directly without prompt generation)
+// Phase 2: Save an incoming customer or agent message without AI generation
 // POST /api/businesses/:businessId/conversations/:conversationId/messages
 router.post(
   '/:businessId/conversations/:conversationId/messages',
   validateBusinessIdParam,
   validateConversationIdParam,
-  postCustomerMessageAndGeneratePrompt
+  postConversationMessage
+);
+
+// On-demand workspace-grounded customer reply draft; never sends the draft
+router.post(
+  '/:businessId/conversations/:conversationId/reply-draft',
+  validateBusinessIdParam,
+  validateConversationIdParam,
+  generateConversationReplyDraft
 );
 
 // Phase 2: Agent / Support User Reply Persistence (Direct DB save without AI prompt generation)

@@ -2,6 +2,7 @@ const express = require('express');
 const { uploadSingleCsv } = require('../middleware/uploadMiddleware');
 const {
   uploadProducts,
+  getBusinessTablesList,
   getProductsList,
   querySpreadsheet,
   mutateSpreadsheet,
@@ -9,6 +10,9 @@ const {
 } = require('../controllers/sheetController');
 
 const router = express.Router({ mergeParams: true });
+
+// Discover all tables belonging to the active business
+router.get('/tables', getBusinessTablesList);
 
 // Specific products endpoints for backward compatibility
 router.post('/products/upload', uploadSingleCsv, uploadProducts);

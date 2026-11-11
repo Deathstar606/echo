@@ -46,6 +46,7 @@ const ANNOUNCEMENT_DRAFT_SCHEMA = {
 let customGenerator = null;
 let customAnnouncementGenerator = null;
 let customSheetGenerator = null;
+let customWorkspaceGenerator = null;
 
 /**
  * Allows overriding the customer-support Gemini generator function (e.g. for offline unit testing).
@@ -72,6 +73,28 @@ function setAnnouncementGeminiGenerator(fn) {
  */
 function setSheetGeminiGenerator(fn) {
   customSheetGenerator = fn;
+}
+
+function hasCustomSheetGeminiGenerator() {
+  return typeof customSheetGenerator === 'function';
+}
+
+/**
+ * Allows overriding the workspace multi-hop RAG / Socratic generator function (e.g. for offline unit testing).
+ *
+ * @param {Function | null} fn
+ */
+function setWorkspaceGeminiGenerator(fn) {
+  customWorkspaceGenerator = fn;
+}
+
+/**
+ * Returns true when an explicit workspace Gemini test stub has been registered.
+ *
+ * @returns {boolean}
+ */
+function hasCustomWorkspaceGeminiGenerator() {
+  return typeof customWorkspaceGenerator === 'function';
 }
 
 function parseJsonFromGemini(rawOutput) {
@@ -224,23 +247,65 @@ async function callGeminiModelWithSchema(
     generationConfig.responseSchema = responseSchema;
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: promptText }],
-        },
-      ],
-      generationConfig,
-    }),
+  const requestBody = JSON.stringify({
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: promptText }],
+      },
+    ],
+    generationConfig,
   });
+  let response = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: requestBody,
+        signal: AbortSignal.timeout(25000),
+      });
+    } catch (error) {
+      if (
+        attempt === 0 &&
+        (error?.name === 'AbortError' ||
+          error?.name === 'TimeoutError' ||
+          error instanceof TypeError)
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        continue;
+      }
+      const message =
+        error?.name === 'TimeoutError' || error?.name === 'AbortError'
+          ? 'Gemini request timed out after 25 seconds.'
+          : `Gemini network request failed: ${error?.message || 'unknown network error'}`;
+      const networkError = new AppError(message, 502);
+      networkError.code = error?.name === 'TimeoutError' || error?.name === 'AbortError'
+        ? 'GEMINI_TIMEOUT'
+        : 'GEMINI_NETWORK_ERROR';
+      throw networkError;
+    }
 
-  const data = await response.json().catch(() => null);
+    if ((response.status === 429 || response.status === 503) && attempt === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      continue;
+    }
+    break;
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch (error) {
+    if (error?.name === 'AbortError' || error?.name === 'TimeoutError') {
+      const timeoutError = new AppError('Gemini request timed out after 25 seconds.', 502);
+      timeoutError.code = 'GEMINI_TIMEOUT';
+      throw timeoutError;
+    }
+    data = null;
+  }
 
   if (!response.ok) {
     const apiErrMessage =
@@ -319,7 +384,7 @@ async function executeGeminiWithFallback(promptText, responseSchema) {
         continue;
       }
       if (error.upstreamStatus === 503 || error.upstreamStatus === 429) {
-        continue;
+        throw error;
       }
       throw error;
     }
@@ -370,26 +435,92 @@ async function generateAiAnnouncementDraft(promptText) {
  * and returns the parsed JSON object.
  *
  * @param {string} promptText
+ * @param {object | null} [responseSchema=null]
  * @returns {Promise<object>}
  */
-async function generateAiSheetInterpretation(promptText) {
+async function generateAiSheetInterpretation(promptText, responseSchema = null) {
   if (typeof customSheetGenerator === 'function') {
     const customOutput = await customSheetGenerator(promptText);
     return parseJsonFromGemini(customOutput);
   }
 
-  const rawText = await executeGeminiWithFallback(promptText, null);
+  const rawText = await executeGeminiWithFallback(promptText, responseSchema);
   return parseJsonFromGemini(rawText);
+}
+
+/**
+ * Generates structured JSON output from Gemini with strict schema validation
+ * and automatic self-correction retry (default max 2 retries).
+ *
+ * @param {string} promptText
+ * @param {(parsed: object) => object} [validatorFn]
+ * @param {object} [options]
+ * @param {number} [options.maxRetries=2]
+ * @param {object | null} [options.responseSchema=null]
+ * @returns {Promise<object>}
+ */
+async function generateStructuredJsonWithRetry(
+  promptText,
+  validatorFn = null,
+  options = {}
+) {
+  const maxRetries = Number.isInteger(options.maxRetries)
+    ? Math.max(0, options.maxRetries)
+    : 2;
+  const responseSchema = options.responseSchema || null;
+
+  let currentPrompt = String(promptText ?? '');
+  let lastValidationError = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    try {
+      let rawOutput;
+      if (typeof customWorkspaceGenerator === 'function') {
+        rawOutput = await customWorkspaceGenerator(currentPrompt, {
+          attempt,
+          responseSchema,
+          stage: options.stage || 'default',
+        });
+      } else {
+        rawOutput = await executeGeminiWithFallback(
+          currentPrompt,
+          responseSchema
+        );
+      }
+
+      const parsed = parseJsonFromGemini(rawOutput);
+      if (typeof validatorFn === 'function') {
+        return validatorFn(parsed);
+      }
+      return parsed;
+    } catch (error) {
+      lastValidationError = error;
+      if (attempt >= maxRetries) {
+        break;
+      }
+
+      const errorMessage =
+        error && error.message ? error.message : 'Invalid JSON structure';
+      currentPrompt = `${promptText}\n\n[SELF-CORRECTION RETRY ${attempt + 1}/${maxRetries}]\nYour previous output failed validation with the following error: "${errorMessage}".\nPlease fix the JSON output immediately and return ONLY a valid JSON object matching the required schema.`;
+    }
+  }
+
+  throw lastValidationError;
 }
 
 module.exports = {
   setGeminiGenerator,
   setAnnouncementGeminiGenerator,
   setSheetGeminiGenerator,
+  hasCustomSheetGeminiGenerator,
+  setWorkspaceGeminiGenerator,
+  hasCustomWorkspaceGeminiGenerator,
+  callGeminiModelWithSchema,
   parseJsonFromGemini,
   normalizeAndValidateAiResponse,
   normalizeAndValidateAnnouncementDraft,
   generateAiSupportResponse,
   generateAiAnnouncementDraft,
   generateAiSheetInterpretation,
+  generateStructuredJsonWithRetry,
 };

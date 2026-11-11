@@ -282,6 +282,7 @@ function splitTopLevelLogical(str, keyword) {
 function createInMemorySheetPool() {
   const businesses = new Map();
   let products = [];
+  let workspaceTableMetadata = [];
   let monotonicClock = Date.now();
   let failNextUpdate = false;
 
@@ -303,11 +304,13 @@ function createInMemorySheetPool() {
         Array.from(businesses.entries()).map(([k, v]) => [k, { ...v }])
       ),
       products: products.map((p) => ({ ...p })),
+      workspaceTableMetadata: workspaceTableMetadata.map((row) => ({ ...row })),
     };
   }
 
   function restoreState(snap) {
     products = snap.products;
+    workspaceTableMetadata = snap.workspaceTableMetadata;
   }
 
   async function executeQuery(sql, params = []) {
@@ -318,10 +321,19 @@ function createInMemorySheetPool() {
       return { rows: [{ '?column?': 1 }], rowCount: 1 };
     }
 
-    // Business lookup
+    // Workspace / Business lookup & insert
+    if (
+      normalized.startsWith('SELECT ID FROM USERS ORDER BY CREATED_AT ASC LIMIT 1')
+    ) {
+      return { rows: [], rowCount: 0 };
+    }
+
     if (
       normalized.startsWith(
         'SELECT ID, NAME, CREATED_AT FROM BUSINESSES WHERE ID = $1'
+      ) ||
+      normalized.startsWith(
+        'SELECT ID, NAME, USER_ID, CREATED_AT FROM WORKSPACES WHERE ID = $1'
       )
     ) {
       const bizId = params[0];
@@ -330,11 +342,15 @@ function createInMemorySheetPool() {
       return { rows: [{ ...biz }], rowCount: 1 };
     }
 
-    if (normalized.startsWith('INSERT INTO BUSINESSES')) {
-      const [id, name] = params;
+    if (
+      normalized.startsWith('INSERT INTO BUSINESSES') ||
+      normalized.startsWith('INSERT INTO WORKSPACES')
+    ) {
+      const [id, name, userId] = params;
       const row = {
         id: id || crypto.randomUUID(),
         name,
+        user_id: userId || null,
         created_at: nextIsoTimestamp(),
       };
       businesses.set(row.id, row);
@@ -342,7 +358,11 @@ function createInMemorySheetPool() {
     }
 
     // Delete existing products for a business
-    if (normalized === 'DELETE FROM PRODUCTS WHERE BUSINESS_ID = $1;') {
+    if (
+      normalized === 'DELETE FROM PRODUCTS WHERE BUSINESS_ID = $1;' ||
+      normalized === 'DELETE FROM PRODUCTS WHERE BUSINESS_ID = $1 OR WORKSPACE_ID = $1;' ||
+      normalized === 'DELETE FROM PRODUCTS WHERE (BUSINESS_ID = $1 OR WORKSPACE_ID = $1);'
+    ) {
       const bizId = params[0];
       const beforeCount = products.length;
       products = products.filter((p) => p.business_id !== bizId);
@@ -420,6 +440,9 @@ function createInMemorySheetPool() {
     if (
       normalized.startsWith(
         'SELECT NAME, CATEGORY FROM PRODUCTS WHERE BUSINESS_ID = $1'
+      ) ||
+      normalized.startsWith(
+        'SELECT NAME, CATEGORY FROM PRODUCTS WHERE (BUSINESS_ID = $1 OR WORKSPACE_ID = $1)'
       )
     ) {
       const bizId = params[0];
@@ -434,6 +457,9 @@ function createInMemorySheetPool() {
     if (
       normalized.startsWith(
         'SELECT ID, BUSINESS_ID, NAME, CATEGORY, DESCRIPTION, BEST, COLOR, DISCOUNT, ORDERED, IMAGES, SIZE, PRICE, CREATED_AT, UPDATED_AT FROM PRODUCTS WHERE BUSINESS_ID = $1'
+      ) ||
+      normalized.startsWith(
+        'SELECT ID, BUSINESS_ID, NAME, CATEGORY, DESCRIPTION, BEST, COLOR, DISCOUNT, ORDERED, IMAGES, SIZE, PRICE, CREATED_AT, UPDATED_AT FROM PRODUCTS WHERE (BUSINESS_ID = $1 OR WORKSPACE_ID = $1)'
       )
     ) {
       const bizId = params[0];
@@ -475,8 +501,69 @@ function createInMemorySheetPool() {
       return { rows, rowCount: rows.length };
     }
 
+    if (normalized.includes('FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS')) {
+      return {
+        rows: String(params[0]).toLowerCase() === 'products'
+          ? [{ column_name: 'id' }]
+          : [],
+        rowCount: String(params[0]).toLowerCase() === 'products' ? 1 : 0,
+      };
+    }
+
+    if (normalized.startsWith('SELECT COUNT(*)::BIGINT AS ROW_COUNT')) {
+      const rows = products.filter((row) => row.business_id === params[0]);
+      return {
+        rows: [{ row_count: rows.length, column_stats: {} }],
+        rowCount: 1,
+      };
+    }
+
+    if (normalized.startsWith('SELECT * FROM PRODUCTS') && /\sLIMIT 3;?$/i.test(rawSql)) {
+      const rows = products
+        .filter((row) => row.business_id === params[0])
+        .slice(0, 3)
+        .map((row) => ({ ...row }));
+      return { rows, rowCount: rows.length };
+    }
+
+    if (normalized.startsWith('SELECT SOURCE_FILENAME FROM WORKSPACE_TABLE_METADATA')) {
+      const row = workspaceTableMetadata.find(
+        (metadata) =>
+          metadata.workspace_id === params[0] && metadata.table_name === params[1]
+      );
+      return { rows: row ? [{ source_filename: row.source_filename }] : [], rowCount: row ? 1 : 0 };
+    }
+
+    if (normalized.startsWith('INSERT INTO WORKSPACE_TABLE_METADATA')) {
+      const row = {
+        workspace_id: params[0],
+        table_name: params[1],
+        source_filename: params[2],
+        row_count: params[3],
+        primary_key_column: params[4],
+        email_column: params[5],
+        columns_profile: JSON.parse(params[6]),
+        sample_rows: JSON.parse(params[7]),
+        table_summary: params[8],
+      };
+      workspaceTableMetadata = workspaceTableMetadata.filter(
+        (metadata) =>
+          metadata.workspace_id !== row.workspace_id ||
+          metadata.table_name !== row.table_name
+      );
+      workspaceTableMetadata.push(row);
+      return { rows: [{ ...row }], rowCount: 1 };
+    }
+
+    if (normalized.startsWith('SELECT INDEXDEF FROM PG_INDEXES')) {
+      return { rows: [], rowCount: 0 };
+    }
+    if (normalized.startsWith('CREATE INDEX IF NOT EXISTS')) {
+      return { rows: [], rowCount: 0 };
+    }
+
     const sampleMatch = rawSql.match(
-      /^SELECT\s+([\s\S]+?)\s+FROM\s+"?products"?\s+WHERE\s+business_id\s*=\s*\$1\s+LIMIT\s+5;?$/i
+      /^SELECT\s+([\s\S]+?)\s+FROM\s+"?products"?\s+WHERE\s+(?:business_id\s*=\s*\$1|\(\s*business_id\s*=\s*\$1\s+OR\s+workspace_id\s*=\s*\$1\s*\))\s+LIMIT\s+5;?$/i
     );
     if (sampleMatch && !sampleMatch[1].trim().startsWith('*')) {
       const selectedColumns = sampleMatch[1]
@@ -513,7 +600,7 @@ function createInMemorySheetPool() {
 
       // Extract WHERE body after "WHERE business_id = $1"
       const whereMatch = rawSql.match(
-        /WHERE\s+business_id\s*=\s*\$1(?:\s+AND\s+([\s\S]+?))?\s+ORDER\s+BY/i
+        /WHERE\s+(?:business_id\s*=\s*\$1|\(\s*business_id\s*=\s*\$1\s+OR\s+workspace_id\s*=\s*\$1\s*\))(?:\s+AND\s+([\s\S]+?))?\s+ORDER\s+BY/i
       );
       const extraWhere = whereMatch && whereMatch[1] ? whereMatch[1].trim() : '';
 
@@ -599,6 +686,9 @@ function createInMemorySheetPool() {
     if (
       normalized.startsWith(
         'DELETE FROM PRODUCTS WHERE BUSINESS_ID = $1 AND ID = ANY'
+      ) ||
+      normalized.startsWith(
+        'DELETE FROM PRODUCTS WHERE (BUSINESS_ID = $1 OR WORKSPACE_ID = $1) AND ID = ANY'
       )
     ) {
       const bizId = params[0];
@@ -668,10 +758,13 @@ describe('Single-Table Products Sheet Query, Bulk/Arithmetic Mutation & Inquiry 
    * so each mutation test starts from the known baseline when needed.
    */
   async function resetProductsFromCsv() {
-    const csvContent = fs.readFileSync(
+    const candidateCsvPaths = [
       path.join(__dirname, '..', 'products.csv'),
-      'utf8'
-    );
+      path.join(__dirname, '..', 'demo', 'scenario_1', 'products.csv'),
+    ];
+    const resolvedCsvPath =
+      candidateCsvPaths.find((p) => fs.existsSync(p)) || candidateCsvPaths[0];
+    const csvContent = fs.readFileSync(resolvedCsvPath, 'utf8');
     const form = new FormData();
     form.append(
       'file',

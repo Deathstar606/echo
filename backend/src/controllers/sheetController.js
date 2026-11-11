@@ -9,16 +9,34 @@ const {
   importSheetRecordsToDatabase,
   parseCsvBoolean,
 } = require('../services/sheetCsvImportService');
-const { getAllRows, executeSpreadsheetQuery } = require('../services/sheetQueryService');
+const {
+  getAllRows,
+  normalizeProductRow,
+  executeSpreadsheetQuery,
+} = require('../services/sheetQueryService');
+const { discoverWorkspaceSources } = require('../services/queryRouterService');
 const { interpretNaturalLanguageQuery } = require('../services/sheetQueryPromptBuilder');
 const { executeMutation } = require('../services/sheetMutationService');
 const {
   normalizeEntityName,
+  getSchema,
   discoverTableSchema,
+  discoverTableSchemaCached,
   registerTableSchema,
   ensureTableExists,
   findColumnDef,
 } = require('../services/sheetSchemaService');
+const {
+  listWorkspaceTableMetadataCached,
+} = require('../services/workspaceTableMetadataService');
+const {
+  summarizeQueryRowsWithAi,
+  buildHighlightedRows,
+} = require('../services/fastTableQueryService');
+const {
+  hasCustomSheetGeminiGenerator,
+} = require('../services/geminiService');
+const env = require('../config/env');
 const AppError = require('../utils/AppError');
 
 const DEFAULT_BUSINESS_ID = '684a8863-5094-4c8b-9b15-c50c06335b7f';
@@ -32,15 +50,36 @@ const DEFAULT_BUSINESS_ID = '684a8863-5094-4c8b-9b15-c50c06335b7f';
  */
 async function resolveBusiness(req) {
   const candidateId =
+    req.params.workspaceId ||
+    req.query.workspace_id ||
+    req.query.workspaceId ||
+    req.body?.workspace_id ||
+    req.body?.workspaceId ||
+    req.headers['x-workspace-id'] ||
     req.params.businessId ||
     req.query.business_id ||
     req.query.businessId ||
     req.body?.business_id ||
     req.body?.businessId ||
     req.headers['x-business-id'] ||
-    DEFAULT_BUSINESS_ID;
+    null;
 
-  return findBusinessOrThrow(String(candidateId).trim());
+  if (!candidateId || !String(candidateId).trim()) {
+    throw new AppError(
+      'A valid workspaceId or businessId is required to access spreadsheets.',
+      400
+    );
+  }
+
+  const requestUserId =
+    req.headers['x-user-id'] ||
+    req.query?.userId ||
+    req.query?.user_id ||
+    req.body?.userId ||
+    req.body?.user_id ||
+    null;
+
+  return findBusinessOrThrow(String(candidateId).trim(), requestUserId);
 }
 
 /**
@@ -124,7 +163,10 @@ async function uploadProducts(req, res, next) {
           });
         }
 
-        const importedCount = await importProductsToDatabase(business.id, validRecords, { mode });
+        const importedCount = await importProductsToDatabase(business.id, validRecords, {
+          mode,
+          sourceFilename: fileName,
+        });
 
         return res.status(200).json({
           message: isAppend
@@ -199,15 +241,22 @@ async function uploadProducts(req, res, next) {
       business.id,
       schema,
       validRecords,
-      { mode }
+      { mode, sourceFilename: fileName }
     );
 
     const activeColNames = Object.values(schema.columns)
       .filter(
         (c) =>
-          !['id', 'business_id', 'created_at', 'updated_at'].includes(
-            (c.exactName || '').toLowerCase()
-          )
+          ![
+            'id',
+            'business_id',
+            'workspace_id',
+            'user_id',
+            'workspace_document_id',
+            '_google_row_index',
+            'created_at',
+            'updated_at',
+          ].includes((c.exactName || '').toLowerCase())
       )
       .map((c) => c.exactName || c);
 
@@ -236,6 +285,69 @@ async function uploadProducts(req, res, next) {
 }
 
 /**
+ * GET /api/sheets/tables
+ * GET /api/businesses/:businessId/sheets/tables
+ * Returns all spreadsheet tables that actually belong to (contain rows for) the active business.
+ */
+async function getBusinessTablesList(req, res, next) {
+  try {
+    const business = await resolveBusiness(req);
+    const { tables: discoveredTables } = await discoverWorkspaceSources(
+      business.id,
+      { includeRows: true }
+    );
+
+    const businessTables = [];
+    for (const t of discoveredTables) {
+      if (!t || !Array.isArray(t.rows) || t.rows.length === 0) {
+        continue;
+      }
+      const schema = t.schema;
+      const entity = normalizeEntityName(schema?.entity || t.tableName);
+      const displayName =
+        schema?.displayName ||
+        t.displayName ||
+        entity.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      const columns = Object.values(schema?.columns || {})
+        .filter(
+          (c) =>
+            ![
+              'id',
+              'business_id',
+              'workspace_id',
+              'user_id',
+              'workspace_document_id',
+              '_google_row_index',
+              'created_at',
+              'updated_at',
+            ].includes(String(c.exactName || '').toLowerCase()) && !c.virtual
+        )
+        .map((c) => c.exactName);
+      const normalizedRows = t.rows.map((r) => normalizeProductRow(r, schema));
+
+      businessTables.push({
+        entity,
+        tableName: t.tableName || entity,
+        displayName,
+        fileName: `${entity}.csv`,
+        columns,
+        rowCount: normalizedRows.length,
+        rows: normalizedRows,
+      });
+    }
+
+    return res.status(200).json({
+      status: 'ok',
+      business_id: business.id,
+      tables: businessTables,
+      count: businessTables.length,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+/**
  * GET /api/sheets/products
  * GET /api/sheets/:entity
  * GET /api/businesses/:businessId/sheets/:entity
@@ -255,7 +367,7 @@ async function getProductsList(req, res, next) {
 
     await ensureTableExists(schema);
 
-    const rows = await getAllRows(entity, business.id);
+    const rows = await getAllRows(schema, business.id, { skipEnsure: true });
 
     return res.status(200).json({
       status: 'ok',
@@ -264,9 +376,16 @@ async function getProductsList(req, res, next) {
       columns: Object.values(schema.columns)
         .filter(
           (c) =>
-            !['id', 'business_id', 'created_at', 'updated_at'].includes(
-              c.exactName.toLowerCase()
-            )
+            ![
+              'id',
+              'business_id',
+              'workspace_id',
+              'user_id',
+              'workspace_document_id',
+              '_google_row_index',
+              'created_at',
+              'updated_at',
+            ].includes(c.exactName.toLowerCase())
         )
         .map((c) => c.exactName),
       business_id: business.id,
@@ -301,27 +420,77 @@ async function querySpreadsheet(req, res, next) {
     const entity = normalizeEntityName(rawEntity);
     const business = await resolveBusiness(req);
 
-    // Resolve the schema once and reuse it across interpretation and execution.
-    const schema = await discoverTableSchema(entity, business.id);
+    // Resolve schema + adjacent workspace metadata once and reuse across interpretation & execution.
+    const metadataList = await listWorkspaceTableMetadataCached(business.id).catch(() => []);
+    const matchedMeta = metadataList.find(
+      (m) => normalizeEntityName(m.table_name) === entity
+    ) || null;
+    const schema = await discoverTableSchemaCached(entity, business.id, {
+      prefetchedMetadata: matchedMeta,
+    });
 
-    // 1. Convert natural-language message to structured JSON query
+    // 1. Convert natural-language message to structured JSON query or mutation
     const interpreted = await interpretNaturalLanguageQuery({
       entity,
       schema,
       message: rawMessage.trim(),
       isMutation: false,
       businessId: business.id,
+      skipCatalogLoad: Boolean(matchedMeta),
     });
 
-    // 2. Execute query against PostgreSQL (or return clarification response)
+    // 2. Dynamically route to mutation preview if the user's request is a mutation (update, update_many, create, delete)
+    if (
+      interpreted &&
+      interpreted.status === 'ok' &&
+      ['update', 'update_many', 'create', 'delete'].includes(interpreted.operation)
+    ) {
+      const previewResult = await executeMutation({
+        entity: schema,
+        businessId: business.id,
+        mutationJson: interpreted,
+        confirm: false,
+        sourcePrompt: body.message,
+      });
+
+      return res.status(200).json({
+        ...previewResult,
+        business_id: business.id,
+      });
+    }
+
+    // 3. Execute query against PostgreSQL (reusing resolved schema and skipping redundant DDL check when metadata exists)
     const result = await executeSpreadsheetQuery({
       entity: schema,
+      schema,
       businessId: business.id,
       queryJson: interpreted,
+      skipEnsure: Boolean(matchedMeta),
     });
+
+    let answer = result.message || '';
+    let highlightedRows = [];
+    if (result.status === 'ok') {
+      const rows = Array.isArray(result.rows) ? result.rows : [];
+      highlightedRows = buildHighlightedRows(schema.tableName, rows);
+      if (env.geminiApiKey && !hasCustomSheetGeminiGenerator()) {
+        answer = await summarizeQueryRowsWithAi({
+          prompt: rawMessage.trim(),
+          tableName: schema.tableName,
+          interpreted,
+          rows,
+          schema,
+          emailColumn: matchedMeta?.email_column || null,
+        });
+      } else {
+        answer = `Found ${rows.length} matching row(s) in ${schema.tableName}.`;
+      }
+    }
 
     return res.status(200).json({
       ...result,
+      ...(answer ? { message: answer, answer } : {}),
+      ...(highlightedRows.length > 0 ? { highlighted_rows: highlightedRows } : {}),
       business_id: business.id,
     });
   } catch (error) {
@@ -350,7 +519,18 @@ async function mutateSpreadsheet(req, res, next) {
     const business = await resolveBusiness(req);
 
     // Resolve the schema once and reuse it across interpretation and preview.
-    const schema = await discoverTableSchema(entity, business.id);
+    // On Stage 2 confirmation (confirm === true with pre-validated mutation), reuse the
+    // already-registered schema to avoid redundant information_schema & LIMIT 5 sampling queries.
+    let schema;
+    if (confirm && body.mutation) {
+      try {
+        schema = getSchema(entity);
+      } catch {
+        schema = await discoverTableSchema(entity, business.id);
+      }
+    } else {
+      schema = await discoverTableSchema(entity, business.id);
+    }
 
     let mutationJson = body.mutation;
 
@@ -372,6 +552,26 @@ async function mutateSpreadsheet(req, res, next) {
       );
     }
 
+    // Dynamically route to read query if Gemini determined the instruction is a read/filter query
+    if (
+      !confirm &&
+      !body.mutation &&
+      mutationJson &&
+      mutationJson.status === 'ok' &&
+      mutationJson.operation === 'filter'
+    ) {
+      const queryRes = await executeSpreadsheetQuery({
+        entity: schema,
+        businessId: business.id,
+        queryJson: mutationJson,
+      });
+
+      return res.status(200).json({
+        ...queryRes,
+        business_id: business.id,
+      });
+    }
+
     const expectedPreviewHash =
       body.expected_preview_hash || body.preview_hash || undefined;
 
@@ -381,6 +581,7 @@ async function mutateSpreadsheet(req, res, next) {
       mutationJson,
       confirm,
       expectedPreviewHash,
+      sourcePrompt: body.message,
     });
 
     return res.status(200).json({
@@ -414,10 +615,34 @@ async function insertSheetRow(req, res, next) {
     // Filter out metadata fields and internal keys
     const cleanRowInput = {};
     for (const [key, val] of Object.entries(bodyRow)) {
-      if (['entity', 'row', 'data', 'business_id', 'businessId', 'confirm'].includes(key)) {
+      if (
+        [
+          'entity',
+          'row',
+          'data',
+          'business_id',
+          'businessId',
+          'workspace_id',
+          'workspaceId',
+          'user_id',
+          'userId',
+          'confirm',
+        ].includes(key)
+      ) {
         continue;
       }
-      if (!['id', 'business_id', 'created_at', 'updated_at'].includes(key.toLowerCase())) {
+      if (
+        ![
+          'id',
+          'business_id',
+          'workspace_id',
+          'user_id',
+          'workspace_document_id',
+          '_google_row_index',
+          'created_at',
+          'updated_at',
+        ].includes(key.toLowerCase())
+      ) {
         cleanRowInput[key] = val;
       }
     }
@@ -518,7 +743,17 @@ async function insertSheetRow(req, res, next) {
       });
     }
 
-    const rows = await getAllRows(entity, business.id);
+    // Write-back sync to Google Sheet if applicable
+    try {
+      const { syncMutationsToGoogleSheet } = require('../services/googleSheetsSyncService');
+      await syncMutationsToGoogleSheet(business.id, schema.tableName, [
+        { ...cleanRowInput, operation: 'create' },
+      ]);
+    } catch (gSyncErr) {
+      console.warn('[InsertSheetRow] Google Sheets sync error:', gSyncErr.message);
+    }
+
+    const rows = await getAllRows(schema, business.id, { skipEnsure: true });
 
     return res.status(201).json({
       message: `Successfully added row to ${schema.displayName || entity}.`,
@@ -535,6 +770,7 @@ async function insertSheetRow(req, res, next) {
 
 module.exports = {
   uploadProducts,
+  getBusinessTablesList,
   getProductsList,
   querySpreadsheet,
   mutateSpreadsheet,

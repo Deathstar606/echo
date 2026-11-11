@@ -14,6 +14,9 @@ const {
 } = require('./sheetQueryService');
 const { resolveNameFilters } = require('./catalogNameResolver');
 const AppError = require('../utils/AppError');
+const {
+  refreshWorkspaceTableMetadata,
+} = require('./workspaceTableMetadataService');
 
 /**
  * Resolves product/item name target filters of a validated mutation against the business's
@@ -48,6 +51,101 @@ async function resolveMutationTargetNames(validated, businessId, schema) {
   return {
     validated: { ...validated, target_filters: resolution.filters },
     name_resolutions: resolution.resolutions,
+  };
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function hasExplicitWholeTableScope(prompt, schema) {
+  const normalizedPrompt = String(prompt || '')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const collectionPattern =
+    /\b(?:all|every|each)\s+(?:of\s+)?(?:the\s+)?(?:rows?|records?|entries|items?|products?|orders?|customers?|accounts?)\b|\b(?:the\s+)?(?:entire|whole)\s+(?:table|sheet|dataset|inventory)\b/i;
+  const allRowsInTablePattern =
+    /\b(?:all|every|each)\s+(?:of\s+)?(?:the\s+)?(?:rows?|records?|entries|items?)\s+in\s+(?:(?:the|this|current)\s+)?(?:entire\s+|whole\s+)?(?:table|sheet|dataset|inventory)\b/i;
+  if (!normalizedPrompt) return false;
+  if (allRowsInTablePattern.test(normalizedPrompt)) return true;
+  const entityNames = [
+    schema.tableName,
+    schema.entity,
+    schema.displayName,
+  ]
+    .filter(Boolean)
+    .map((name) =>
+      String(name)
+        .toLowerCase()
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+    )
+    .filter((name, index, names) => name && names.indexOf(name) === index);
+
+  const candidates = [
+    ...entityNames,
+    ...entityNames
+      .map((name) => name.replace(/\b(?:inventory|dataset|table|sheet)\b/g, '').trim())
+      .filter(Boolean),
+  ].filter((name, index, names) => name && names.indexOf(name) === index);
+
+  for (const name of candidates) {
+    const match = new RegExp(
+      `\\b(?:all|every|each)\\s+(?:of\\s+)?(?:the\\s+)?${escapeRegExp(name)}\\b`,
+      'i'
+    ).exec(normalizedPrompt);
+    if (!match) continue;
+
+    const remainder = normalizedPrompt.slice(match.index + match[0].length);
+    if (
+      /^\s+in\s+(?:(?:the|this|current)\s+)?(?:entire\s+|whole\s+)?(?:table|sheet|dataset|inventory)\b/i.test(
+        remainder
+      )
+    ) {
+      return true;
+    }
+    if (
+      !/^\s+(?:with|where|from|in|whose|that|which|matching|having|priced|costing|under|over|above|below|not)\b/i.test(
+        remainder
+      )
+    ) {
+      return true;
+    }
+  }
+
+  const genericMatch = collectionPattern.exec(normalizedPrompt);
+  if (!genericMatch) return false;
+  const remainder = normalizedPrompt.slice(
+    genericMatch.index + genericMatch[0].length
+  );
+  return !/^\s+(?:with|where|from|in|whose|that|which|matching|having|priced|costing|under|over|above|below|not)\b/i.test(
+    remainder
+  );
+}
+
+function getMutationScopeClarification(validated, sourcePrompt, schema) {
+  if (
+    typeof sourcePrompt !== 'string' ||
+    !sourcePrompt.trim() ||
+    !['update', 'update_many', 'delete'].includes(validated.operation) ||
+    validated.target_filters.length > 0 ||
+    !validated.match_all ||
+    hasExplicitWholeTableScope(sourcePrompt, schema)
+  ) {
+    return null;
+  }
+
+  return {
+    status: 'clarification_needed',
+    message:
+      `I cannot safely preview this change because it targets every row in "${schema.displayName || schema.tableName}", but your request does not clearly ask for a whole-table operation. Specify which records to change, or explicitly say to apply it to all rows in this table.`,
+    entity: schema.entity,
+    operation: null,
+    affected_count: 0,
+    target_rows: [],
   };
 }
 
@@ -328,8 +426,51 @@ function computeRowUpdates(row, validatedUpdates, schema) {
  * @param {Array<object>} diffPreview
  * @returns {string}
  */
+function resolveDisplayRowName(row, fallback = 'Record') {
+  if (!row || typeof row !== 'object') return fallback;
+  return (
+    row.name ||
+    row.Product_Name ||
+    row.product_name ||
+    row.Product_Model ||
+    row.product_model ||
+    row.Item_Name ||
+    row.item_name ||
+    row.Service_Name ||
+    row.service_name ||
+    row.Cake_Name ||
+    row.cake_name ||
+    row.title ||
+    row.Model ||
+    row.model ||
+    row.id ||
+    fallback
+  );
+}
+
+function buildCreateDiffPreview(rowsToInsert) {
+  return rowsToInsert.map((rowObj, idx) => {
+    const changes = {};
+    for (const [k, v] of Object.entries(rowObj)) {
+      changes[k] = {
+        current: null,
+        proposed: v,
+        before: null,
+        after: v,
+      };
+    }
+    return {
+      id: `new-row-${idx + 1}`,
+      name: String(resolveDisplayRowName(rowObj, `New Row ${idx + 1}`)),
+      before: {},
+      after: { ...rowObj },
+      changes,
+    };
+  });
+}
+
 function createApprovedMutation(validated) {
-  return {
+  const approved = {
     entity: validated.entity,
     operation: validated.operation,
     filter_logic: validated.filter_logic,
@@ -337,6 +478,13 @@ function createApprovedMutation(validated) {
     target_filters: validated.target_filters,
     updates: validated.updates,
   };
+  if (validated.operation === 'create') {
+    approved.changes = validated.changes;
+    if (Array.isArray(validated.rows) && validated.rows.length > 0) {
+      approved.rows = validated.rows;
+    }
+  }
+  return approved;
 }
 
 function computePreviewHash(diffPreview, validatedMutation = null) {
@@ -355,6 +503,7 @@ function computePreviewHash(diffPreview, validatedMutation = null) {
         target_filters: validatedMutation.target_filters,
         updates: validatedMutation.updates,
         changes: validatedMutation.operation === 'create' ? validatedMutation.changes : undefined,
+        rows: validatedMutation.operation === 'create' ? validatedMutation.rows : undefined,
       }
     : null;
   return crypto
@@ -513,11 +662,14 @@ function buildParameterizedUpdateStatement({
   }
 
   const safeTableName = quoteIdentifier(schema.tableName || 'products');
+  const whereBizSql = schema.columns?.workspace_id
+    ? '(business_id = $1 OR workspace_id = $1)'
+    : 'business_id = $1';
 
   const updateSql = `
     UPDATE ${safeTableName}
     SET ${setClauses.join(', ')}
-    WHERE business_id = $1 AND id = ANY($2::uuid[])
+    WHERE ${whereBizSql} AND id = ANY($2::uuid[])
     RETURNING *;
   `;
 
@@ -537,6 +689,7 @@ async function previewMutation({
   entity = 'products',
   businessId,
   mutationJson,
+  sourcePrompt,
 }) {
   if (!businessId) {
     throw new AppError('Business ID is required to preview a mutation.', 400);
@@ -557,21 +710,34 @@ async function previewMutation({
   }
 
   const validatedRaw = validateMutation(schema, mutationJson);
+  const scopeClarification = getMutationScopeClarification(
+    validatedRaw,
+    sourcePrompt,
+    schema
+  );
+  if (scopeClarification) return scopeClarification;
 
   if (validatedRaw.operation === 'create') {
+    const rowsToInsert =
+      Array.isArray(validatedRaw.rows) && validatedRaw.rows.length > 0
+        ? validatedRaw.rows
+        : [validatedRaw.changes];
+    const createDiff = buildCreateDiffPreview(rowsToInsert);
     const approvedMutation = createApprovedMutation(validatedRaw);
     return {
       status: 'preview',
       operation: 'create',
       entity: schema.entity,
       confirmation_required: true,
-      message: `Ready to create new ${schema.entity} record. Submit with "confirm": true to execute.`,
+      message: `Ready to insert ${rowsToInsert.length} new ${schema.entity} record(s). Submit with "confirm": true to execute.`,
       proposed_changes: validatedRaw.changes,
+      proposed_rows: rowsToInsert,
       proposed_updates: validatedRaw.updates,
       approved_mutation: approvedMutation,
-      preview_hash: computePreviewHash([], validatedRaw),
-      affected_count: 1,
-      target_rows: [],
+      preview_hash: computePreviewHash(createDiff, validatedRaw),
+      affected_count: rowsToInsert.length,
+      target_rows: rowsToInsert,
+      diff: createDiff,
     };
   }
 
@@ -643,10 +809,12 @@ async function previewMutation({
   }
 
   if (validated.operation === 'delete') {
-    const deleteDiff = targetRows.map((row) => ({
+    const deleteDiff = targetRows.map((row, idx) => ({
       id: row.id,
+      name: String(resolveDisplayRowName(row, `Row ${idx + 1}`)),
       before: row,
       after: null,
+      changes: {},
     }));
     return {
       status: 'preview',
@@ -660,6 +828,7 @@ async function previewMutation({
       preview_hash: computePreviewHash(deleteDiff, validated),
       target_filters: validated.target_filters,
       name_resolutions: nameResolutions,
+      diff: deleteDiff,
     };
   }
 
@@ -683,6 +852,7 @@ async function executeMutation({
   mutationJson,
   confirm = false,
   expectedPreviewHash,
+  sourcePrompt,
 }) {
   if (!businessId) {
     throw new AppError('Business ID is required to execute a mutation.', 400);
@@ -692,7 +862,12 @@ async function executeMutation({
 
   // If not confirmed, return preview
   if (confirm !== true) {
-    return previewMutation({ entity: schema, businessId, mutationJson });
+    return previewMutation({
+      entity: schema,
+      businessId,
+      mutationJson,
+      sourcePrompt,
+    });
   }
 
   await ensureTableExists(schema);
@@ -708,6 +883,12 @@ async function executeMutation({
   }
 
   const validatedRaw = validateMutation(schema, mutationJson);
+  const scopeClarification = getMutationScopeClarification(
+    validatedRaw,
+    sourcePrompt,
+    schema
+  );
+  if (scopeClarification) return scopeClarification;
   const hashToVerify =
     expectedPreviewHash ||
     mutationJson.expected_preview_hash ||
@@ -728,61 +909,106 @@ async function executeMutation({
   }
 
   return withTransaction(async (client) => {
-    // 1. Create operation
+    // 1. Create operation (supports single-row and multi-row inserts)
     if (validated.operation === 'create') {
-      if (hashToVerify && computePreviewHash([], validated) !== hashToVerify) {
+      const rowsToInsert =
+        Array.isArray(validated.rows) && validated.rows.length > 0
+          ? validated.rows
+          : [validated.changes];
+      const createDiff = buildCreateDiffPreview(rowsToInsert);
+
+      if (hashToVerify && computePreviewHash(createDiff, validated) !== hashToVerify) {
         throw new AppError(
           'Mutation plan differs from the approved preview. Please preview the mutation again before confirming.',
           409
         );
       }
-      const keys = Object.keys(validated.changes);
-      if (keys.length === 0) {
-        throw new AppError('Cannot create record with empty fields.', 400);
-      }
 
       const safeTableName = quoteIdentifier(schema.tableName || 'products');
-      const cols = ['"business_id"'];
-      const placeholders = ['$1'];
-      const values = [businessId];
+      const createdRows = [];
 
-      keys.forEach((k) => {
-        const match = findColumnDef(schema, k);
-        const exactCol = match ? match.exactName : k;
-        cols.push(quoteIdentifier(exactCol));
-        values.push(validated.changes[k]);
-        const parameter = `$${values.length}`;
-        const jsonStorage =
-          match &&
-          (match.colDef.type === 'json' ||
-            ['json', 'jsonb'].includes(
-              String(match.colDef.storageType || '').toLowerCase()
-            ));
-        placeholders.push(jsonStorage ? `${parameter}::jsonb` : parameter);
+      for (const rowChanges of rowsToInsert) {
+        const keys = Object.keys(rowChanges || {});
+        if (keys.length === 0) {
+          throw new AppError('Cannot create record with empty fields.', 400);
+        }
+
+        const cols = ['"business_id"'];
+        const placeholders = ['$1'];
+        const values = [businessId];
+
+        if (schema.columns?.workspace_id) {
+          cols.push('"workspace_id"');
+          values.push(businessId);
+          placeholders.push(`$${values.length}`);
+        }
+
+        keys.forEach((k) => {
+          const match = findColumnDef(schema, k);
+          const exactCol = match ? match.exactName : k;
+          if (exactCol.toLowerCase() === 'business_id' || exactCol.toLowerCase() === 'workspace_id') {
+            return;
+          }
+          cols.push(quoteIdentifier(exactCol));
+          values.push(rowChanges[k]);
+          const parameter = `$${values.length}`;
+          const jsonStorage =
+            match &&
+            (match.colDef.type === 'json' ||
+              ['json', 'jsonb'].includes(
+                String(match.colDef.storageType || '').toLowerCase()
+              ));
+          placeholders.push(jsonStorage ? `${parameter}::jsonb` : parameter);
+        });
+
+        if (schema.columns.created_at) {
+          cols.push('"created_at"');
+          placeholders.push('NOW()');
+        }
+        if (schema.columns.updated_at) {
+          cols.push('"updated_at"');
+          placeholders.push('NOW()');
+        }
+
+        const insertSql = `
+          INSERT INTO ${safeTableName} (${cols.join(', ')})
+          VALUES (${placeholders.join(', ')})
+          RETURNING *;
+        `;
+        const res = await client.query(insertSql, values);
+        if (res.rows[0]) {
+          createdRows.push(normalizeProductRow(res.rows[0], schema));
+        }
+      }
+
+      await refreshWorkspaceTableMetadata({
+        client,
+        workspaceId: businessId,
+        tableName: schema.tableName,
       });
 
-      if (schema.columns.created_at) {
-        cols.push('"created_at"');
-        placeholders.push('NOW()');
-      }
-      if (schema.columns.updated_at) {
-        cols.push('"updated_at"');
-        placeholders.push('NOW()');
+      // Write-back sync to Google Sheets if this is a synced Google Sheet
+      try {
+        const { syncMutationsToGoogleSheet } = require('./googleSheetsSyncService');
+        await syncMutationsToGoogleSheet(
+          businessId,
+          schema.tableName,
+          createdRows.map((row) => ({ ...row, operation: 'create', _internal_id: row.id }))
+        );
+      } catch (gSyncErr) {
+        console.warn('[ExecuteMutation] Google Sheets sync error:', gSyncErr.message);
       }
 
-      const insertSql = `
-        INSERT INTO ${safeTableName} (${cols.join(', ')})
-        VALUES (${placeholders.join(', ')})
-        RETURNING *;
-      `;
-      const res = await client.query(insertSql, values);
       return {
         status: 'success',
         operation: 'create',
         entity: schema.entity,
-        affected_count: 1,
-        created_row: normalizeProductRow(res.rows[0], schema),
-        message: `Successfully created new ${schema.entity} record.`,
+        affected_count: createdRows.length,
+        created_row: createdRows[0] || null,
+        created_rows: createdRows,
+        updated_rows: createdRows,
+        diff: createDiff,
+        message: `Successfully created ${createdRows.length} new ${schema.entity} record(s).`,
       };
     }
 
@@ -846,6 +1072,11 @@ async function executeMutation({
 
       const updateRes = await client.query(updateSql, updateParams);
       const updatedRows = updateRes.rows.map((r) => normalizeProductRow(r, schema));
+      await refreshWorkspaceTableMetadata({
+        client,
+        workspaceId: businessId,
+        tableName: schema.tableName,
+      });
 
       // Post-update invariant checks
       for (const updatedRow of updatedRows) {
@@ -870,6 +1101,18 @@ async function executeMutation({
             }
           }
         }
+      }
+
+      // Write-back sync to Google Sheets if this is a synced Google Sheet
+      try {
+        const { syncMutationsToGoogleSheet } = require('./googleSheetsSyncService');
+        await syncMutationsToGoogleSheet(
+          businessId,
+          schema.tableName,
+          updatedRows.map((row) => ({ ...row, _internal_id: row.id }))
+        );
+      } catch (gSyncErr) {
+        console.warn('[ExecuteMutation] Google Sheets sync error:', gSyncErr.message);
       }
 
       return {
@@ -900,12 +1143,20 @@ async function executeMutation({
         }
       }
       const safeTableName = quoteIdentifier(schema.tableName || 'products');
+      const delWhereBizSql = schema.columns?.workspace_id
+        ? '(business_id = $1 OR workspace_id = $1)'
+        : 'business_id = $1';
       const deleteSql = `
         DELETE FROM ${safeTableName}
-        WHERE business_id = $1 AND id = ANY($2::uuid[])
+        WHERE ${delWhereBizSql} AND id = ANY($2::uuid[])
         RETURNING *;
       `;
       const deleteRes = await client.query(deleteSql, [businessId, targetIds]);
+      await refreshWorkspaceTableMetadata({
+        client,
+        workspaceId: businessId,
+        tableName: schema.tableName,
+      });
 
       return {
         status: 'success',

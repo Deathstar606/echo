@@ -44,7 +44,7 @@ async function createConversation({ businessId, customerId, status = 'open' }) {
     throw new AppError(`Customer with ID "${customerId}" was not found.`, 404);
   }
 
-  if (customer.business_id !== businessId) {
+  if (customer.business_id && customer.business_id !== businessId) {
     throw new AppError(
       'Customer does not belong to the specified business.',
       400
@@ -142,7 +142,7 @@ async function findCustomerConversationWithMessages(businessId, customerId) {
     throw new AppError(`Customer with ID "${customerId}" was not found.`, 404);
   }
 
-  if (customer.business_id !== businessId) {
+  if (customer.business_id && customer.business_id !== businessId) {
     throw new AppError(
       'Customer does not belong to the specified business.',
       400
@@ -261,27 +261,78 @@ async function saveAiSuggestionForMessageAndConversation({
     Array.isArray(missingInformation) ? missingInformation : []
   );
 
-  await query(
-    `
-      UPDATE messages
-      SET ai_suggestion = $2, ai_category = $3, ai_missing_info = $4::jsonb
-      WHERE id = $1;
-    `,
-    [messageId, suggestion, category, missingJson]
-  );
+  return withTransaction(async (client) => {
+    const conversationResult = await client.query(
+      `
+        SELECT id, status
+        FROM conversations
+        WHERE id = $1 AND business_id = $2
+        FOR UPDATE;
+      `,
+      [conversationId, businessId]
+    );
+    if (conversationResult.rowCount === 0) {
+      throw new AppError(
+        `Conversation with ID "${conversationId}" was not found for this business.`,
+        404
+      );
+    }
 
-  await query(
-    `
-      UPDATE conversations
-      SET ai_draft_reply = $3,
-          ai_draft_category = $4,
-          ai_draft_missing_info = $5::jsonb,
-          ai_draft_message_id = $6,
-          ai_draft_updated_at = NOW()
-      WHERE id = $1 AND business_id = $2;
-    `,
-    [conversationId, businessId, suggestion, category, missingJson, messageId]
-  );
+    const latestMessageResult = await client.query(
+      `
+        SELECT id, sender_type
+        FROM messages
+        WHERE conversation_id = $1
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1;
+      `,
+      [conversationId]
+    );
+    const latestMessage = latestMessageResult.rows[0];
+    if (
+      conversationResult.rows[0].status !== 'open' ||
+      latestMessage?.id !== messageId ||
+      latestMessage.sender_type !== 'customer'
+    ) {
+      throw new AppError(
+        'The conversation changed while the reply was being generated. Generate a new draft for the latest customer message.',
+        409
+      );
+    }
+
+    const messageResult = await client.query(
+      `
+        UPDATE messages
+        SET ai_suggestion = $3, ai_category = $4, ai_missing_info = $5::jsonb
+        WHERE id = $1 AND conversation_id = $2;
+      `,
+      [messageId, conversationId, suggestion, category, missingJson]
+    );
+    if (messageResult.rowCount === 0) {
+      throw new AppError('The customer message for this reply was not found.', 404);
+    }
+
+    const draftResult = await client.query(
+      `
+        UPDATE conversations
+        SET ai_draft_reply = $3,
+            ai_draft_category = $4,
+            ai_draft_missing_info = $5::jsonb,
+            ai_draft_message_id = $6,
+            ai_draft_updated_at = NOW()
+        WHERE id = $1 AND business_id = $2
+        RETURNING ai_draft_updated_at;
+      `,
+      [conversationId, businessId, suggestion, category, missingJson, messageId]
+    );
+    if (draftResult.rowCount === 0) {
+      throw new AppError(
+        `Conversation with ID "${conversationId}" was not found for this business.`,
+        404
+      );
+    }
+    return draftResult.rows[0];
+  });
 }
 
 /**
@@ -315,8 +366,8 @@ async function getRecentConversationMessages(
 
 /**
  * Saves an incoming message and updates the conversation's updated_at timestamp
- * atomically inside a database transaction. Rejects messages for closed conversations.
- * When senderType === 'agent', clears the active pending AI draft on the conversation.
+ * atomically inside a database transaction. Rejects messages for closed conversations
+ * and clears any draft that was generated for an earlier customer message.
  *
  * @param {object} params
  * @param {string} params.businessId
@@ -382,7 +433,7 @@ async function addMessageToConversation({
       [conversationId, businessId]
     );
 
-    if (senderType === 'agent') {
+    if (senderType === 'agent' || senderType === 'customer') {
       await client.query(
         `
           UPDATE conversations

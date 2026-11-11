@@ -139,12 +139,18 @@ export interface SheetQueryRequest {
 export interface SheetQueryResult {
   status: 'ok';
   message: string;
+  answer?: string;
   entity: string;
   operation: 'filter';
   filter_logic?: 'AND' | 'OR';
   count: number;
   rows: DynamicSheetRow[];
   matched_ids: string[];
+  highlighted_rows?: Array<{
+    table_name: string;
+    row_identifier: string;
+    row_data: DynamicSheetRow;
+  }>;
   filters: QueryFilter[];
   sort: QuerySort[];
   limit: number | null;
@@ -204,12 +210,14 @@ export interface MutationTransformation {
  * Normalized mutation plan produced by Gemini or validated client input.
  */
 export interface MutationPlan {
+  entity?: string;
   operation: MutationOperation;
   filter_logic: MutationFilterLogic;
   match_all: boolean;
   target_filters: QueryFilter[];
   updates: MutationTransformation[];
   changes?: Record<string, unknown>;
+  rows?: Array<Record<string, unknown>>;
   description?: string;
 }
 
@@ -233,8 +241,8 @@ export interface MutationDiffItem {
   id: string;
   name: string;
   before: Record<string, unknown>;
-  after: Record<string, unknown>;
-  changes: Record<string, { before: unknown; after: unknown }>;
+  after: Record<string, unknown> | null;
+  changes: Record<string, { before?: unknown; after?: unknown; current?: unknown; proposed?: unknown }>;
 }
 
 /**
@@ -248,7 +256,12 @@ export interface MutationPreviewResponse {
   preview_hash: string;
   affected_count: number;
   diff: MutationDiffItem[];
-  expires_at: string;
+  expires_at?: string;
+  confirmation_required?: boolean;
+  proposed_changes?: Record<string, unknown>;
+  proposed_rows?: Array<Record<string, unknown>>;
+  target_rows?: DynamicSheetRow[];
+  approved_mutation?: MutationPlan;
   business_id?: string;
 }
 
@@ -256,12 +269,15 @@ export interface MutationPreviewResponse {
  * Stage 2: Execution response returned when confirm=true.
  */
 export interface MutationExecutionResponse {
-  status: 'applied' | 'ok';
+  status: 'applied' | 'ok' | 'success';
   message: string;
   entity: string;
   operation: MutationOperation;
   affected_count: number;
-  updated_rows: DynamicSheetRow[];
+  updated_rows?: DynamicSheetRow[];
+  created_row?: DynamicSheetRow;
+  created_rows?: DynamicSheetRow[];
+  deleted_rows?: DynamicSheetRow[];
   business_id?: string;
 }
 
@@ -286,6 +302,10 @@ export interface RawGeminiSheetInterpretation {
   limit?: unknown;
   updates?: unknown[];
   changes?: Record<string, unknown>;
+  row?: Record<string, unknown>;
+  record?: Record<string, unknown>;
+  rows?: unknown[];
+  records?: unknown[];
 }
 
 /**
@@ -312,6 +332,7 @@ export type InterpretedSheetAction =
       target_filters: QueryFilter[];
       updates: MutationTransformation[];
       changes: Record<string, unknown>;
+      rows?: Array<Record<string, unknown>>;
     }
   | ClarificationResponse;
 
@@ -323,6 +344,7 @@ export interface CustomerRegistrationRequest {
   customerName: string;
   email: string;
   externalCustomerId?: string;
+  businessId?: string;
 }
 
 export interface CustomerRegistrationResponse {
@@ -386,3 +408,156 @@ export interface ApiErrorResponse {
   status?: number;
   details?: ApiErrorDetail[] | unknown;
 }
+
+// =============================================================================
+// 7. Cross-Document Hybrid RAG & Socratic Operations Contracts (#2 & #3)
+// =============================================================================
+
+export interface Citation {
+  source_type: 'document' | 'table';
+  source_name: string;
+  locator: string;
+  excerpt: string;
+  source_id?: string;
+}
+
+export interface WorkspaceDocument {
+  doc_id: string;
+  filename: string;
+  mime_type?: string;
+  page_count: number;
+  chunk_count: number;
+  total_chunks?: number;
+  excerpt?: string;
+  created_at?: string;
+}
+
+export interface SocraticOption {
+  option_id: string;
+  label: string;
+  rule_interpretation: string;
+}
+
+export interface SocraticQuestion {
+  question_id: string;
+  question_text: string;
+  options: SocraticOption[];
+}
+
+export interface WorkspaceMutationDiff {
+  table_name?: string;
+  row_identifier?: string | number;
+  id?: string | number;
+  name?: string;
+  order_id?: string;
+  before?: Record<string, unknown>;
+  after?: Record<string, unknown>;
+  changes?: Record<string, { current: unknown; proposed: unknown }>;
+  [key: string]: unknown;
+}
+
+export interface WorkspaceEmailPreview {
+  recipient_email: string;
+  customer_identifier: string;
+  subject: string;
+  body: string;
+  metadata?: {
+    applied_rule?: string;
+    row_identifier?: string | number;
+    voucher_amount?: number;
+    option_id?: string;
+  };
+}
+
+export interface ClarificationRequiredPayload {
+  status: 'CLARIFICATION_REQUIRED';
+  workflow_id: string;
+  conflict_summary: string;
+  affected_rows_count: number;
+  conflicting_rows_count: number;
+  socratic_questions: SocraticQuestion[];
+  citations: Citation[];
+}
+
+export interface PreviewReadyPayload {
+  status: 'PREVIEW_READY';
+  workflow_id: string;
+  mutations_preview: WorkspaceMutationDiff[];
+  emails_preview: WorkspaceEmailPreview[];
+  citations: Citation[];
+}
+
+export interface ExecutedPayload {
+  status: 'EXECUTED';
+  workflow_id: string;
+  updated_rows_count: number;
+  dispatched_emails_count: number;
+  dispatched_emails?: Array<{
+    to: string;
+    customer_identifier: string;
+    subject: string;
+    text: string;
+    metadata?: Record<string, unknown>;
+    dispatched_at: string;
+    delivery_mode: string;
+  }>;
+  citations: Citation[];
+}
+
+export interface ConversationalPayload {
+  status: 'CONVERSATIONAL';
+  conversational: true;
+  intent: string;
+  message: string;
+  citations: Citation[];
+  answer?: string;
+  highlighted_rows?: Array<{
+    table_name: string;
+    row_identifier: string;
+    row_data: DynamicSheetRow;
+  }>;
+  rows?: Array<DynamicSheetRow & { table_name: string }>;
+}
+
+export interface RoutedSheetInstruction {
+  status: 'SHEET_QUERY' | 'SHEET_MUTATION';
+  intent: 'sheet_query' | 'sheet_mutation';
+  entity: string;
+  prompt: string;
+  message: string;
+  answer?: string;
+  count?: number;
+  rows?: DynamicSheetRow[];
+  highlighted_rows?: Array<{
+    table_name: string;
+    row_identifier: string;
+    row_data: DynamicSheetRow;
+  }>;
+  interpretedQuery?: Record<string, unknown> | null;
+  fast_path?: boolean;
+  citations: Citation[];
+}
+
+export interface BusinessSheetTableInfo<TRow = DynamicSheetRow> {
+  entity: string;
+  tableName: string;
+  displayName: string;
+  fileName: string;
+  columns: string[];
+  rowCount: number;
+  rows: TRow[];
+}
+
+export interface BusinessSheetsListResponse<TRow = DynamicSheetRow> {
+  status: 'ok';
+  business_id: string;
+  tables: BusinessSheetTableInfo<TRow>[];
+  count: number;
+}
+
+export type WorkspaceOperationResponse =
+  | ConversationalPayload
+  | RoutedSheetInstruction
+  | ClarificationRequiredPayload
+  | PreviewReadyPayload
+  | ExecutedPayload;

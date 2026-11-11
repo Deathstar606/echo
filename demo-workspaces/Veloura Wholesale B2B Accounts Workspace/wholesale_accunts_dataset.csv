@@ -1,0 +1,25 @@
+account_id,company_name,account_manager,contact_email,region,current_tier,annual_spend,overdue_balance,credit_limit,account_status,last_payment_date
+ACC-1001,Apex Apparel Group,Sarah Jenkins,s.jenkins@apexapparel.com,North America,Silver,14500,0,8000,Active,2026-10-18
+ACC-1002,Beacon Street Outfitters,Thomas Wright,twright@beaconoutfitters.com,North America,Gold,28500,0,20000,Active,2026-10-25
+ACC-1003,Nordic Thread Collective,Lukas Lindqvist,llindqvist@nordicthread.se,Europe,Silver,12000,0,6000,Active,2026-10-22
+ACC-1004,Vanguard Garment Distributors,David Chen,dchen@vanguardgarments.com,APAC,Silver,16200,1850,10000,Active,2026-08-14
+ACC-1005,Elmwood Boutique Supply,Hannah Abbott,habbott@elmwoodsupply.co.uk,Europe,Silver,7400,0,4000,Active,2026-10-11
+ACC-1006,Harborline Retail Partners,Marcus Vance,mvance@harborlineretail.com,North America,Silver,18400,0,12000,Active,2026-10-29
+ACC-1007,Monarch Textile Traders,Tariq Al-Mansoor,talmansoor@monarchtextile.ae,MENA,Gold,34000,1200,25000,Active,2026-09-19
+ACC-1008,Pinecrest Dry Goods,Chloe Bennett,cbennett@pinecrestdrygoods.com,North America,Silver,6200,450,3500,Active,2026-09-05
+ACC-1009,Crestview Department Stores,Priya Nair,pnair@crestviewstores.com,North America,Silver,11500,920,7200,Active,2026-09-02
+ACC-1010,Meridian Urban Wear,Kenji Takahashi,ktakahashi@meridianurban.jp,APAC,Silver,9100,0,5000,Active,2026-10-20
+ACC-1011,Solstice Menswear Co.,Elena Rostova,erostova@solsticemenswear.io,Europe,Silver,10800,0,5600,Active,2026-10-15
+ACC-1012,Sterling Heritage Apparel,Oliver Grant,ogrant@sterlingheritage.co.uk,Europe,Gold,41200,0,30000,Active,2026-10-28
+ACC-1013,Oakridge Haberdashery,Rachel Green,rgreen@oakridgehaberdashery.com,North America,Silver,5300,0,3000,Active,2026-10-04
+ACC-1014,Pacific Rim Clothiers,Daniel Kim,dkim@pacificrimclothiers.com,APAC,Silver,8750,0,4500,Active,2026-10-19
+ACC-1015,Verve Contemporary Retail,Sofia Rossi,srossi@ververetail.it,Europe,Gold,22900,0,16000,Active,2026-10-21
+ACC-1016,Redstone Menswear Guild,Nathan Brooks,nbrooks@redstoneguild.com,North America,Silver,4800,310,2500,Active,2026-08-29
+ACC-1017,Kensington Bespoke Clothiers,Arthur Pendelton,apendelton@kensingtonbespoke.co.uk,Europe,Gold,64000,0,45000,Active,2026-11-01
+ACC-1018,Mitsukoshi Sartorial Group,Haruto Sato,hsato@mitsukoshisartorial.jp,APAC,Gold,52500,0,38000,Active,2026-10-30
+ACC-1019,Cascadia Menswear Traders,Maya Alvarez,malvarez@cascadiatraders.com,North America,Silver,9800,0,5500,Active,2026-10-27
+ACC-1020,Geneva Heritage Dry Goods,Luc Moreau,lmoreau@genevadrygoods.ch,Europe,Silver,8900,0,5000,Active,2026-10-24
+ACC-1021,Pampas Apparel Collective,Mateo Silva,msilva@pampasapparel.com.ar,LATAM,Silver,3400,0,2800,Active,2026-06-18
+ACC-1022,Andes Loom Distributors,Camila Rojas,crojas@andesloom.cl,LATAM,Silver,4100,0,3200,Active,2026-07-10
+ACC-1023,Valparaiso Boutique Syndicate,Diego Vargas,dvargas@valparaisosyndicate.cl,LATAM,Gold,21000,0,15000,Active,2026-10-29
+ACC-1024,Seaside Sartorial Imports,Claire Dawson,cdawson@seasidesartorial.com.au,APAC,Silver,4600,0,3000,Active,2026-09-28

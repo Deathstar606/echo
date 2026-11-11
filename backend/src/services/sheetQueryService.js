@@ -73,6 +73,10 @@ function normalizeProductRow(row, entityOrSchema = 'products') {
     // Always preserve system primary/metadata columns
     allowedExactKeys.add('id');
     allowedExactKeys.add('business_id');
+    allowedExactKeys.add('workspace_id');
+    allowedExactKeys.add('user_id');
+    allowedExactKeys.add('workspace_document_id');
+    allowedExactKeys.add('_google_row_index');
     allowedExactKeys.add('created_at');
     allowedExactKeys.add('updated_at');
 
@@ -335,7 +339,9 @@ function buildParameterizedSelectQuery({
     }
   }
 
-  let whereSql = 'business_id = $1';
+  let whereSql = schema?.columns?.workspace_id
+    ? '(business_id = $1 OR workspace_id = $1)'
+    : 'business_id = $1';
   if (filterClauses.length === 1) {
     whereSql += ` AND ${filterClauses[0]}`;
   } else if (filterClauses.length > 1) {
@@ -386,11 +392,15 @@ function buildParameterizedSelectQuery({
  *
  * @param {string | object} [entity='products']
  * @param {string} businessId
+ * @param {object} [options]
+ * @param {boolean} [options.skipEnsure=false]
  * @returns {Promise<Array<object>>}
  */
-async function getAllRows(entity = 'products', businessId) {
+async function getAllRows(entity = 'products', businessId, options = {}) {
   const schema = await discoverTableSchema(entity, businessId);
-  await ensureTableExists(schema);
+  if (!options.skipEnsure) {
+    await ensureTableExists(schema);
+  }
   const safeTableName = quoteIdentifier(schema.tableName || 'products');
   const orderClause = schema.columns.created_at
     ? 'ORDER BY "created_at" DESC, "id" ASC'
@@ -398,11 +408,15 @@ async function getAllRows(entity = 'products', businessId) {
       ? 'ORDER BY "id" ASC'
       : '';
 
+  const whereBizSql = schema?.columns?.workspace_id
+    ? '(business_id = $1 OR workspace_id = $1)'
+    : 'business_id = $1';
+
   const result = await query(
     `
       SELECT *
       FROM ${safeTableName}
-      WHERE business_id = $1
+      WHERE ${whereBizSql}
       ${orderClause};
     `,
     [businessId]
@@ -423,13 +437,18 @@ async function executeSpreadsheetQuery({
   entity = 'products',
   businessId,
   queryJson,
+  schema: suppliedSchema = null,
+  skipEnsure = false,
 }) {
   if (!businessId) {
     throw new AppError('Business ID is required to execute a sheet query.', 400);
   }
 
-  const schema = await discoverTableSchema(entity, businessId);
-  await ensureTableExists(schema);
+  const schema =
+    suppliedSchema || (await discoverTableSchema(entity, businessId));
+  if (!skipEnsure) {
+    await ensureTableExists(schema);
+  }
 
   if (queryJson.status === 'clarification_needed') {
     return {
@@ -443,10 +462,10 @@ async function executeSpreadsheetQuery({
 
   const filterLogic = queryJson.filter_logic || 'AND';
 
-  // Resolve name filters against live catalog if applicable
+  // Resolve name filters against live catalog if applicable (short-circuits when no name filter exists)
   const nameResolution = await resolveNameFilters({
     businessId,
-    entity: schema.entity,
+    entity: schema,
     filters: queryJson.filters || [],
   });
   if (nameResolution.status === 'clarification_needed') {

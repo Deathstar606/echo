@@ -17,6 +17,7 @@ import type {
 
 import {
   validateRawGeminiInterpretation,
+  normalizeMutationOperationAlias,
   isNonEmptyString,
 } from './sheetValidationService';
 
@@ -35,8 +36,8 @@ const { generateAiSheetInterpretation } = require('./geminiService');
 const { loadCatalogPromptContext } = require('./catalogNameResolver');
 const AppError = require('../utils/AppError');
 
-const MAX_PROMPT_CATALOG_NAMES = 12;
-const MAX_PROMPT_CATEGORIES = 8;
+const MAX_PROMPT_CATALOG_NAMES = 8;
+const MAX_PROMPT_CATEGORIES = 6;
 
 export interface CatalogContext {
   names?: string[];
@@ -59,6 +60,9 @@ export interface InterpretQueryParams {
   currentDate?: string;
   businessId?: string;
   schema?: SheetSchema | null;
+  skipCatalogLoad?: boolean;
+  catalog?: CatalogContext | null;
+  responseSchema?: object | null;
 }
 
 /**
@@ -106,11 +110,14 @@ export function buildSheetQueryPrompt({
   const schema: SheetSchema = explicitSchema || getSchema(entity);
 
   const columnsList = Object.entries(schema.columns)
+    .filter(([, def]) => isMutation || def.queryable !== false)
     .map(([, def]) => {
       const colName = def.exactName || (def as unknown as string);
       const modifiable = def.modifiable && !def.virtual;
-      let desc = `- ${colName} (${def.type}) [${modifiable ? 'modifiable' : 'read-only'}]`;
-      if (def.storageType) {
+      let desc = isMutation
+        ? `- ${colName} (${def.type}) [${modifiable ? 'modifiable' : 'read-only'}]`
+        : `- ${colName} (${def.type})`;
+      if (isMutation && def.storageType) {
         desc += ` [PostgreSQL: ${def.storageType}]`;
       }
       if (def.description) {
@@ -122,22 +129,25 @@ export function buildSheetQueryPrompt({
               .map(([key, type]) => `${key}:${type}`)
               .join(', ')
           : 'object with record-specific keys';
-        desc += ` [nested map; representative keys/types: ${structure}]`;
+        desc += ` [nested map; keys: ${structure}]`;
       }
       if (def.allowedValues) {
-        desc += ` [allowed values: ${def.allowedValues.map((v) => `"${v}"`).join(', ')}]`;
+        desc += ` [values: ${def.allowedValues.map((v) => `"${v}"`).join(', ')}]`;
       }
       return desc;
     })
     .join('\n');
 
-  // Format representative values block if available
   const repLines: string[] = [];
   if (schema.representativeValues && Object.keys(schema.representativeValues).length > 0) {
+    const cap = isMutation ? 3 : 8;
     for (const [col, vals] of Object.entries(schema.representativeValues)) {
       if (Array.isArray(vals) && vals.length > 0) {
         repLines.push(
-          `- ${col}: ${vals.map((value) => JSON.stringify(value)).join(', ')}`
+          `- ${col}: ${vals
+            .slice(0, cap)
+            .map((value) => JSON.stringify(value))
+            .join(', ')}`
         );
       }
     }
@@ -146,6 +156,34 @@ export function buildSheetQueryPrompt({
     repLines.length > 0
       ? `Representative values:\n${repLines.join('\n')}`
       : '';
+
+  if (!isMutation) {
+    const catalogBlock =
+      catalog && ((catalog.names && catalog.names.length > 0) || (catalog.categories && catalog.categories.length > 0))
+        ? `\n${formatCatalogContext(catalog)}\n`
+        : '';
+
+    return `You are translating a BASIC SINGLE-TABLE READ INQUIRY into a SQL filter JSON object.
+Do NOT treat this as a mutation, email action, or B2B document/policy workflow. Never output update/create/delete. Use ONLY this active table's columns and metadata below.
+
+ACTIVE TABLE SCHEMA
+Table: ${schema.tableName} (${schema.entity})
+${columnsList}
+${representativeValuesBlock ? `\n${representativeValuesBlock}\n` : ''}${catalogBlock}
+RULES
+- Use exact schema column names only; never invent fields. Match user terms to column names and representative values (e.g., "already shipped" -> status equals "Shipped", "priority" -> buyer_tier equals "Priority", "higher than 25%" -> greater_than 25, "stock lower than 5" -> total_stock less_than 5 if present, or specific key like size.M).
+- Multiple conditions default to filter_logic: "AND" ("OR" only when requested). Supported operators: equals, not_equals, contains, not_contains, starts_with, ends_with, in, greater_than, greater_than_or_equal, less_than, less_than_or_equal, between, relative_days_ago, this_month.
+- Return JSON only:
+  {"status":"ok","entity":"${schema.entity}","operation":"filter","filter_logic":"AND","filters":[{"field":"...","operator":"...","value":...}],"sort":[{"field":"...","direction":"asc|desc"}],"limit":null}
+  Or {"status":"clarification_needed","message":"..."} only if the request genuinely cannot map to any column here.
+Reference date: ${currentDate}
+
+USER QUERY:
+<user_message>
+${message}
+</user_message>
+`;
+  }
 
   const nestedMapColumns = Object.values(schema.columns)
     .filter((def) => def.nestedMap && def.modifiable)
@@ -165,21 +203,21 @@ ${representativeValuesBlock ? `\n${representativeValuesBlock}\n` : ''}
 ${nestedMapInstructions}
 
 INTERPRETATION RULES
-- Map business concepts to physical fields using exact names, descriptions, types, nested structure, and representative values. Treat examples/values as evidence, not as a requirement that every row has them. Never invent a field.
-- Infer roles from wording, field tokens, descriptions, types, and value patterns (item identity, maker, supplier, sales price, acquisition cost, on-hand quantity, reorder threshold, location, category, expiry, or status); do not map by name alone.
-- Distinguish the requested business measure (for example, sale price versus acquisition cost). If no field fits, or multiple fields fit without a clear choice, return status "clarification_needed" and explain.
-- Preserve every stated condition and update. Use target_filters for mutation criteria; filter_logic is AND unless the user clearly says OR. Use match_all only when the user explicitly targets every row.
-- Use exact schema column names. A product/item reference filters on the best matching name-like field; copy the requested value exactly.
-- Mutations use operation update/update_many, create, or delete. Set uses action "set"; arithmetic uses "add", "subtract", or "multiply". Use unit "absolute" for amounts, "percentage" for relative percentage changes, and "percentage_points" for changes to a percentage-valued field.
-- A discount is a percentage-valued field when present. Do not treat a cost field as a sale-price field. A pricing request without a confidently matching field needs clarification.
-- For a query use operation "filter", filters, optional sort and limit. For a mutation use updates with field/action/value/unit. Every update must name a real modifiable schema field.
-- For nested maps, a dotted field changes one named key. Include key_policy "existing_keys_only" unless the user explicitly asks to create a missing key, in which case use "create_if_missing". Operations over all existing entries must use the existing-keys-only representation above, and must not include a generated or shared list of keys.
-- Return JSON only. If the operation, target field, condition, amount, unit, or scope cannot be determined, return {"status":"clarification_needed","message":"..."}.
+- Classify intent dynamically: read query ("filter"), update ("update" / "update_many"), insert ("create"), or delete ("delete").
+- Use exact schema column names only; never invent fields. Map business concepts using field names, descriptions, types, nested structure, and representative values.
+- Distinguish selling price from purchase/unit cost, and percentage-valued fields (e.g. discount) from monetary fields. If target field, condition, value, or scope is missing or ambiguous, return {"status":"clarification_needed","message":"..."}.
+- Query filters and mutation target_filters use {field,operator,value}; filter_logic defaults to "AND" ("OR" only when stated). Set match_all:true only when explicitly targeting all rows.
+- Updates ("update"/"update_many"): updates array of {field,action:"set"|"add"|"subtract"|"multiply",value,unit:"absolute"|"percentage"|"percentage_points"}. Every updated field must be a modifiable schema column.
+- Nested maps: dotted field (e.g. "size.M") targets one key (key_policy:"existing_keys_only", or "create_if_missing" if requested). For all existing keys in each row, use action "add_to_existing_values"|"subtract_existing_values"|"multiply_existing_values"|"set_existing_values" with key_policy:"existing_keys_only" and no keys list.
+- Insert ("create"): include only user-specified columns in changes ({col:val}), updates, or rows ([{col:val},...] for multi-row). For nested maps use dotted fields or JSON object. If no attributes are given, return clarification_needed.
+- Delete ("delete"): populate target_filters (use operator "in" or filter_logic "OR" for multiple named items; match_all:true only if deleting all rows). If criteria are missing, return clarification_needed.
 
-OUTPUT
-Use the existing JSON contract:
-{"status":"ok","entity":"${schema.entity}","operation":"filter|update|update_many|create|delete","filter_logic":"AND|OR","match_all":false,"filters":[],"target_filters":[],"updates":[],"sort":[],"limit":null}
-Use only fields relevant to the operation. Query filters and mutation target_filters use {field,operator,value}. Updates use {field,action,value,unit}; existing-map operations also use {key_policy:"existing_keys_only"}.
+OUTPUT (JSON only — omit unused/empty keys to minimize output tokens)
+- Read query: {"status":"ok","entity":"${schema.entity}","operation":"filter","filter_logic":"AND","filters":[...],"sort":[...],"limit":null}
+- Update: {"status":"ok","entity":"${schema.entity}","operation":"update|update_many","filter_logic":"AND","match_all":false,"target_filters":[...],"updates":[...]}
+- Insert: {"status":"ok","entity":"${schema.entity}","operation":"create","changes":{...}} (or "rows":[{...}] for multiple rows)
+- Delete: {"status":"ok","entity":"${schema.entity}","operation":"delete","filter_logic":"AND","target_filters":[...]}
+- Clarification: {"status":"clarification_needed","message":"..."}
 
 Reference date: ${currentDate}
 Request mode: ${isMutation ? 'mutation' : 'query'}
@@ -241,7 +279,7 @@ export function normalizeInterpretedQuery(
     };
   }
 
-  const operation = String(parsed.operation).trim().toLowerCase();
+  const operation = normalizeMutationOperationAlias(parsed.operation);
 
   // If mutation operation (update, update_many, delete, create)
   if (
@@ -257,7 +295,8 @@ export function normalizeInterpretedQuery(
         match_all: Boolean(parsed.match_all),
         target_filters: parsed.target_filters || parsed.filters || [],
         updates: parsed.updates,
-        changes: parsed.changes || {},
+        changes: parsed.changes || parsed.row || parsed.record || {},
+        rows: parsed.rows || parsed.records,
       });
       return {
         status: 'ok',
@@ -269,6 +308,9 @@ export function normalizeInterpretedQuery(
         target_filters: validatedMut.target_filters,
         updates: validatedMut.updates,
         changes: validatedMut.changes || {},
+        ...(Array.isArray(validatedMut.rows) && validatedMut.rows.length > 0
+          ? { rows: validatedMut.rows }
+          : {}),
       };
     } catch (err: unknown) {
       if (isHardConstraintValidationError(err)) {
@@ -356,6 +398,9 @@ export async function interpretNaturalLanguageQuery({
   currentDate,
   businessId,
   schema: suppliedSchema = null,
+  skipCatalogLoad = false,
+  catalog: suppliedCatalog = null,
+  responseSchema = null,
 }: InterpretQueryParams): Promise<InterpretedSheetAction> {
   if (!isNonEmptyString(message)) {
     throw new AppError('Message is required and must be a non-empty string.', 400);
@@ -365,9 +410,9 @@ export async function interpretNaturalLanguageQuery({
   const schema: SheetSchema =
     suppliedSchema || (await discoverTableSchema(entity, businessId));
 
-  // 2. Load catalog names if businessId is present and table has a name column
-  let catalog: CatalogContext | null = null;
-  if (businessId) {
+  // 2. Load catalog names only when not skipped/pre-supplied
+  let catalog: CatalogContext | null = suppliedCatalog || null;
+  if (!catalog && businessId && !skipCatalogLoad) {
     try {
       catalog = await loadCatalogPromptContext(businessId, schema);
     } catch {
@@ -386,7 +431,7 @@ export async function interpretNaturalLanguageQuery({
   });
 
   // 4. Send to Gemini for interpretation
-  const rawAiResult = await generateAiSheetInterpretation(promptText);
+  const rawAiResult = await generateAiSheetInterpretation(promptText, responseSchema);
 
   // 5. Normalize and validate against the active table schema
   return normalizeInterpretedQuery(schema, rawAiResult);

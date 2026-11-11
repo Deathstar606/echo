@@ -27,7 +27,7 @@ import {
   clearCustomerErrors,
   exitCustomerConversationView,
 } from '../store/customerSlice';
-import { STORAGE_KEYS } from '../config/constants';
+import { STORAGE_KEYS, getActiveBusinessId } from '../config/constants';
 
 function formatMessageTime(isoString) {
   if (!isoString) return '';
@@ -63,6 +63,9 @@ export default function CustomerPortal() {
   const [customerName, setCustomerName] = useState('');
   const [email, setEmail] = useState('');
   const [externalCustomerId, setExternalCustomerId] = useState('');
+  const [businessIdInput, setBusinessIdInput] = useState(
+    () => getActiveBusinessId() || ''
+  );
   const [formValidationError, setFormValidationError] = useState(null);
 
   // Existing Customer ID Login Form State
@@ -119,6 +122,7 @@ export default function CustomerPortal() {
 
     const trimmedName = customerName.trim();
     const trimmedEmail = email.trim();
+    const trimmedBizId = businessIdInput.trim();
 
     if (!trimmedName) {
       setFormValidationError('Please enter your full name.');
@@ -130,11 +134,17 @@ export default function CustomerPortal() {
       return;
     }
 
+    if (!trimmedBizId) {
+      setFormValidationError('Business ID is required. Please provide a valid Business ID.');
+      return;
+    }
+
     const resultAction = await dispatch(
       registerNewCustomer({
         customerName: trimmedName,
         email: trimmedEmail,
         externalCustomerId: externalCustomerId.trim(),
+        businessId: trimmedBizId,
       })
     );
 
@@ -186,7 +196,7 @@ export default function CustomerPortal() {
     }
 
     const uuidPattern =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidPattern.test(trimmed)) {
       setLoginValidationError(
         'Customer ID must be a valid UUID (e.g., xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).'
@@ -194,7 +204,12 @@ export default function CustomerPortal() {
       return;
     }
 
-    await dispatch(loginAndLoadCustomerConversation(trimmed));
+    await dispatch(
+      loginAndLoadCustomerConversation({
+        customerId: trimmed,
+        businessId: businessIdInput.trim() || undefined,
+      })
+    );
   };
 
   const handleContinueWithStoredBrowserId = async () => {
@@ -399,6 +414,25 @@ export default function CustomerPortal() {
               </div>
 
               <div className="form-group">
+                <label className="form-label" htmlFor="reg-business-id">
+                  Target Business ID <span style={{ color: '#dc2626' }}>*</span>
+                </label>
+                <input
+                  id="reg-business-id"
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. 684a8863-5094-4c8b-9b15-c50c06335b7f"
+                  value={businessIdInput}
+                  onChange={(e) => setBusinessIdInput(e.target.value)}
+                  disabled={registerStatus === 'loading'}
+                  required
+                />
+                <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                  Assigns this customer to the specified business workspace.
+                </span>
+              </div>
+
+              <div className="form-group">
                 <label className="form-label" htmlFor="reg-external-id">
                   External Customer ID{' '}
                   <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>
@@ -496,6 +530,21 @@ export default function CustomerPortal() {
                   placeholder="Paste your Customer UUID..."
                   value={existingIdInput}
                   onChange={(e) => setExistingIdInput(e.target.value)}
+                  disabled={loginStatus === 'loading'}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="login-business-id">
+                  Target Business ID <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>(Optional)</span>
+                </label>
+                <input
+                  id="login-business-id"
+                  type="text"
+                  className="form-input"
+                  placeholder="Defaults to active business..."
+                  value={businessIdInput}
+                  onChange={(e) => setBusinessIdInput(e.target.value)}
                   disabled={loginStatus === 'loading'}
                 />
               </div>

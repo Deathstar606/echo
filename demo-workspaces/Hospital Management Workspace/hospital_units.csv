@@ -1,0 +1,14 @@
+unit_id,unit_name,department,location,total_beds,occupied_beds,staffed_beds,staffing_gap,clean_beds,surge_status,contact_email
+HICU-01,Adult ICU North,ICU,North Wing,20,18,20,2,4,Standard,charge.north@example.test
+HICU-02,Adult ICU South,ICU,South Wing,16,15,16,1,3,Standard,charge.south@example.test
+HICU-03,Cardiac ICU,ICU,East Wing,12,10,10,0,1,Standard,charge.cardiac@example.test
+HWARD-01,Medical Ward A,Medical,West Wing,30,24,26,2,8,Standard,charge.medical@example.test
+HWARD-02,Isolation Ward,Infectious Disease,East Wing,10,8,8,0,4,Standard,charge.isolation@example.test
+HICU-04,Surgical Trauma ICU,ICU,South Wing,14,10,14,0,4,Standard,charge.trauma@example.test
+HICU-05,Neuro Critical Care ICU,ICU,North Wing,12,8,11,1,1,Standard,charge.neuro@example.test
+HNICU-01,Neonatal ICU Level III,NICU,Pediatric Wing,18,12,16,0,4,Standard,charge.nicu@example.test
+HPICU-01,Pediatric Intensive Care,PICU,Pediatric Wing,10,6,9,1,3,Standard,charge.picu@example.test
+HPCU-01,Cardiac Step-Down PCU,Step-Down,East Wing,24,17,22,2,5,Standard,charge.pcu@example.test
+HED-01,Emergency Observation Bay,Emergency,Ground Wing,20,20,20,3,0,High Occupancy,charge.ed@example.test
+HWARD-03,Post-Op Orthopedic Ward,Surgical,West Wing,28,21,24,4,2,Standard,charge.ortho@example.test
+HWARD-04,Protective Oncology Isolation,Isolation,West Wing,12,9,12,0,3,Restricted,charge.oncology@example.test

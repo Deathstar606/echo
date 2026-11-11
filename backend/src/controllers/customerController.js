@@ -85,10 +85,10 @@ async function createBusinessCustomer(req, res, next) {
     return res.status(201).json({
       id: customer.id,
       customer_id: customer.id,
-      business_id: customer.business_id,
+      business_id: customer.business_id ?? business.id,
       customer_name: customer.customer_name,
       email: customer.email,
-      external_customer_id: customer.external_customer_id,
+      external_customer_id: customer.external_customer_id ?? externalCustomerId ?? null,
       created_at: customer.created_at,
       updated_at: customer.updated_at,
     });

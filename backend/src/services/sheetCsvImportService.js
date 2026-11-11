@@ -1,4 +1,5 @@
 const path = require('node:path');
+const zlib = require('node:zlib');
 const { parse } = require('csv-parse/sync');
 const { query, withTransaction } = require('../../db');
 const {
@@ -10,6 +11,152 @@ const {
   ensureTableExists,
 } = require('./sheetSchemaService');
 const AppError = require('../utils/AppError');
+const {
+  refreshWorkspaceTableMetadata,
+} = require('./workspaceTableMetadataService');
+
+/**
+ * Normalizes an uploaded spreadsheet buffer into standard UTF-8 CSV bytes.
+ * Transparently handles:
+ * 1. Standard UTF-8 / BOM CSV buffers
+ * 2. OpenXML (.xlsx) ZIP containers saved with a .csv extension
+ * 3. Single-line space-wrapped tabular strings where rows are concatenated by whitespace
+ *    at every N-th column boundary.
+ *
+ * @param {Buffer | string} rawBuffer
+ * @returns {Buffer}
+ */
+function normalizeSpreadsheetBuffer(rawBuffer) {
+  if (!rawBuffer) return Buffer.alloc(0);
+  const buf = Buffer.isBuffer(rawBuffer)
+    ? rawBuffer
+    : Buffer.from(String(rawBuffer), 'utf8');
+  if (buf.length === 0) return buf;
+
+  let text = '';
+
+  // Detect ZIP / OpenXML (.xlsx) container magic bytes PK\x03\x04
+  if (buf.length >= 4 && buf.readUInt32LE(0) === 0x04034b50) {
+    let offset = 0;
+    const entries = new Map();
+    while (offset < buf.length - 4) {
+      if (buf.readUInt32LE(offset) === 0x04034b50) {
+        const compMethod = buf.readUInt16LE(offset + 8);
+        const compSize = buf.readUInt32LE(offset + 18);
+        const nameLen = buf.readUInt16LE(offset + 26);
+        const extraLen = buf.readUInt16LE(offset + 28);
+        const name = buf
+          .slice(offset + 30, offset + 30 + nameLen)
+          .toString('utf8');
+        const dataStart = offset + 30 + nameLen + extraLen;
+        const compData = buf.slice(dataStart, dataStart + compSize);
+        if (name.endsWith('.xml') && compSize > 0) {
+          try {
+            const xml =
+              compMethod === 8
+                ? zlib.inflateRawSync(compData).toString('utf8')
+                : compData.toString('utf8');
+            entries.set(name, xml);
+          } catch {
+            // Ignore malformed entry
+          }
+        }
+        offset = dataStart + Math.max(1, compSize);
+      } else {
+        offset += 1;
+      }
+    }
+
+    const decodeXmlEntities = (str) =>
+      String(str || '')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'");
+
+    const sharedStrings = [];
+    const sstXml = entries.get('xl/sharedStrings.xml') || '';
+    for (const si of sstXml.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)) {
+      let s = '';
+      for (const t of si[1].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)) {
+        s += decodeXmlEntities(t[1]);
+      }
+      sharedStrings.push(s);
+    }
+
+    const sheetXml =
+      entries.get('xl/worksheets/sheet1.xml') ||
+      Array.from(entries.entries()).find(([k]) =>
+        k.startsWith('xl/worksheets/sheet')
+      )?.[1] ||
+      '';
+
+    const rowLines = [];
+    for (const r of sheetXml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
+      const cells = [];
+      for (const c of r[1].matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g)) {
+        const isShared = /\bt="s"/.test(c[1]);
+        const isInline = /\bt="inlineStr"/.test(c[1]);
+        if (isInline) {
+          const tMatch = c[2].match(/<t\b[^>]*>([\s\S]*?)<\/t>/);
+          cells.push(tMatch ? decodeXmlEntities(tMatch[1]) : '');
+        } else {
+          const vMatch = c[2].match(/<v>([\s\S]*?)<\/v>/);
+          const rawVal = vMatch ? vMatch[1] : '';
+          const val = isShared
+            ? (sharedStrings[Number(rawVal)] ?? rawVal)
+            : decodeXmlEntities(rawVal);
+          cells.push(val);
+        }
+      }
+      if (cells.length > 0) {
+        rowLines.push(cells.join(','));
+      }
+    }
+    text = rowLines.join('\n').trim();
+  } else {
+    text = buf.toString('utf8');
+  }
+
+  // If all records were concatenated onto a single line separated by whitespace at the N-th column boundary,
+  // dynamically detect the column stride N from the header boundary and reconstruct newline-delimited CSV rows.
+  const nonEmptyLines = text
+    .split(/\r?\n/)
+    .filter((l) => l.trim().length > 0);
+  if (nonEmptyLines.length === 1 && nonEmptyLines[0].includes(',')) {
+    const parts = nonEmptyLines[0].split(',');
+    const splitIdx = parts.findIndex((p) =>
+      /^\s*[A-Za-z_][A-Za-z0-9_]*\s+\S+/.test(p)
+    );
+    if (splitIdx > 0 && (parts.length - 1) % splitIdx === 0) {
+      const stride = splitIdx;
+      const rebuiltRows = [];
+      let currentRow = parts.slice(0, stride);
+      for (let k = stride; k < parts.length; k += stride) {
+        const boundaryToken = parts[k].trim();
+        const wsMatch = boundaryToken.match(/^(\S+)\s+([\s\S]+)$/);
+        if (wsMatch) {
+          currentRow.push(wsMatch[1]);
+          rebuiltRows.push(currentRow.join(','));
+          currentRow = [wsMatch[2], ...parts.slice(k + 1, k + stride)];
+        } else {
+          currentRow.push(boundaryToken);
+        }
+      }
+      if (currentRow.length > 0) {
+        rebuiltRows.push(currentRow.join(','));
+      }
+      return Buffer.from(rebuiltRows.join('\n'), 'utf8');
+    }
+  }
+
+  if (buf.length >= 4 && buf.readUInt32LE(0) === 0x04034b50) {
+    return Buffer.from(text, 'utf8');
+  }
+
+  return buf;
+}
 
 /**
  * Detects which table/entity a CSV file belongs to based on its headers and filename.
@@ -25,11 +172,12 @@ const AppError = require('../utils/AppError');
  * @returns {string} Detected entity name
  */
 function detectEntityFromCsv(fileBuffer, filename = '', fallbackEntity = 'products') {
-  if (!fileBuffer || fileBuffer.length === 0) return fallbackEntity;
+  const normalizedBuf = normalizeSpreadsheetBuffer(fileBuffer);
+  if (!normalizedBuf || normalizedBuf.length === 0) return fallbackEntity;
 
   let headers = [];
   try {
-    const rows = parse(fileBuffer, {
+    const rows = parse(normalizedBuf, {
       bom: true,
       to_line: 2,
       skip_empty_lines: true,
@@ -120,11 +268,12 @@ function detectEntityFromCsv(fileBuffer, filename = '', fallbackEntity = 'produc
  */
 async function createOrRegisterDynamicTableFromCsv(entityName, fileBuffer, businessId) {
   const normName = normalizeEntityName(entityName);
+  const normalizedBuf = normalizeSpreadsheetBuffer(fileBuffer);
   let rows;
   try {
     // Only parse the first 50 lines for dynamic table detection and column inference.
     // This avoids parsing megabytes of data when registering dynamic schemas.
-    rows = parse(fileBuffer, {
+    rows = parse(normalizedBuf, {
       bom: true,
       skip_empty_lines: true,
       to_line: 50,
@@ -158,7 +307,16 @@ async function createOrRegisterDynamicTableFromCsv(entityName, fileBuffer, busin
     const rawCol = rawHeaders[c];
     if (!rawCol) continue;
     const cleanKey = rawCol.toLowerCase().replace(/[^a-z0-9_]/g, '_');
-    if (['id', 'business_id', 'created_at', 'updated_at'].includes(cleanKey)) continue;
+    if ([
+      'id',
+      'business_id',
+      'workspace_id',
+      'user_id',
+      'workspace_document_id',
+      '_google_row_index',
+      'created_at',
+      'updated_at',
+    ].includes(cleanKey)) continue;
 
     // Detect column type from sample rows
     let isNumeric = sampleRows.length > 0;
@@ -322,13 +480,14 @@ function parseCsvBoolean(rawVal) {
  */
 function parseAndValidateProductsCsv(fileBuffer, options = {}) {
   const mode = options.mode || 'replace';
-  if (!fileBuffer || fileBuffer.length === 0) {
+  const normalizedBuf = normalizeSpreadsheetBuffer(fileBuffer);
+  if (!normalizedBuf || normalizedBuf.length === 0) {
     throw new AppError('Uploaded CSV file is empty.', 400);
   }
 
   let rows;
   try {
-    rows = parse(fileBuffer, {
+    rows = parse(normalizedBuf, {
       bom: true,
       skip_empty_lines: true,
       relax_column_count: false,
@@ -547,13 +706,14 @@ async function importProductsToDatabase(businessId, validRecords, options = {}) 
 
     if (mode === 'replace') {
       // Discard existing products for this business so the new copy is the only copy
-      await client.query('DELETE FROM products WHERE business_id = $1;', [
+      await client.query('DELETE FROM products WHERE business_id = $1 OR workspace_id = $1;', [
         businessId,
       ]);
     }
 
     const colsSql = `
       business_id,
+      workspace_id,
       name,
       category,
       description,
@@ -568,9 +728,8 @@ async function importProductsToDatabase(businessId, validRecords, options = {}) 
       updated_at
     `;
 
-    // 12 parameterized fields per row.
-    // Chunk into batches of up to 500 rows to minimize remote DB network roundtrips.
-    const paramsPerRow = 12;
+    // 13 parameterized fields per row.
+    const paramsPerRow = 13;
     const batchSize = Math.max(1, Math.min(500, Math.floor(10000 / paramsPerRow)));
     let totalInserted = 0;
 
@@ -587,7 +746,11 @@ async function importProductsToDatabase(businessId, validRecords, options = {}) 
         values.push(businessId);
         rowPlaceholders.push(`$${values.length}`);
 
-        // 2: name
+        // 2: workspace_id
+        values.push(businessId);
+        rowPlaceholders.push(`$${values.length}`);
+
+        // 3: name
         values.push(rec.name);
         rowPlaceholders.push(`$${values.length}`);
 
@@ -650,6 +813,12 @@ async function importProductsToDatabase(businessId, validRecords, options = {}) 
       totalInserted += (result && result.rowCount) ? result.rowCount : batch.length;
     }
 
+    await refreshWorkspaceTableMetadata({
+      client,
+      workspaceId: businessId,
+      tableName: 'products',
+      sourceFilename: options.sourceFilename || 'products.csv',
+    });
     return totalInserted;
   });
 }
@@ -665,13 +834,14 @@ async function importProductsToDatabase(businessId, validRecords, options = {}) 
  */
 function parseAndValidateSheetCsv(fileBuffer, schema, options = {}) {
   const mode = options.mode || 'replace';
-  if (!fileBuffer || fileBuffer.length === 0) {
+  const normalizedBuf = normalizeSpreadsheetBuffer(fileBuffer);
+  if (!normalizedBuf || normalizedBuf.length === 0) {
     throw new AppError('Uploaded CSV file is empty.', 400);
   }
 
   let rows;
   try {
-    rows = parse(fileBuffer, {
+    rows = parse(normalizedBuf, {
       bom: true,
       skip_empty_lines: true,
       relax_column_count: false,
@@ -693,9 +863,16 @@ function parseAndValidateSheetCsv(fileBuffer, schema, options = {}) {
     const activeCols = Object.values(schema.columns)
       .filter(
         (c) =>
-          !['id', 'business_id', 'created_at', 'updated_at'].includes(
-            c.exactName.toLowerCase()
-          )
+          ![
+            'id',
+            'business_id',
+            'workspace_id',
+            'user_id',
+            'workspace_document_id',
+            '_google_row_index',
+            'created_at',
+            'updated_at',
+          ].includes(c.exactName.toLowerCase())
       )
       .map((c) => c.exactName);
 
@@ -837,7 +1014,11 @@ async function importSheetRecordsToDatabase(businessId, schema, validRecords, op
     const safeTableName = String(schema.tableName || 'products').replace(/[^a-z0-9_]/gi, '_');
 
     if (mode === 'replace') {
-      await client.query(`DELETE FROM "${safeTableName}" WHERE business_id = $1;`, [businessId]);
+      try {
+        await client.query(`DELETE FROM "${safeTableName}" WHERE business_id = $1 OR workspace_id = $1;`, [businessId]);
+      } catch {
+        await client.query(`DELETE FROM "${safeTableName}" WHERE business_id = $1;`, [businessId]);
+      }
     }
 
     // Introspect physical column names and data types in PostgreSQL
@@ -862,7 +1043,16 @@ async function importSheetRecordsToDatabase(businessId, schema, validRecords, op
     // Automatically widen any pre-existing 32-bit INTEGER or SMALLINT columns to BIGINT
     // so values > 2,147,483,647 (e.g. Student IDs, big counts) never fail with 22003 out of range errors
     for (const [lowerCol, physicalCol] of pgColsMap.entries()) {
-      if (['id', 'business_id', 'created_at', 'updated_at'].includes(lowerCol)) continue;
+      if ([
+        'id',
+        'business_id',
+        'workspace_id',
+        'user_id',
+        'workspace_document_id',
+        '_google_row_index',
+        'created_at',
+        'updated_at',
+      ].includes(lowerCol)) continue;
       const currentType = pgColTypesMap.get(lowerCol);
       if (currentType === 'integer' || currentType === 'smallint') {
         try {
@@ -912,10 +1102,15 @@ async function importSheetRecordsToDatabase(businessId, schema, validRecords, op
     // Fixed column list for multi-row batch insert
     const businessIdCol = pgColsMap.get('business_id') || 'business_id';
     const insertCols = [`"${businessIdCol}"`];
+    const hasWorkspaceId = pgColsMap.has('workspace_id');
+    if (hasWorkspaceId) {
+      insertCols.push(`"${pgColsMap.get('workspace_id')}"`);
+    }
     const keyPhysicalMap = [];
 
     for (const k of allRecordKeys) {
       const cleanKey = String(k).replace(/[^a-z0-9_]/gi, '_');
+      if (cleanKey.toLowerCase() === 'workspace_id' || cleanKey.toLowerCase() === 'business_id') continue;
       const physicalCol = pgColsMap.get(cleanKey.toLowerCase()) || cleanKey;
       insertCols.push(`"${physicalCol}"`);
       keyPhysicalMap.push({ key: k, physicalCol });
@@ -934,7 +1129,7 @@ async function importSheetRecordsToDatabase(businessId, schema, validRecords, op
     }
 
     const colsSql = insertCols.join(', ');
-    const paramsPerRow = 1 + keyPhysicalMap.length;
+    const paramsPerRow = (hasWorkspaceId ? 2 : 1) + keyPhysicalMap.length;
     // Chunk into batches of up to 500 rows to minimize remote cloud DB network roundtrips.
     // PostgreSQL has a limit of 65,535 parameters; 10,000 parameter budget keeps batches safe and lightning-fast.
     const batchSize = Math.max(1, Math.min(500, Math.floor(10000 / paramsPerRow)));
@@ -953,6 +1148,12 @@ async function importSheetRecordsToDatabase(businessId, schema, validRecords, op
         // 1. business_id
         values.push(businessId);
         rowPlaceholders.push(`$${values.length}`);
+
+        // 1b. workspace_id
+        if (hasWorkspaceId) {
+          values.push(businessId);
+          rowPlaceholders.push(`$${values.length}`);
+        }
 
         // 2. record columns
         for (let c = 0; c < keyPhysicalMap.length; c += 1) {
@@ -982,11 +1183,48 @@ async function importSheetRecordsToDatabase(businessId, schema, validRecords, op
       totalInserted += (result && result.rowCount) ? result.rowCount : batch.length;
     }
 
+    // Update representative values on the schema so sheet relevance & prompt grounding have live sample values
+    if (schema && schema.columns) {
+      const repValues = { ...(schema.representativeValues || {}) };
+      for (const { key, physicalCol } of keyPhysicalMap) {
+        const lowerCol = String(physicalCol || key).toLowerCase();
+        if (lowerCol === 'description' || lowerCol === 'images') {
+          continue;
+        }
+        const colVals = [];
+        const seen = new Set();
+        for (const rec of validRecords) {
+          const v = rec[key];
+          if (v !== null && v !== undefined && String(v).trim() !== '') {
+            const str = String(v).trim();
+            if (str.length <= 60 && !seen.has(str.toLowerCase())) {
+              seen.add(str.toLowerCase());
+              colVals.push(v);
+              if (colVals.length >= 3) break;
+            }
+          }
+        }
+        if (colVals.length > 0) {
+          repValues[physicalCol] = colVals;
+        }
+      }
+      schema.representativeValues = repValues;
+      registerTableSchema(schema);
+    }
+
+    await refreshWorkspaceTableMetadata({
+      client,
+      workspaceId: businessId,
+      tableName: schema.tableName || schema.entity,
+      sourceFilename:
+        options.sourceFilename || schema.sourceFilename || `${schema.tableName || schema.entity}.csv`,
+    });
     return totalInserted;
   });
 }
 
 module.exports = {
+  normalizeSpreadsheetBuffer,
   detectEntityFromCsv,
   createOrRegisterDynamicTableFromCsv,
   parseAndValidateProductsCsv,

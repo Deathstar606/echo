@@ -1,0 +1,23 @@
+backorder_id,order_date,buyer_company,buyer_name,buyer_email,buyer_tier,sku_code,product_name,quantity_requested,quantity_allocated,unit_price,fulfillment_status
+BO-2001,2026-10-10,Apex Apparel Group,Sarah Jenkins,s.jenkins@apexapparel.com,Priority,VL-POLO-BLK,Classic Short-Sleeve Polo (Black),12,0,1890,Pending
+BO-2002,2026-10-12,Nordic Thread Collective,Lukas Lindqvist,llindqvist@nordicthread.se,Standard,VL-POLO-BLK,Classic Short-Sleeve Polo (Black),10,0,1890,Pending
+BO-2003,2026-10-13,Beacon Street Outfitters,Thomas Wright,twright@beaconoutfitters.com,Priority,VL-SHIRT-PMB,Palm Breeze Shirt,15,15,990,Fulfilled
+BO-2004,2026-10-14,Harborline Retail Partners,Marcus Vance,mvance@harborlineretail.com,Priority,VL-POLO-BLK,Classic Short-Sleeve Polo (Black),8,0,1890,Pending
+BO-2005,2026-10-15,Verve Contemporary Retail,Sofia Rossi,srossi@ververetail.it,Priority,VL-SHIRT-CRL,Crinkle Layer Shirt,20,20,1790,Fulfilled
+BO-2006,2026-10-16,Elmwood Boutique Supply,Hannah Abbott,habbott@elmwoodsupply.co.uk,Standard,VL-POLO-BLK,Classic Short-Sleeve Polo (Black),10,0,1890,Pending
+BO-2007,2026-10-18,Sterling Heritage Apparel,Oliver Grant,ogrant@sterlingheritage.co.uk,Priority,VL-SHIRT-PMB,Palm Breeze Shirt,10,10,990,Shipped
+BO-2008,2026-10-19,Monarch Textile Traders,Tariq Al-Mansoor,talmansoor@monarchtextile.ae,Priority,VL-SHIRT-CRL,Crinkle Layer Shirt,14,14,1790,Shipped
+BO-2009,2026-10-22,Meridian Urban Wear,Kenji Takahashi,ktakahashi@meridianurban.jp,Standard,VL-POLO-BLK,Classic Short-Sleeve Polo (Black),12,0,1890,Pending
+BO-2010,2026-10-23,Solstice Menswear Co.,Elena Rostova,erostova@solsticemenswear.io,Standard,VL-SHIRT-PMB,Palm Breeze Shirt,8,8,990,Fulfilled
+BO-2011,2026-10-25,Crestview Department Stores,Priya Nair,pnair@crestviewstores.com,Priority,VL-POLO-RIB,Ribbed V-Neck Polo,25,25,1790,Fulfilled
+BO-2012,2026-10-26,Oakridge Haberdashery,Rachel Green,rgreen@oakridgehaberdashery.com,Standard,VL-POLO-RIB,Ribbed V-Neck Polo,6,6,1790,Shipped
+BO-2013,2026-10-28,Pacific Rim Clothiers,Daniel Kim,dkim@pacificrimclothiers.com,Standard,VL-POLO-BLK,Classic Short-Sleeve Polo (Black),8,0,1890,Pending
+BO-2014,2026-10-29,Apex Apparel Group,Sarah Jenkins,s.jenkins@apexapparel.com,Priority,VL-KNIT-MER,Merino Knit Pullover,14,0,3290,Pending
+BO-2015,2026-10-30,Beacon Street Outfitters,Thomas Wright,twright@beaconoutfitters.com,Priority,VL-SHIRT-LIN,Linen Resort Overshirt,10,0,2490,Pending
+BO-2016,2026-11-01,Harborline Retail Partners,Marcus Vance,mvance@harborlineretail.com,Priority,VL-POLO-RET,Retro Knit Polo Shirt,12,0,2390,Pending
+BO-2017,2026-11-02,Nordic Thread Collective,Lukas Lindqvist,llindqvist@nordicthread.se,Standard,VL-KNIT-MER,Merino Knit Pullover,10,0,3290,Pending
+BO-2018,2026-11-03,Verve Contemporary Retail,Sofia Rossi,srossi@ververetail.it,Priority,VL-SHIRT-OXF,Oxford Mandarin Collar Shirt,16,0,1890,Pending
+BO-2019,2026-11-04,Sterling Heritage Apparel,Oliver Grant,ogrant@sterlingheritage.co.uk,Priority,VL-POLO-HEN,Pima Cotton Henley,15,0,1690,On Hold
+BO-2020,2026-11-05,Monarch Textile Traders,Tariq Al-Mansoor,talmansoor@monarchtextile.ae,Priority,VL-SHIRT-LIN,Linen Resort Overshirt,8,0,2490,Pending
+BO-2021,2026-11-06,Elmwood Boutique Supply,Hannah Abbott,habbott@elmwoodsupply.co.uk,Standard,VL-POLO-RET,Retro Knit Polo Shirt,8,0,2390,Pending
+BO-2022,2026-11-07,Solstice Menswear Co.,Elena Rostova,erostova@solsticemenswear.io,Standard,VL-SHIRT-OXF,Oxford Mandarin Collar Shirt,10,0,1890,Pending

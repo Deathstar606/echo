@@ -12,6 +12,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/customer" element={<CustomerPortal />} />
+        <Route path="/portal" element={<CustomerPortal />} />
         <Route path="/company" element={<CompanyDashboard />} />
         <Route path="*" element={<Navigate to="/company" replace />} />
       </Routes>
