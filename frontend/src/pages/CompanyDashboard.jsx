@@ -149,6 +149,8 @@ export default function CompanyDashboard() {
   const [gmailSendToast, setGmailSendToast] = useState(null);
   const [gmailRepliesByThread, setGmailRepliesByThread] = useState({});
   const [generatingGmailAiDraft, setGeneratingGmailAiDraft] = useState(false);
+  const [gmailAiDraftsById, setGmailAiDraftsById] = useState({});
+  const [gmailDraftError, setGmailDraftError] = useState(null);
 
   // Natural-Language Announcement Prompt State (No manual Some/All toggle)
   const [announcementPrompt, setAnnouncementPrompt] = useState(
@@ -161,6 +163,7 @@ export default function CompanyDashboard() {
 
   const threadEndRef = useRef(null);
   const replyInputRef = useRef(null);
+  const activeGmailMessageIdRef = useRef(null);
 
   const loadGmailInbox = async (silent = false, targetBizId = activeBusinessId) => {
     if (!targetBizId) return;
@@ -170,7 +173,7 @@ export default function CompanyDashboard() {
       const messages = await fetchGmailInboxApi(targetBizId);
       setGmailMessages(messages);
       if (messages.length > 0 && !activeGmailMessage) {
-        handleSelectGmailMessage(messages[0], targetBizId);
+        handleSelectGmailMessage(messages[0]);
       }
     } catch (err) {
       setGmailError(
@@ -181,49 +184,84 @@ export default function CompanyDashboard() {
     }
   };
 
-  const handleSwitchToGmail = () => {
-    setInboxSource('gmail');
-    if (gmailMessages.length === 0) {
-      loadGmailInbox(false, activeBusinessId);
+  const handleSwitchToWorkspace = () => {
+    setInboxSource('workspace');
+    setGmailDraftError(null);
+    if (activeConversationId) {
+      dispatch(setActiveConversationImmediate(activeConversationId));
+    } else {
+      dispatch(setExternalAiSuggestion({ draftText: '', meta: null }));
     }
   };
 
-  const handleSelectGmailMessage = async (msg, targetBizId = activeBusinessId) => {
+  const handleSwitchToGmail = () => {
+    setInboxSource('gmail');
+    setGmailDraftError(null);
+    if (gmailMessages.length === 0) {
+      activeGmailMessageIdRef.current = null;
+      dispatch(setExternalAiSuggestion({ draftText: '', meta: null }));
+      loadGmailInbox(false, activeBusinessId);
+    } else if (activeGmailMessage && gmailAiDraftsById[activeGmailMessage.id]) {
+      dispatch(setExternalAiSuggestion(gmailAiDraftsById[activeGmailMessage.id]));
+    } else {
+      dispatch(setExternalAiSuggestion({ draftText: '', meta: null }));
+    }
+  };
+
+  const handleSelectGmailMessage = (msg) => {
     setActiveGmailMessage(msg);
+    activeGmailMessageIdRef.current = msg?.id || null;
+    setGmailDraftError(null);
+    const cachedDraft = msg?.id ? gmailAiDraftsById[msg.id] : null;
+    if (cachedDraft) {
+      dispatch(setExternalAiSuggestion(cachedDraft));
+    } else {
+      dispatch(setExternalAiSuggestion({ draftText: '', meta: null }));
+    }
+  };
+
+  const handleGenerateGmailReply = async () => {
+    if (!activeGmailMessage || !activeBusinessId || generatingGmailAiDraft) {
+      return;
+    }
+
+    const targetMsg = activeGmailMessage;
+    const targetBizId = activeBusinessId;
     setGeneratingGmailAiDraft(true);
+    setGmailDraftError(null);
+
     try {
       const aiRes = await generateGmailReplyDraftApi(
         {
-          messageText: msg.bodyText || msg.snippet,
-          senderName: msg.fromName,
-          subject: msg.subject,
+          messageText: targetMsg.bodyText || targetMsg.snippet,
+          senderName: targetMsg.fromName,
+          subject: targetMsg.subject,
         },
         targetBizId
       );
 
-      dispatch(
-        setExternalAiSuggestion({
-          draftText: aiRes.draftText || '',
-          meta: {
-            originalSuggestion: aiRes.draftText || '',
-            category: aiRes.category || 'customer_inquiry',
-            missingInformation: aiRes.contextNote ? [aiRes.contextNote] : [],
-            sourceMessageContent: msg.bodyText || msg.snippet,
-            citations: aiRes.citations || [],
-          },
-        })
-      );
-    } catch {
-      const fallback = `Hi ${msg.fromName || 'there'},\n\nThank you for reaching out. We have received your inquiry regarding "${msg.subject}". Our operations team is currently reviewing the details and will update you shortly.\n\nBest regards,\nCustomer Support Team`;
-      dispatch(
-        setExternalAiSuggestion({
-          draftText: fallback,
-          meta: {
-            originalSuggestion: fallback,
-            category: 'general_inquiry',
-            sourceMessageContent: msg.bodyText || msg.snippet,
-          },
-        })
+      const suggestionPayload = {
+        draftText: aiRes.draftText || '',
+        meta: {
+          originalSuggestion: aiRes.draftText || '',
+          category: aiRes.category || 'customer_inquiry',
+          missingInformation: aiRes.contextNote ? [aiRes.contextNote] : [],
+          sourceMessageContent: targetMsg.bodyText || targetMsg.snippet,
+          citations: aiRes.citations || [],
+        },
+      };
+
+      setGmailAiDraftsById((prev) => ({
+        ...prev,
+        [targetMsg.id]: suggestionPayload,
+      }));
+
+      if (activeGmailMessageIdRef.current === targetMsg.id) {
+        dispatch(setExternalAiSuggestion(suggestionPayload));
+      }
+    } catch (err) {
+      setGmailDraftError(
+        err?.message || 'Failed to generate AI response for this message.'
       );
     } finally {
       setGeneratingGmailAiDraft(false);
@@ -308,6 +346,10 @@ export default function CompanyDashboard() {
           dispatch(resetCompanyWorkspaceState());
           setGmailMessages([]);
           setActiveGmailMessage(null);
+          activeGmailMessageIdRef.current = null;
+          setGmailAiDraftsById({});
+          setGmailDraftError(null);
+          setGeneratingGmailAiDraft(false);
           setGmailError(null);
           setGmailRepliesByThread({});
           setGmailSendToast(null);
@@ -693,7 +735,7 @@ export default function CompanyDashboard() {
                 >
                   <button
                     type="button"
-                    onClick={() => setInboxSource('workspace')}
+                    onClick={handleSwitchToWorkspace}
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -1560,23 +1602,33 @@ export default function CompanyDashboard() {
                     {aiSuggestionMeta.category.replace(/_/g, ' ')}
                   </span>
                 )}
-                {inboxSource === 'workspace' && activeConversation && (
+                {((inboxSource === 'workspace' && activeConversation) ||
+                  (inboxSource === 'gmail' && activeGmailMessage)) && (
                   <button
                     type="button"
                     className="btn-warm-outlined"
                     style={{ padding: '5px 8px', fontSize: '11px' }}
                     disabled={
-                      !canGenerateCustomerReply ||
-                      replyGenerationStatus === 'loading'
+                      inboxSource === 'gmail'
+                        ? generatingGmailAiDraft || !activeBusinessId
+                        : !canGenerateCustomerReply || replyGenerationStatus === 'loading'
                     }
-                    onClick={handleGenerateCustomerReply}
+                    onClick={
+                      inboxSource === 'gmail'
+                        ? handleGenerateGmailReply
+                        : handleGenerateCustomerReply
+                    }
                     title={
-                      canGenerateCustomerReply
-                        ? 'Generate a draft using only this workspace and conversation'
-                        : 'A new customer message is required to generate a reply'
+                      inboxSource === 'gmail'
+                        ? 'Generate a draft response using only this workspace and email'
+                        : canGenerateCustomerReply
+                          ? 'Generate a draft response using only this workspace and conversation'
+                          : 'A new customer message is required to generate a reply'
                     }
                   >
-                    {replyGenerationStatus === 'loading' ? (
+                    {(inboxSource === 'gmail'
+                      ? generatingGmailAiDraft
+                      : replyGenerationStatus === 'loading') ? (
                       <>
                         <Loader2 size={12} className="spin" />
                         Generating...
@@ -1584,14 +1636,15 @@ export default function CompanyDashboard() {
                     ) : (
                       <>
                         <Sparkles size={12} />
-                        {aiSuggestionDraft ? 'Regenerate Message' : 'Generate Message'}
+                        {aiSuggestionDraft ? 'Regenerate Response' : 'Generate Response'}
                       </>
                     )}
                   </button>
                 )}
               </div>
 
-              {inboxSource === 'workspace' && replyGenerationError && (
+              {((inboxSource === 'workspace' && replyGenerationError) ||
+                (inboxSource === 'gmail' && gmailDraftError)) && (
                 <div
                   role="alert"
                   style={{
@@ -1602,15 +1655,20 @@ export default function CompanyDashboard() {
                     borderRadius: '6px',
                   }}
                 >
-                  {replyGenerationError}
+                  {inboxSource === 'gmail' ? gmailDraftError : replyGenerationError}
                 </div>
               )}
 
               {inboxSource === 'gmail' && !activeGmailMessage ? (
                 <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                  Select an email from your Primary Gmail inbox to inspect its AI-generated reply suggestion.
+                  Select an email from your Primary Gmail inbox, then click{' '}
+                  <strong>Generate Response</strong> to draft a reply for review.
                 </div>
-              ) : inboxSource === 'gmail' && generatingGmailAiDraft ? (
+              ) : (inboxSource === 'gmail' && generatingGmailAiDraft) ||
+                (inboxSource === 'workspace' &&
+                  replyGenerationStatus === 'loading' &&
+                  !aiSuggestionDraft &&
+                  !aiSuggestionMeta) ? (
                 <div
                   style={{
                     fontSize: '12.5px',
@@ -1626,8 +1684,8 @@ export default function CompanyDashboard() {
                 </div>
               ) : inboxSource === 'workspace' && !activeConversation ? (
                 <div style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                  Select a customer conversation in the inbox to inspect its
-                  AI-generated reply suggestion.
+                  Select a customer conversation in the inbox, then click{' '}
+                  <strong>Generate Response</strong> to draft a reply for review.
                 </div>
               ) : aiSuggestionDraft || aiSuggestionMeta ? (
                 <>
@@ -1776,33 +1834,52 @@ export default function CompanyDashboard() {
                     color: 'var(--text-secondary)',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '6px',
+                    gap: '10px',
                   }}
                 >
                   <div>
-                    No reply draft yet. Select <strong>Generate Message</strong> to
+                    No reply draft yet. Click <strong>Generate Response</strong> to
                     create an editable response using only this workspace&apos;s
-                    files and the recent conversation.
+                    knowledge sources and message context.
                   </div>
-                  {activeMessages.some((m) => m.ai_suggestion) && (
-                    <button
-                      type="button"
-                      className="btn-warm-outlined"
-                      style={{ alignSelf: 'flex-start', fontSize: '11.5px', padding: '5px 10px' }}
-                      onClick={() => {
-                        const lastWithSug = [...activeMessages]
-                          .reverse()
-                          .find((m) => m.ai_suggestion);
-                        if (lastWithSug) {
-                          dispatch(
-                            updateAiSuggestionDraft(lastWithSug.ai_suggestion)
-                          );
-                        }
-                      }}
-                    >
-                      Load Previous AI Suggestion
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="btn-primary-indigo"
+                    style={{ width: '100%', padding: '9px 12px', fontSize: '12.5px' }}
+                    disabled={
+                      inboxSource === 'gmail'
+                        ? !activeGmailMessage || generatingGmailAiDraft || !activeBusinessId
+                        : !canGenerateCustomerReply || replyGenerationStatus === 'loading'
+                    }
+                    onClick={
+                      inboxSource === 'gmail'
+                        ? handleGenerateGmailReply
+                        : handleGenerateCustomerReply
+                    }
+                  >
+                    <Sparkles size={14} />
+                    Generate Response
+                  </button>
+                  {inboxSource === 'workspace' &&
+                    activeMessages.some((m) => m.ai_suggestion) && (
+                      <button
+                        type="button"
+                        className="btn-warm-outlined"
+                        style={{ alignSelf: 'flex-start', fontSize: '11.5px', padding: '5px 10px' }}
+                        onClick={() => {
+                          const lastWithSug = [...activeMessages]
+                            .reverse()
+                            .find((m) => m.ai_suggestion);
+                          if (lastWithSug) {
+                            dispatch(
+                              updateAiSuggestionDraft(lastWithSug.ai_suggestion)
+                            );
+                          }
+                        }}
+                      >
+                        Load Previous AI Suggestion
+                      </button>
+                    )}
                 </div>
               )}
             </div>
