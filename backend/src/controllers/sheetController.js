@@ -36,6 +36,9 @@ const {
 const {
   hasCustomSheetGeminiGenerator,
 } = require('../services/geminiService');
+const {
+  normalizeConversationHistory,
+} = require('../utils/conversationHistory');
 const env = require('../config/env');
 const AppError = require('../utils/AppError');
 
@@ -419,6 +422,9 @@ async function querySpreadsheet(req, res, next) {
 
     const entity = normalizeEntityName(rawEntity);
     const business = await resolveBusiness(req);
+    const conversationHistory = normalizeConversationHistory(
+      body.conversation_history ?? body.history
+    );
 
     // Resolve schema + adjacent workspace metadata once and reuse across interpretation & execution.
     const metadataList = await listWorkspaceTableMetadataCached(business.id).catch(() => []);
@@ -437,6 +443,7 @@ async function querySpreadsheet(req, res, next) {
       isMutation: false,
       businessId: business.id,
       skipCatalogLoad: Boolean(matchedMeta),
+      conversationHistory,
     });
 
     // 2. Dynamically route to mutation preview if the user's request is a mutation (update, update_many, create, delete)
@@ -451,6 +458,7 @@ async function querySpreadsheet(req, res, next) {
         mutationJson: interpreted,
         confirm: false,
         sourcePrompt: body.message,
+        conversationHistory,
       });
 
       return res.status(200).json({
@@ -466,6 +474,8 @@ async function querySpreadsheet(req, res, next) {
       businessId: business.id,
       queryJson: interpreted,
       skipEnsure: Boolean(matchedMeta),
+      sourcePrompt: rawMessage.trim(),
+      conversationHistory,
     });
 
     let answer = result.message || '';
@@ -517,6 +527,9 @@ async function mutateSpreadsheet(req, res, next) {
 
     const entity = normalizeEntityName(rawEntity);
     const business = await resolveBusiness(req);
+    const conversationHistory = normalizeConversationHistory(
+      body.conversation_history ?? body.history
+    );
 
     // Resolve the schema once and reuse it across interpretation and preview.
     // On Stage 2 confirmation (confirm === true with pre-validated mutation), reuse the
@@ -542,6 +555,7 @@ async function mutateSpreadsheet(req, res, next) {
         message: body.message.trim(),
         isMutation: true,
         businessId: business.id,
+        conversationHistory,
       });
     }
 
@@ -564,6 +578,8 @@ async function mutateSpreadsheet(req, res, next) {
         entity: schema,
         businessId: business.id,
         queryJson: mutationJson,
+        sourcePrompt: typeof body.message === 'string' ? body.message.trim() : '',
+        conversationHistory,
       });
 
       return res.status(200).json({
@@ -582,6 +598,7 @@ async function mutateSpreadsheet(req, res, next) {
       confirm,
       expectedPreviewHash,
       sourcePrompt: body.message,
+      conversationHistory,
     });
 
     return res.status(200).json({

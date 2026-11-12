@@ -1,0 +1,379 @@
+{
+  "started_at": "2026-11-12T16:46:48.066Z",
+  "workspaces": {
+    "sliding_window": {
+      "turns": [],
+      "checks": [
+        {
+          "ok": true,
+          "message": "7 turns normalize strictly to length 5 (got 5)"
+        },
+        {
+          "ok": true,
+          "message": "Keeps turns 3..7 and drops turns 1..2 (got 3, 4, 5, 6, 7)"
+        }
+      ]
+    },
+    "ws1_echo_demo": {
+      "turns": [
+        {
+          "turn_index": 1,
+          "prompt": "Find all orders in orders.csv that are currently Delayed and have Delay_Hours >= 48.",
+          "sent_history_length": 0,
+          "execute_status": "SHEET_QUERY",
+          "routed_status": null,
+          "target_table": "orders",
+          "matched_row_ids": [
+            "ORD-2026-1030",
+            "ORD-2026-1003",
+            "ORD-2026-1005",
+            "ORD-2026-1011",
+            "ORD-2026-1026",
+            "ORD-2026-1027",
+            "ORD-2026-1009",
+            "ORD-2026-1014"
+          ],
+          "ms": 3920
+        },
+        {
+          "turn_index": 2,
+          "prompt": "Now filter those to only the ones where SLA_Voucher_Issued is False.",
+          "sent_history_length": 1,
+          "execute_status": "SHEET_QUERY",
+          "routed_status": "ok",
+          "target_table": "orders",
+          "matched_row_ids": [
+            "ORD-2026-1030",
+            "ORD-2026-1026",
+            "ORD-2026-1027"
+          ],
+          "ms": 6678
+        },
+        {
+          "turn_index": 3,
+          "prompt": "Update those orders to set SLA_Voucher_Issued to True and Shipping_Tier to Expedited.",
+          "sent_history_length": 2,
+          "execute_status": "SHEET_MUTATION",
+          "routed_status": "preview",
+          "target_table": "orders",
+          "matched_row_ids": [
+            "187c75c0-65e0-41fd-98f8-dc0413c2e183",
+            "752f8be6-cf2b-4a42-ac87-f909bbf6e4f8",
+            "c119021e-de52-4ecf-8e27-f5e92ad12a9d"
+          ],
+          "ms": 22819
+        }
+      ],
+      "checks": [
+        {
+          "ok": true,
+          "message": "Turn 1 resolved target_table=\"orders\" (got orders)"
+        },
+        {
+          "ok": true,
+          "message": "Turn 1 matched Delayed orders >=48h including ORD-2026-1026, ORD-2026-1027, ORD-2026-1030 (got [\"ORD-2026-1030\",\"ORD-2026-1003\",\"ORD-2026-1005\",\"ORD-2026-1011\",\"ORD-2026-1026\",\"ORD-2026-1027\",\"ORD-2026-1009\",\"ORD-2026-1014\"])"
+        },
+        {
+          "ok": true,
+          "message": "Turn 2 inherited target_table=\"orders\" with no table named in prompt (got orders)"
+        },
+        {
+          "ok": true,
+          "message": "Turn 2 chained filter narrowed cleanly to ORD-2026-1026, ORD-2026-1027, ORD-2026-1030 (got [\"ORD-2026-1026\",\"ORD-2026-1027\",\"ORD-2026-1030\"])"
+        },
+        {
+          "ok": true,
+          "message": "Turn 3 returned Stage 1 mutation preview without false clarification (got preview: Found 3 record(s) matching criteria. Submit with \"confirm\": true to apply proposed changes.)"
+        },
+        {
+          "ok": true,
+          "message": "Turn 3 scoped Stage 1 preview to exact 3 orders from Turn 2 (got 3: [\"ORD-2026-1026\",\"ORD-2026-1027\",\"ORD-2026-1030\"])"
+        },
+        {
+          "ok": true,
+          "message": "Turn 3 preview diffs set SLA_Voucher_Issued=true and Shipping_Tier=\"Expedited\" on all 3 rows"
+        }
+      ]
+    },
+    "ws2_veloura": {
+      "turns": [
+        {
+          "turn_index": 1,
+          "prompt": "Show me the products with discount more than 10%.",
+          "sent_history_length": 0,
+          "execute_status": "SHEET_QUERY",
+          "routed_status": null,
+          "target_table": "products",
+          "matched_row_ids": [
+            "Granular Texture Polo Shirt",
+            "Palm Breeze Shirt",
+            "Merino Knit Pullover",
+            "Sparkle fusion Shirt",
+            "AirTex Printed Men's Shirt",
+            "Pima Cotton Henley",
+            "Classic Short-Sleeve Polo",
+            "Structured Linen Blazer",
+            "Retro Knit Polo Shirt",
+            "Ribbed V-Neck",
+            "Oxford Mandarin Collar Shirt",
+            "PleatWave Shirt",
+            "Crinkle Layer Shirt",
+            "Wavy Textured Short Sleeve Shirt",
+            "Floral Half Sleeve Shirt",
+            "Versatile long-sleeved shirt for Men",
+            "Men's new follower stylish long-sleeved shirts",
+            "Granular Texture Turtleneck Shirt for Men",
+            "OpenWeave Shirt"
+          ],
+          "ms": 12349
+        },
+        {
+          "turn_index": 2,
+          "prompt": "Increase the discount to 20%.",
+          "sent_history_length": 1,
+          "execute_status": "SHEET_MUTATION",
+          "routed_status": "preview",
+          "target_table": "products",
+          "matched_row_ids": [
+            "0932ce2f-3fd6-4032-81ac-50614240be17",
+            "1f002168-daa3-43a0-92a8-9ae5e319b5c0",
+            "253ed341-cdbe-4003-a3a0-2d22111e8a3e",
+            "4456bc95-bf4d-40a2-9d50-490d1b77d517",
+            "45d3cc40-5041-4f39-b69f-12c785c8c943",
+            "4cbabe00-17d6-43e3-a2ca-427e5fa2f873",
+            "595eb81c-6c98-4dee-9e30-582db14171af",
+            "64e087ba-e264-425e-a650-cbcc80b2f844",
+            "714f19a8-b1ae-4a78-9796-d9cc51d27656",
+            "830ef43d-6028-41de-ae9e-284d16234b60",
+            "982336e0-75ec-4a92-ba9f-3e4e86c38d66",
+            "b1bcff4b-0b79-4660-9e79-569c62dda296",
+            "be1f0243-5c43-459d-ba9e-79c9a2f3aad6",
+            "c1605c60-ba2e-435d-901e-b022aca5c615",
+            "c8013908-f20d-4bd2-a2e9-d9c6746ab280",
+            "d53cb1bf-2a23-40a7-aa00-1a263ac39d5c",
+            "e8ec27e9-ed68-462c-894f-968a4ea3dc24",
+            "ef0cd280-ecd6-4a54-8a99-dddd27035832",
+            "f6832b01-704d-4b44-9d99-82025058c4a8"
+          ],
+          "ms": 4876
+        },
+        {
+          "turn_index": 1,
+          "prompt": "Increase the discount to 20%.",
+          "sent_history_length": 0,
+          "execute_status": "SHEET_MUTATION",
+          "routed_status": "clarification_needed",
+          "target_table": "products",
+          "matched_row_ids": [],
+          "ms": 4006
+        }
+      ],
+      "checks": [
+        {
+          "ok": true,
+          "message": "Turn 1 returned 19 products in \"products\" with discount > 10"
+        },
+        {
+          "ok": true,
+          "message": "Turn 2 produced Stage 1 preview using Turn 1 scope with ZERO clarification_needed (got preview)"
+        },
+        {
+          "ok": true,
+          "message": "Turn 2 preview targets exact same 19 Turn 1 rows (got 19)"
+        },
+        {
+          "ok": true,
+          "message": "Turn 2 preview diffs update discount to 20"
+        },
+        {
+          "ok": true,
+          "message": "Post-Reset with empty history preserves safeguard and requires clarification (got status=clarification_needed, intent=undefined)"
+        },
+        {
+          "ok": true,
+          "message": "Post-Reset refuses to preview or mutate any rows"
+        }
+      ]
+    },
+    "ws3_wholesale": {
+      "turns": [
+        {
+          "turn_index": 1,
+          "prompt": "Show me the Gold tier wholesale accounts in wholesale_accunts_dataset.csv.",
+          "sent_history_length": 0,
+          "execute_status": "SHEET_QUERY",
+          "routed_status": null,
+          "target_table": "wholesale_accunts_dataset",
+          "matched_row_ids": [
+            "ACC-1002",
+            "ACC-1018",
+            "ACC-1017",
+            "ACC-1023",
+            "ACC-1015",
+            "ACC-1007",
+            "ACC-1012"
+          ],
+          "ms": 20759
+        },
+        {
+          "turn_index": 2,
+          "prompt": "Filter those to accounts with annual_spend >= 50000 and overdue_balance = 0.",
+          "sent_history_length": 1,
+          "execute_status": "SHEET_QUERY",
+          "routed_status": null,
+          "target_table": "wholesale_accunts_dataset",
+          "matched_row_ids": [
+            "ACC-1018",
+            "ACC-1017"
+          ],
+          "ms": 11330
+        },
+        {
+          "turn_index": 3,
+          "prompt": "Upgrade those accounts to Platinum, increase their credit limit by 30% per the Q4 VIP Expansion Brief, and email the account managers.",
+          "sent_history_length": 2,
+          "execute_status": "PREVIEW_READY",
+          "routed_status": null,
+          "target_table": "wholesale_accunts_dataset",
+          "matched_row_ids": [
+            "ACC-1018",
+            "ACC-1017"
+          ],
+          "ms": 34050
+        }
+      ],
+      "checks": [
+        {
+          "ok": true,
+          "message": "Turn 1 returned 7 Gold tier rows from wholesale_accunts_dataset"
+        },
+        {
+          "ok": true,
+          "message": "Turn 2 narrowed Gold accounts strictly to ACC-1017 & ACC-1018 (got [\"ACC-1017\",\"ACC-1018\"])"
+        },
+        {
+          "ok": true,
+          "message": "Turn 3 entered cross-document Socratic pipeline cleanly (got PREVIEW_READY)"
+        },
+        {
+          "ok": true,
+          "message": "Turn 3 scoped strictly to ACC-1017 & ACC-1018 (got matched=[\"ACC-1018\",\"ACC-1017\"], preview=[\"ACC-1017\",\"ACC-1018\"])"
+        }
+      ]
+    },
+    "ws4_hospital": {
+      "turns": [
+        {
+          "turn_index": 1,
+          "prompt": "Show me all Adult ICU units in hospital_units.csv with at least 2 clean beds.",
+          "sent_history_length": 0,
+          "execute_status": "SHEET_QUERY",
+          "routed_status": null,
+          "target_table": "hospital_units",
+          "matched_row_ids": [
+            "HICU-04",
+            "HICU-01",
+            "HICU-02"
+          ],
+          "ms": 43112
+        },
+        {
+          "turn_index": 2,
+          "prompt": "Filter those to the ones with zero staffing_gap.",
+          "sent_history_length": 1,
+          "execute_status": "SHEET_QUERY",
+          "routed_status": null,
+          "target_table": "hospital_units",
+          "matched_row_ids": [
+            "HICU-04"
+          ],
+          "ms": 16505
+        },
+        {
+          "turn_index": 3,
+          "prompt": "Update the surge_status of that unit to 'Surge Ready'.",
+          "sent_history_length": 2,
+          "execute_status": "SHEET_MUTATION",
+          "routed_status": "preview",
+          "target_table": "hospital_units",
+          "matched_row_ids": [
+            "65812a00-fff6-4ca2-b1d4-29f5a04e2baa"
+          ],
+          "ms": 28366
+        },
+        {
+          "turn_index": 4,
+          "prompt": "Show me all NICU units in hospital_units.csv.",
+          "sent_history_length": 3,
+          "execute_status": "SHEET_QUERY",
+          "routed_status": null,
+          "target_table": "hospital_units",
+          "matched_row_ids": [
+            "HNICU-01"
+          ],
+          "ms": 14303
+        },
+        {
+          "turn_index": 5,
+          "prompt": "Show me all Medical department units in hospital_units.csv.",
+          "sent_history_length": 4,
+          "execute_status": "SHEET_QUERY",
+          "routed_status": null,
+          "target_table": "hospital_units",
+          "matched_row_ids": [
+            "HWARD-01"
+          ],
+          "ms": 9830
+        },
+        {
+          "turn_index": 6,
+          "prompt": "Filter those to units in West Wing.",
+          "sent_history_length": 5,
+          "execute_status": "SHEET_QUERY",
+          "routed_status": null,
+          "target_table": "hospital_units",
+          "matched_row_ids": [
+            "HWARD-01"
+          ],
+          "ms": 34167
+        }
+      ],
+      "checks": [
+        {
+          "ok": true,
+          "message": "Turn 1 matched Adult ICU / ICU units with clean_beds >= 2 including HICU-04 (got [\"HICU-04\",\"HICU-01\",\"HICU-02\"])"
+        },
+        {
+          "ok": true,
+          "message": "Turn 2 narrowed cleanly to HICU-04 (got [\"HICU-04\"])"
+        },
+        {
+          "ok": true,
+          "message": "Turn 3 resolved \"that unit\" -> 1-row mutation preview for HICU-04 surge_status=\"Surge Ready\" (got status=preview, ids=[\"HICU-04\"])"
+        },
+        {
+          "ok": true,
+          "message": "Turn 6 sent capped history length=5 (dropped Turn 1) and filtered prior Turn 5 Medical units in West Wing -> HWARD-01 (got [\"HWARD-01\"])"
+        }
+      ]
+    },
+    "baseline_integrity": {
+      "turns": [],
+      "checks": [
+        {
+          "ok": true,
+          "message": "All 4 workspace table row counts remain untouched ({\"11111111-2222-3333-4444-555555555555:orders\":32,\"684a8863-5094-4c8b-9b15-c50c06335b7f:products\":20,\"d47544a4-6e80-41bb-9ddf-e694c714b4fe:wholesale_accunts_dataset\":24,\"52e50e84-197e-41f0-ba30-4bdeeabafa5e:hospital_units\":13})"
+        }
+      ]
+    }
+  },
+  "baseline_counts": {
+    "11111111-2222-3333-4444-555555555555:orders": 32,
+    "684a8863-5094-4c8b-9b15-c50c06335b7f:products": 20,
+    "d47544a4-6e80-41bb-9ddf-e694c714b4fe:wholesale_accunts_dataset": 24,
+    "52e50e84-197e-41f0-ba30-4bdeeabafa5e:hospital_units": 13
+  },
+  "finished_at": "2026-11-12T16:52:15.201Z",
+  "passed": true,
+  "failures": []
+}

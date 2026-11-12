@@ -31,6 +31,7 @@ import type {
   SocraticQuestion,
   SocraticOption,
   RoutedSheetInstruction,
+  ConversationHistoryTurn,
 } from '../../../shared/types/contracts';
 import CitationBadges from './CitationBadges';
 import {
@@ -38,6 +39,14 @@ import {
   resolveWorkspaceSocraticApi,
   confirmWorkspaceOperationApi,
 } from '../services/api';
+
+interface RoutedSheetInstructionResult {
+  message: string;
+  entity: string;
+  matched_row_ids: string[];
+  applied_filter_summary: string;
+  status: string;
+}
 
 interface SocraticOperationsWorkbenchProps {
   activeBusinessId?: string;
@@ -53,9 +62,22 @@ interface SocraticOperationsWorkbenchProps {
   onRunSheetInstruction: (
     intent: RoutedSheetInstruction['intent'],
     entity: string,
-    prompt: string
-  ) => Promise<string>;
+    prompt: string,
+    conversationHistory?: ConversationHistoryTurn[]
+  ) => Promise<RoutedSheetInstructionResult | string>;
   onApplySheetQueryResult?: (payload: RoutedSheetInstruction) => void;
+  onResetWorkspace?: () => void;
+}
+
+function summarizeInterpretedFilters(interpretedQuery: any): string {
+  const filters = Array.isArray(interpretedQuery?.filters)
+    ? interpretedQuery.filters
+    : [];
+  if (filters.length === 0) return '';
+  const logic = String(interpretedQuery?.filter_logic || 'AND').toUpperCase();
+  return filters
+    .map((f: any) => `${f.field || f.column} ${f.operator} ${JSON.stringify(f.value)}`)
+    .join(` ${logic} `);
 }
 
 export default function SocraticOperationsWorkbench({
@@ -71,6 +93,7 @@ export default function SocraticOperationsWorkbench({
   samplePrompts,
   onRunSheetInstruction,
   onApplySheetQueryResult,
+  onResetWorkspace,
 }: SocraticOperationsWorkbenchProps): React.ReactElement {
   // Workflow state machine: 'idle' | 'executing' | 'clarification' | 'preview' | 'executed' | 'conversational'
   const [workflowStatus, setWorkflowStatus] = useState<
@@ -91,6 +114,7 @@ export default function SocraticOperationsWorkbench({
   const [conversationHistory, setConversationHistory] = useState<
     Array<{ role: 'user' | 'assistant'; content: string }>
   >([]);
+  const [structuredHistory, setStructuredHistory] = useState<ConversationHistoryTurn[]>([]);
 
   // Preview sub-tab ('mutations' | 'emails')
   const [previewTab, setPreviewTab] = useState<'mutations' | 'emails'>('mutations');
@@ -107,11 +131,12 @@ export default function SocraticOperationsWorkbench({
     setConversationalData(null);
     setWorkflowError(null);
     setConversationHistory([]);
+    setStructuredHistory([]);
     onMutationsPreviewChange?.([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBusinessId]);
 
-  // Turn 1: Run AI Instruction
+  // Turn 1..N: Run AI Instruction with 5-turn sliding conversational memory
   const handleExecuteOperation = async (customPrompt?: string) => {
     const promptToRun = (
       typeof customPrompt === 'string' ? customPrompt : nlPrompt
@@ -122,19 +147,36 @@ export default function SocraticOperationsWorkbench({
     setWorkflowStatus('executing');
     setExecutingStep('Discovering sources & evaluating multi-hop policy constraints...');
 
+    const windowHistory = structuredHistory.slice(-5);
+
     try {
       const res = await executeWorkspaceOperationApi({
         prompt: promptToRun,
         entity: 'user',
         table_name: activeEntity,
-        history: conversationHistory,
+        conversation_history: windowHistory,
+        history: windowHistory,
         businessId: activeBusinessId,
       });
 
       let routedMessage = '';
+      let turnIntent = String(res.status || 'UNKNOWN');
+      let turnTable: string | null = activeEntity || null;
+      let turnMatchedIds: string[] = [];
+      let turnFilterSummary = '';
+
       if (res.status === 'SHEET_QUERY' && Array.isArray(res.rows)) {
         onApplySheetQueryResult?.(res);
         routedMessage = res.answer || res.message;
+        turnIntent = 'SHEET_QUERY';
+        turnTable = res.entity || activeEntity || null;
+        turnMatchedIds = Array.isArray(res.highlighted_rows) && res.highlighted_rows.length > 0
+          ? res.highlighted_rows.map((h) => String(h.row_identifier || '').trim()).filter(Boolean)
+          : Array.isArray(res.matched_ids) && res.matched_ids.length > 0
+            ? res.matched_ids.map((id) => String(id).trim()).filter(Boolean)
+            : res.rows.map((r) => String(r?.id || '').trim()).filter(Boolean);
+        turnFilterSummary = summarizeInterpretedFilters(res.interpretedQuery);
+
         setConversationalData({
           status: 'CONVERSATIONAL',
           conversational: true,
@@ -148,11 +190,22 @@ export default function SocraticOperationsWorkbench({
         setWorkflowStatus('conversational');
         onMutationsPreviewChange?.([]);
       } else if (res.status === 'SHEET_QUERY' || res.status === 'SHEET_MUTATION') {
-        routedMessage = await onRunSheetInstruction(
+        const routedResult = await onRunSheetInstruction(
           res.intent,
           res.entity,
-          promptToRun
+          promptToRun,
+          windowHistory
         );
+        if (typeof routedResult === 'string') {
+          routedMessage = routedResult;
+          turnTable = res.entity || activeEntity || null;
+        } else {
+          routedMessage = routedResult.message;
+          turnTable = routedResult.entity || res.entity || activeEntity || null;
+          turnMatchedIds = routedResult.matched_row_ids || [];
+          turnFilterSummary = routedResult.applied_filter_summary || '';
+        }
+        turnIntent = res.status;
         setConversationalData({
           status: 'CONVERSATIONAL',
           conversational: true,
@@ -161,12 +214,29 @@ export default function SocraticOperationsWorkbench({
           citations: res.citations || [],
         });
         setWorkflowStatus('conversational');
-        onMutationsPreviewChange?.([]);
+        if (res.status !== 'SHEET_MUTATION') {
+          onMutationsPreviewChange?.([]);
+        }
       } else if (res.status === 'CONVERSATIONAL') {
+        turnIntent =
+          res.intent === 'cross_source_read' ? 'CROSS_SOURCE_READ' : String(res.intent || 'CONVERSATIONAL').toUpperCase();
+        turnTable =
+          res.highlighted_rows?.[0]?.table_name ||
+          res.rows?.[0]?.table_name ||
+          activeEntity ||
+          null;
+        turnMatchedIds = Array.isArray(res.highlighted_rows) && res.highlighted_rows.length > 0
+          ? res.highlighted_rows.map((h) => String(h.row_identifier || '').trim()).filter(Boolean)
+          : Array.isArray(res.rows)
+            ? res.rows.map((r) => String(r?.id || '').trim()).filter(Boolean)
+            : [];
         setConversationalData(res);
         setWorkflowStatus('conversational');
         onMutationsPreviewChange?.([]);
       } else if (res.status === 'CLARIFICATION_REQUIRED') {
+        turnIntent = 'CROSS_DOCUMENT_OPERATION';
+        turnTable = res.target_entity || activeEntity || null;
+        turnMatchedIds = Array.isArray(res.matched_row_ids) ? res.matched_row_ids : [];
         setCurrentWorkflowId(res.workflow_id);
         setClarificationData(res);
         // Pre-select first option for each question
@@ -180,6 +250,17 @@ export default function SocraticOperationsWorkbench({
         setWorkflowStatus('clarification');
         onMutationsPreviewChange?.([]);
       } else if (res.status === 'PREVIEW_READY') {
+        turnIntent = 'CROSS_DOCUMENT_OPERATION';
+        turnTable =
+          res.target_entity ||
+          res.mutations_preview?.[0]?.table_name ||
+          activeEntity ||
+          null;
+        turnMatchedIds = Array.isArray(res.matched_row_ids) && res.matched_row_ids.length > 0
+          ? res.matched_row_ids
+          : (res.mutations_preview || [])
+              .map((m) => String(m.row_identifier || '').trim())
+              .filter(Boolean);
         setCurrentWorkflowId(res.workflow_id);
         setPreviewData(res);
         setWorkflowStatus('preview');
@@ -205,6 +286,21 @@ export default function SocraticOperationsWorkbench({
         { role: 'user', content: promptToRun },
         { role: 'assistant', content: assistantMessage },
       ]);
+      setStructuredHistory((previous) => {
+        const nextIndex = previous.length > 0
+          ? Number(previous[previous.length - 1].turn_index || previous.length) + 1
+          : 1;
+        const entry: ConversationHistoryTurn = {
+          turn_index: nextIndex,
+          user_prompt: promptToRun,
+          resolved_intent: turnIntent,
+          target_table: turnTable,
+          matched_row_ids: turnMatchedIds,
+          applied_filter_summary: turnFilterSummary,
+          assistant_response_summary: String(assistantMessage || '').slice(0, 600),
+        };
+        return [...previous, entry].slice(-5);
+      });
     } catch (err: any) {
       setWorkflowError(err?.message || 'Failed to execute cross-document instruction.');
       setWorkflowStatus('idle');
@@ -249,6 +345,27 @@ export default function SocraticOperationsWorkbench({
           content: 'Prepared the action preview using the selected clarification.',
         },
       ]);
+      setStructuredHistory((previous) => {
+        if (previous.length === 0) return previous;
+        const next = [...previous];
+        const last = { ...next[next.length - 1] };
+        const previewIds = (res.mutations_preview || [])
+          .map((m) => String(m.row_identifier || '').trim())
+          .filter(Boolean);
+        last.target_table =
+          res.target_entity ||
+          res.mutations_preview?.[0]?.table_name ||
+          last.target_table ||
+          null;
+        if (previewIds.length > 0) {
+          last.matched_row_ids = previewIds;
+        }
+        last.assistant_response_summary = selectedLabels
+          ? `Selected "${selectedLabels}" -> prepared preview for ${previewIds.length} row(s).`
+          : `Prepared the action preview for ${previewIds.length} row(s).`;
+        next[next.length - 1] = last;
+        return next.slice(-5);
+      });
     } catch (err: any) {
       setWorkflowError(err?.message || 'Failed to resolve Socratic conflict.');
       setWorkflowStatus('clarification');
@@ -281,6 +398,14 @@ export default function SocraticOperationsWorkbench({
           content: `Completed the approved operation: updated ${res.updated_rows_count} rows and queued ${res.dispatched_emails_count} emails.`,
         },
       ]);
+      setStructuredHistory((previous) => {
+        if (previous.length === 0) return previous;
+        const next = [...previous];
+        const last = { ...next[next.length - 1] };
+        last.assistant_response_summary = `Completed the approved operation: updated ${res.updated_rows_count} rows and queued ${res.dispatched_emails_count} emails.`;
+        next[next.length - 1] = last;
+        return next.slice(-5);
+      });
 
       // Auto-refresh the live database table so updated rows display immediately
       onRefreshTable();
@@ -301,8 +426,10 @@ export default function SocraticOperationsWorkbench({
     setConversationalData(null);
     setWorkflowError(null);
     setConversationHistory([]);
+    setStructuredHistory([]);
     onPromptChange('');
     onMutationsPreviewChange?.([]);
+    onResetWorkspace?.();
   };
 
   return (

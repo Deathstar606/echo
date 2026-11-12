@@ -22,6 +22,11 @@ const {
   generateStructuredJsonWithRetry,
   hasCustomWorkspaceGeminiGenerator,
 } = require('./geminiService');
+const {
+  normalizeConversationHistory,
+  getLatestActiveContext,
+  hasFollowUpReference,
+} = require('../utils/conversationHistory');
 
 const MUTATION_OR_ACTION_REGEX =
   /\b(?:update|set|change|modify|edit|alter|swap|replace|refund|reconcile|enforce|process|elevate|upgrade|downgrade|promote|freeze|cut|reduce|increase|decrease|adjust|add|insert|create|delete|remove|drop|allocate|deploy|assign|audit|review|email|e-mail|notify|message|alert|send|draft|dispatch|apply|mark|cancel|trigger|execute|clear|import|upload)\b/i;
@@ -229,7 +234,12 @@ function scoreTableAgainstPrompt(prompt, promptLower, promptWords, activeEntity,
  * @param {Array<object>} metadataRows
  * @returns {{ meta: object } | null}
  */
-function resolveSingleTableTarget(prompt, activeEntity, metadataRows = []) {
+function resolveSingleTableTarget(
+  prompt,
+  activeEntity,
+  metadataRows = [],
+  conversationHistory = []
+) {
   if (!Array.isArray(metadataRows) || metadataRows.length === 0) {
     return null;
   }
@@ -258,9 +268,13 @@ function resolveSingleTableTarget(prompt, activeEntity, metadataRows = []) {
     }
   }
 
+  const normalizedHistory = normalizeConversationHistory(conversationHistory);
+  const activeCtx = getLatestActiveContext(normalizedHistory, activeEntity);
+  const effectiveActiveEntity = activeCtx.activeTargetTable || activeEntity || null;
+
   const scored = metadataRows
     .map((meta) =>
-      scoreTableAgainstPrompt(prompt, promptLower, promptWords, activeEntity, meta)
+      scoreTableAgainstPrompt(prompt, promptLower, promptWords, effectiveActiveEntity, meta)
     )
     .sort((a, b) => b.score - a.score);
 
@@ -272,11 +286,23 @@ function resolveSingleTableTarget(prompt, activeEntity, metadataRows = []) {
     return { meta: explicitlyNamed[0].meta };
   }
 
+  // Follow-up narrowing/filtering with zero new table name inherits the prior turn's table
+  if (hasFollowUpReference(prompt) && activeCtx.activeTargetTable) {
+    const priorMeta = metadataRows.find(
+      (m) =>
+        normalizeEntityName(m.table_name) ===
+        normalizeEntityName(activeCtx.activeTargetTable)
+    );
+    if (priorMeta) {
+      return { meta: priorMeta };
+    }
+  }
+
   const top = scored[0];
   if (!top || top.score === 0) {
-    if (activeEntity) {
+    if (effectiveActiveEntity) {
       const activeMeta = metadataRows.find(
-        (m) => normalizeEntityName(m.table_name) === normalizeEntityName(activeEntity)
+        (m) => normalizeEntityName(m.table_name) === normalizeEntityName(effectiveActiveEntity)
       );
       if (activeMeta) return { meta: activeMeta };
     }
@@ -405,7 +431,8 @@ async function tryExecuteFastTableQuery({
   if (hasCustomWorkspaceGeminiGenerator()) {
     return null;
   }
-  if (!isBasicTableQueryCandidate(prompt, history)) {
+  const normalizedHistory = normalizeConversationHistory(history);
+  if (!isBasicTableQueryCandidate(prompt, normalizedHistory)) {
     return null;
   }
 
@@ -414,7 +441,12 @@ async function tryExecuteFastTableQuery({
     return null;
   }
 
-  const targetMatch = resolveSingleTableTarget(prompt, entity, metadataRows);
+  const targetMatch = resolveSingleTableTarget(
+    prompt,
+    entity,
+    metadataRows,
+    normalizedHistory
+  );
   if (!targetMatch?.meta) {
     return null;
   }
@@ -435,6 +467,7 @@ async function tryExecuteFastTableQuery({
     isMutation: false,
     businessId,
     skipCatalogLoad: true,
+    conversationHistory: normalizedHistory,
   });
 
   if (!interpreted || interpreted.status === 'clarification_needed') {
@@ -463,6 +496,8 @@ async function tryExecuteFastTableQuery({
     businessId,
     queryJson: interpreted,
     skipEnsure: true,
+    sourcePrompt: prompt.trim(),
+    conversationHistory: normalizedHistory,
   });
 
   if (execution.status === 'clarification_needed') {
@@ -505,6 +540,7 @@ async function tryExecuteFastTableQuery({
     answer,
     count: rows.length,
     rows,
+    matched_ids: highlightedRows.map((h) => h.row_identifier),
     highlighted_rows: highlightedRows,
     interpretedQuery: execution.interpretedQuery,
     fast_path: true,

@@ -20,7 +20,10 @@ import type {
   Citation,
   BusinessSheetTableInfo,
   BusinessSheetsListResponse,
+  ConversationHistoryTurn,
 } from '../../../shared/types/contracts';
+
+export type { ConversationHistoryTurn };
 
 /**
  * Custom API Error preserving HTTP status codes and backend error payloads.
@@ -412,6 +415,7 @@ export async function fetchSheetRows<TRow extends DynamicSheetRow = DynamicSheet
 export interface QuerySheetParams {
   entity?: string;
   message: string;
+  conversation_history?: ConversationHistoryTurn[];
 }
 
 /**
@@ -419,10 +423,13 @@ export interface QuerySheetParams {
  * POST /api/businesses/{businessId}/sheets/query
  */
 export async function querySheet(
-  { entity = 'products', message }: QuerySheetParams,
+  { entity = 'products', message, conversation_history = [] }: QuerySheetParams,
   businessId?: string
 ): Promise<SheetQueryResult | ClarificationResponse> {
   const targetBiz = (businessId && String(businessId).trim()) || getActiveBusinessId();
+  const slicedHistory = Array.isArray(conversation_history)
+    ? conversation_history.slice(-5)
+    : [];
   return request<SheetQueryResult | ClarificationResponse>(
     `/api/businesses/${encodeURIComponent(targetBiz)}/sheets/query`,
     {
@@ -430,6 +437,7 @@ export async function querySheet(
       body: JSON.stringify({
         entity: String(entity || 'products').trim(),
         message: String(message || '').trim(),
+        ...(slicedHistory.length > 0 ? { conversation_history: slicedHistory } : {}),
       }),
     }
   );
@@ -441,6 +449,7 @@ export interface MutateSheetParams {
   confirm?: boolean;
   mutation?: MutationPlan;
   expectedPreviewHash?: string;
+  conversation_history?: ConversationHistoryTurn[];
 }
 
 /**
@@ -453,8 +462,12 @@ export async function mutateSheet({
   confirm = false,
   mutation,
   expectedPreviewHash,
+  conversation_history = [],
 }: MutateSheetParams, businessId?: string): Promise<MutationPreviewResponse | MutationExecutionResponse | ClarificationResponse> {
   const targetBiz = (businessId && String(businessId).trim()) || getActiveBusinessId();
+  const slicedHistory = Array.isArray(conversation_history)
+    ? conversation_history.slice(-5)
+    : [];
   return request<MutationPreviewResponse | MutationExecutionResponse | ClarificationResponse>(
     `/api/sheets/mutation?businessId=${encodeURIComponent(targetBiz)}`,
     {
@@ -464,6 +477,7 @@ export async function mutateSheet({
         entity: String(entity || 'products').trim(),
         message: String(message || '').trim(),
         confirm: Boolean(confirm),
+        ...(slicedHistory.length > 0 ? { conversation_history: slicedHistory } : {}),
         ...(mutation ? { mutation } : {}),
         ...(expectedPreviewHash
           ? { expected_preview_hash: expectedPreviewHash }
@@ -675,7 +689,8 @@ export interface ExecuteWorkspaceOperationParams {
     inquiry_id?: string;
   };
   businessId?: string;
-  history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  history?: Array<ConversationHistoryTurn | { role: 'user' | 'assistant'; content: string }>;
+  conversation_history?: ConversationHistoryTurn[];
 }
 
 /**
@@ -689,17 +704,25 @@ export async function executeWorkspaceOperationApi({
   table_name,
   customer_context,
   history = [],
+  conversation_history,
   businessId = getActiveBusinessId(),
 }: ExecuteWorkspaceOperationParams): Promise<WorkspaceOperationResponse> {
   const isExplicitEntity = entity === 'user' || entity === 'customer';
   const legacyTable = isExplicitEntity ? null : entity;
+  const rawHistory = Array.isArray(conversation_history)
+    ? conversation_history
+    : Array.isArray(history)
+      ? history
+      : [];
+  const slicedHistory = rawHistory.slice(-5);
   return request<WorkspaceOperationResponse>('/api/workspace/execute', {
     method: 'POST',
     body: JSON.stringify({
       business_id: businessId,
       prompt: String(prompt || '').trim(),
       entity: isExplicitEntity ? entity : 'user',
-      history,
+      conversation_history: slicedHistory,
+      history: slicedHistory,
       ...((table_name || legacyTable)
         ? { table_name: String(table_name || legacyTable).trim() }
         : {}),

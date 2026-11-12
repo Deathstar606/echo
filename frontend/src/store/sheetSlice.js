@@ -94,11 +94,23 @@ export const loadSheetRows = createAsyncThunk(
  */
 export const runSheetQuery = createAsyncThunk(
   'sheets/runSheetQuery',
-  async ({ entity, message }, { getState, rejectWithValue }) => {
+  async (
+    { entity, message, conversation_history = [], conversationHistory },
+    { getState, rejectWithValue }
+  ) => {
     try {
       const targetEntity =
         entity || getState().sheets?.activeEntity || 'products';
-      const data = await querySheet({ entity: targetEntity, message });
+      const historyPayload = Array.isArray(conversation_history) && conversation_history.length > 0
+        ? conversation_history.slice(-5)
+        : Array.isArray(conversationHistory)
+          ? conversationHistory.slice(-5)
+          : [];
+      const data = await querySheet({
+        entity: targetEntity,
+        message,
+        conversation_history: historyPayload,
+      });
       return {
         ...data,
         entity: targetEntity,
@@ -119,14 +131,23 @@ export const runSheetQuery = createAsyncThunk(
  */
 export const previewSheetMutation = createAsyncThunk(
   'sheets/previewSheetMutation',
-  async ({ entity, message }, { getState, rejectWithValue }) => {
+  async (
+    { entity, message, conversation_history = [], conversationHistory },
+    { getState, rejectWithValue }
+  ) => {
     try {
       const targetEntity =
         entity || getState().sheets?.activeEntity || 'products';
+      const historyPayload = Array.isArray(conversation_history) && conversation_history.length > 0
+        ? conversation_history.slice(-5)
+        : Array.isArray(conversationHistory)
+          ? conversationHistory.slice(-5)
+          : [];
       const data = await mutateSheet({
         entity: targetEntity,
         message,
         confirm: false,
+        conversation_history: historyPayload,
       });
       return {
         ...data,
@@ -149,18 +170,31 @@ export const previewSheetMutation = createAsyncThunk(
 export const applySheetMutation = createAsyncThunk(
   'sheets/applySheetMutation',
   async (
-    { entity, message, mutation, expectedPreviewHash },
+    {
+      entity,
+      message,
+      mutation,
+      expectedPreviewHash,
+      conversation_history = [],
+      conversationHistory,
+    },
     { getState, rejectWithValue }
   ) => {
     try {
       const targetEntity =
         entity || getState().sheets?.activeEntity || 'products';
+      const historyPayload = Array.isArray(conversation_history) && conversation_history.length > 0
+        ? conversation_history.slice(-5)
+        : Array.isArray(conversationHistory)
+          ? conversationHistory.slice(-5)
+          : [];
       const data = await mutateSheet({
         entity: targetEntity,
         message,
         confirm: true,
         mutation,
         expectedPreviewHash,
+        conversation_history: historyPayload,
       });
       return {
         ...data,

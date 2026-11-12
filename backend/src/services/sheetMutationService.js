@@ -6,8 +6,16 @@ const {
   ensureTableExists,
   findColumnDef,
   quoteIdentifier,
+  validateFilter,
   validateMutation,
 } = require('./sheetSchemaService');
+const {
+  normalizeConversationHistory,
+  getLatestActiveContext,
+  hasFollowUpReference,
+  hasExplicitScopeReset,
+  resolveIdentifierFilterForIds,
+} = require('../utils/conversationHistory');
 const {
   buildParameterizedSelectQuery,
   normalizeProductRow,
@@ -685,11 +693,88 @@ function buildParameterizedUpdateStatement({
  * @param {object} params.mutationJson
  * @returns {Promise<object>} Preview summary
  */
+async function applyContextualScopeInheritance(
+  validatedRaw,
+  sourcePrompt,
+  schema,
+  businessId,
+  conversationHistory = []
+) {
+  if (
+    !validatedRaw ||
+    !['update', 'update_many', 'delete'].includes(validatedRaw.operation) ||
+    hasExplicitScopeReset(sourcePrompt)
+  ) {
+    return validatedRaw;
+  }
+
+  const normalizedHistory = normalizeConversationHistory(conversationHistory);
+  if (normalizedHistory.length === 0) {
+    return validatedRaw;
+  }
+
+  const activeCtx = getLatestActiveContext(
+    normalizedHistory,
+    schema.tableName || schema.entity
+  );
+  if (!activeCtx.matchedRowIds || activeCtx.matchedRowIds.length === 0) {
+    return validatedRaw;
+  }
+
+  const isUnscopedImplicit =
+    validatedRaw.target_filters.length === 0 &&
+    validatedRaw.match_all &&
+    !hasExplicitWholeTableScope(sourcePrompt, schema);
+
+  const isFollowUpNarrowing =
+    hasFollowUpReference(sourcePrompt) &&
+    validatedRaw.filter_logic === 'AND' &&
+    !hasExplicitWholeTableScope(sourcePrompt, schema);
+
+  if (!isUnscopedImplicit && !isFollowUpNarrowing) {
+    return validatedRaw;
+  }
+
+  const idFilter = await resolveIdentifierFilterForIds(
+    schema,
+    businessId,
+    activeCtx.matchedRowIds,
+    query,
+    quoteIdentifier
+  );
+  if (!idFilter) {
+    return validatedRaw;
+  }
+
+  const validatedIdFilter = validateFilter(schema, idFilter);
+  const existingFilters = Array.isArray(validatedRaw.target_filters)
+    ? validatedRaw.target_filters
+    : [];
+  if (
+    existingFilters.some(
+      (f) => String(f.field || '').toLowerCase() === validatedIdFilter.field.toLowerCase()
+    )
+  ) {
+    return validatedRaw;
+  }
+
+  return {
+    ...validatedRaw,
+    match_all: false,
+    target_filters: [...existingFilters, validatedIdFilter],
+    inherited_scope: {
+      from_turn_index: activeCtx.fromTurnIndex,
+      matched_row_ids: activeCtx.matchedRowIds,
+    },
+  };
+}
+
 async function previewMutation({
   entity = 'products',
   businessId,
   mutationJson,
   sourcePrompt,
+  conversationHistory = [],
 }) {
   if (!businessId) {
     throw new AppError('Business ID is required to preview a mutation.', 400);
@@ -709,7 +794,13 @@ async function previewMutation({
     };
   }
 
-  const validatedRaw = validateMutation(schema, mutationJson);
+  const validatedRaw = await applyContextualScopeInheritance(
+    validateMutation(schema, mutationJson),
+    sourcePrompt,
+    schema,
+    businessId,
+    conversationHistory
+  );
   const scopeClarification = getMutationScopeClarification(
     validatedRaw,
     sourcePrompt,
@@ -853,6 +944,7 @@ async function executeMutation({
   confirm = false,
   expectedPreviewHash,
   sourcePrompt,
+  conversationHistory = [],
 }) {
   if (!businessId) {
     throw new AppError('Business ID is required to execute a mutation.', 400);
@@ -867,6 +959,7 @@ async function executeMutation({
       businessId,
       mutationJson,
       sourcePrompt,
+      conversationHistory,
     });
   }
 
@@ -882,7 +975,13 @@ async function executeMutation({
     };
   }
 
-  const validatedRaw = validateMutation(schema, mutationJson);
+  const validatedRaw = await applyContextualScopeInheritance(
+    validateMutation(schema, mutationJson),
+    sourcePrompt,
+    schema,
+    businessId,
+    conversationHistory
+  );
   const scopeClarification = getMutationScopeClarification(
     validatedRaw,
     sourcePrompt,

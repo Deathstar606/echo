@@ -32,6 +32,13 @@ const {
 const {
   invalidateWorkspaceMetadataCache,
 } = require('./workspaceTableMetadataService');
+const {
+  normalizeConversationHistory,
+  getLatestActiveContext,
+  hasFollowUpReference,
+  hasExplicitScopeReset,
+  formatConversationHistoryForPrompt,
+} = require('../utils/conversationHistory');
 
 /**
  * In-memory registry of active and completed Socratic operational workflows:
@@ -842,11 +849,28 @@ function buildRecipientDirectory(targetTable, workspaceCustomers = []) {
  * @param {string} prompt
  * @returns {Promise<object>}
  */
-async function analyzeCrossDocumentOperation(multiHopResult, prompt) {
+async function analyzeCrossDocumentOperation(
+  multiHopResult,
+  prompt,
+  options = {}
+) {
   const targetTables = getTargetTablesFromMultiHop(multiHopResult);
   const targetTable = targetTables[0] || null;
   const retrievedChunks = multiHopResult?.retrievedChunks || [];
   const workspaceCustomers = multiHopResult?.workspaceCustomers || [];
+  const normalizedHistory = normalizeConversationHistory(
+    options?.conversationHistory || []
+  );
+  const rawUserPrompt = String(options?.rawPrompt || prompt || '').trim();
+  const activeCtx = getLatestActiveContext(
+    normalizedHistory,
+    targetTable ? targetTable.tableName : null
+  );
+  const hasScopedFollowUp =
+    normalizedHistory.length > 0 &&
+    activeCtx.matchedRowIds.length > 0 &&
+    hasFollowUpReference(rawUserPrompt) &&
+    !hasExplicitScopeReset(rawUserPrompt);
 
   if (!targetTable) {
     return {
@@ -983,6 +1007,15 @@ ${JSON.stringify(schemaColumns)}
 MODIFIABLE_COLUMNS:
 ${JSON.stringify(primaryCtx.modifiableColumns.map((c) => c.name))}`;
 
+  const formattedHistory = formatConversationHistoryForPrompt(normalizedHistory);
+  const scopedFollowUpSection = hasScopedFollowUp
+    ? `\nCONVERSATION SCOPE INHERITANCE (STRICT FOLLOW-UP FILTER):
+The user's latest instruction references previously filtered records from turn ${activeCtx.fromTurnIndex} in table "${activeCtx.activeTargetTable || targetTable?.tableName}".
+Qualifying target rows in "${activeCtx.activeTargetTable || targetTable?.tableName}" MUST be restricted STRICTLY to these prior matched_row_ids: ${JSON.stringify(activeCtx.matchedRowIds)} (do NOT include other rows outside that selection in "affected_row_ids" unless a second table row is needed for cross-table stock reconciliation). Still evaluate all governance policies and conflicts from UPLOADED_DOCUMENTS across this inherited subset.\n`
+    : formattedHistory
+      ? `\nRECENT CONVERSATION CONTEXT (last ${normalizedHistory.length} turn(s)):\n${formattedHistory}\n`
+      : '';
+
   const analysisPrompt = `You are a precision B2B Autonomous Operations & Governance Compliance Analyst.
 Evaluate the USER INSTRUCTION by cross-referencing ALL UPLOADED DOCUMENTS against TARGET_TABLE_SCHEMA and TARGET_TABLE_ROWS.
 
@@ -1030,9 +1063,37 @@ ${JSON.stringify(docsPayload, null, 2)}
 
 TARGET_TABLE_ROWS (${projectedRows.length} rows):
 ${JSON.stringify(projectedRows)}
-
+${scopedFollowUpSection}
 USER_INSTRUCTION:
 ${prompt}`;
+
+  const allowedScopedKeys = new Set();
+  if (hasScopedFollowUp) {
+    for (const rawId of activeCtx.matchedRowIds) {
+      const m = findRowMatchAcrossTables(rawId);
+      if (m) {
+        allowedScopedKeys.add(`${m.tableName}::${m.identifier}`);
+      } else {
+        const clean = String(rawId || '').trim().toLowerCase();
+        if (clean) allowedScopedKeys.add(clean);
+      }
+    }
+  }
+  const matchesFollowUpScope = (match) => {
+    if (!hasScopedFollowUp || allowedScopedKeys.size === 0 || !match) return true;
+    if (
+      activeCtx.activeTargetTable &&
+      match.tableName.toLowerCase() !== activeCtx.activeTargetTable.toLowerCase()
+    ) {
+      // Allow auxiliary table rows in multi-table operations
+      return true;
+    }
+    return (
+      allowedScopedKeys.has(`${match.tableName}::${match.identifier}`) ||
+      allowedScopedKeys.has(String(match.identifier || '').toLowerCase()) ||
+      (match.row?.id && allowedScopedKeys.has(String(match.row.id).toLowerCase()))
+    );
+  };
 
   const validated = await generateStructuredJsonWithRetry(
     analysisPrompt,
@@ -1050,7 +1111,7 @@ ${prompt}`;
           : []) {
           const match = findRowMatchAcrossTables(rawId);
           const uniqueKey = match ? `${match.tableName}::${match.identifier}` : null;
-          if (match && !seenAffected.has(uniqueKey)) {
+          if (match && matchesFollowUpScope(match) && !seenAffected.has(uniqueKey)) {
             seenAffected.add(uniqueKey);
             affectedRowIds.push(match.identifier);
           }
@@ -1065,7 +1126,7 @@ ${prompt}`;
           : []) {
           const match = findRowMatchAcrossTables(rawId);
           const uniqueKey = match ? `${match.tableName}::${match.identifier}` : null;
-          if (match && !seenConflicting.has(uniqueKey)) {
+          if (match && matchesFollowUpScope(match) && !seenConflicting.has(uniqueKey)) {
             if (!seenAffected.has(uniqueKey)) {
               seenAffected.add(uniqueKey);
               affectedRowIds.push(match.identifier);
@@ -1749,11 +1810,13 @@ async function executeWorkspaceOperation({
     throw new AppError('Prompt is required to execute a workspace operation.', 400);
   }
 
+  const normalizedHistory = normalizeConversationHistory(history);
+
   const fastQueryResult = await tryExecuteFastTableQuery({
     businessId,
     prompt,
     entity,
-    history,
+    history: normalizedHistory,
   });
   if (fastQueryResult) {
     return fastQueryResult;
@@ -1763,7 +1826,7 @@ async function executeWorkspaceOperation({
     businessId,
     prompt,
     entity,
-    history,
+    history: normalizedHistory,
   });
 
   if (routed.intent === 'cross_source_read') {
@@ -1771,6 +1834,7 @@ async function executeWorkspaceOperation({
       businessId,
       prompt,
       targetEntities: routed.target_entities || [],
+      conversationHistory: normalizedHistory,
     });
     return {
       status: 'CONVERSATIONAL',
@@ -1822,12 +1886,9 @@ async function executeWorkspaceOperation({
     };
   }
 
-  const conversationContext = (Array.isArray(history) ? history : [])
-    .slice(-8)
-    .map((turn) => `${turn.role === 'assistant' ? 'Assistant' : 'User'}: ${turn.content}`)
-    .join('\n');
+  const conversationContext = formatConversationHistoryForPrompt(normalizedHistory);
   const effectivePrompt = conversationContext
-    ? `RECENT CONVERSATION:\n${conversationContext}\n\nLATEST USER REQUEST:\n${prompt}`
+    ? `RECENT CONVERSATION (last ${normalizedHistory.length} turn(s)):\n${conversationContext}\n\nLATEST USER REQUEST:\n${prompt}`
     : prompt;
 
   // Authoritatively propagate Gemini's resolved target table(s) (`routed.entity` / `routed.target_entities`)
@@ -1855,7 +1916,10 @@ async function executeWorkspaceOperation({
   }
 
   const workflowId = crypto.randomUUID();
-  const analysis = await analyzeCrossDocumentOperation(multiHopResult, effectivePrompt);
+  const analysis = await analyzeCrossDocumentOperation(multiHopResult, effectivePrompt, {
+    conversationHistory: normalizedHistory,
+    rawPrompt: prompt,
+  });
   const prioritizedCitationRowIds = [
     ...(analysis.conflictingRowIds || []),
     ...(analysis.affectedRowIds || []),
@@ -1887,6 +1951,8 @@ async function executeWorkspaceOperation({
     return {
       status: 'CLARIFICATION_REQUIRED',
       workflow_id: workflowId,
+      target_entity: workflow.target_entity,
+      matched_row_ids: analysis.affectedRowIds || [],
       conflict_summary: analysis.conflictSummary,
       affected_rows_count: analysis.affectedRowsCount,
       conflicting_rows_count: analysis.conflictingRowsCount,
@@ -1936,6 +2002,8 @@ async function executeWorkspaceOperation({
   return {
     status: 'PREVIEW_READY',
     workflow_id: workflowId,
+    target_entity: workflow.target_entity,
+    matched_row_ids: publicMutationsPreview.map((m) => m.row_identifier).filter(Boolean),
     mutations_preview: publicMutationsPreview,
     emails_preview: emailsPreview,
     citations,

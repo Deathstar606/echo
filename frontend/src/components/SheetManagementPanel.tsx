@@ -31,6 +31,7 @@ import type {
   Citation,
   WorkspaceDocument,
   WorkspaceMutationDiff,
+  ConversationHistoryTurn,
 } from '../../../shared/types/contracts';
 
 import {
@@ -900,7 +901,10 @@ export default function SheetManagementPanel(): React.ReactElement {
   }, [activeRows, isQueryFilterActive, queryResult, matchedIdsSet]);
 
   // Run Natural-Language Query
-  const handleRunQuery = async (customText?: string) => {
+  const handleRunQuery = async (
+    customText?: string,
+    conversationHistory: ConversationHistoryTurn[] = []
+  ) => {
     const text = (
       typeof customText === 'string' ? customText : nlPrompt
     ).trim();
@@ -910,12 +914,16 @@ export default function SheetManagementPanel(): React.ReactElement {
       runSheetQuery({
         entity: activeEntity,
         message: text,
+        conversation_history: conversationHistory.slice(-5),
       })
     );
   };
 
   // Run Stage 1 Mutation Preview (confirm: false)
-  const handleRunMutationPreview = async (customText?: string) => {
+  const handleRunMutationPreview = async (
+    customText?: string,
+    conversationHistory: ConversationHistoryTurn[] = []
+  ) => {
     const text = (
       typeof customText === 'string' ? customText : nlPrompt
     ).trim();
@@ -925,6 +933,7 @@ export default function SheetManagementPanel(): React.ReactElement {
       previewSheetMutation({
         entity: activeEntity,
         message: text,
+        conversation_history: conversationHistory.slice(-5),
       })
     );
   };
@@ -946,33 +955,102 @@ export default function SheetManagementPanel(): React.ReactElement {
   const handleRoutedSheetInstruction = async (
     intent: 'sheet_query' | 'sheet_mutation',
     entity: string,
-    text: string
-  ): Promise<string> => {
+    text: string,
+    conversationHistory: ConversationHistoryTurn[] = []
+  ): Promise<{
+    message: string;
+    entity: string;
+    matched_row_ids: string[];
+    applied_filter_summary: string;
+    status: string;
+  }> => {
     dispatch(setActiveSheetEntity(entity));
+    const slicedHistory = Array.isArray(conversationHistory)
+      ? conversationHistory.slice(-5)
+      : [];
+
     if (intent === 'sheet_query') {
       const result = await dispatch(
-        runSheetQuery({ entity, message: text })
+        runSheetQuery({
+          entity,
+          message: text,
+          conversation_history: slicedHistory,
+        })
       ).unwrap();
+      const matchedIds = Array.isArray(result.highlighted_rows) && result.highlighted_rows.length > 0
+        ? result.highlighted_rows.map((h: any) => String(h.row_identifier || '').trim()).filter(Boolean)
+        : Array.isArray(result.matched_ids) && result.matched_ids.length > 0
+          ? result.matched_ids.map((id: any) => String(id).trim()).filter(Boolean)
+          : Array.isArray(result.rows)
+            ? result.rows.map((r: any) => String(r?.id || '').trim()).filter(Boolean)
+            : [];
+      const filterList = Array.isArray(result.filters)
+        ? result.filters
+        : Array.isArray(result.interpretedQuery?.filters)
+          ? result.interpretedQuery.filters
+          : [];
+      const filterSummary = filterList
+        .map((f: any) => `${f.field || f.column} ${f.operator} ${JSON.stringify(f.value)}`)
+        .join(` ${result.filter_logic || result.interpretedQuery?.filter_logic || 'AND'} `);
+
       if (result.status === 'clarification_needed') {
-        return result.message || 'Please clarify the spreadsheet query.';
+        return {
+          message: result.message || 'Please clarify the spreadsheet query.',
+          entity,
+          matched_row_ids: [],
+          applied_filter_summary: '',
+          status: result.status,
+        };
       }
-      return (
-        result.answer ||
-        result.message ||
-        `Query complete: found ${result.count} matching row(s) in ${entity}. The rows are shown in the spreadsheet results.`
-      );
+      return {
+        message:
+          result.answer ||
+          result.message ||
+          `Query complete: found ${result.count} matching row(s) in ${entity}. The rows are shown in the spreadsheet results.`,
+        entity: result.entity || entity,
+        matched_row_ids: matchedIds,
+        applied_filter_summary: filterSummary,
+        status: result.status || 'ok',
+      };
     }
 
     const result = await dispatch(
-      previewSheetMutation({ entity, message: text })
+      previewSheetMutation({
+        entity,
+        message: text,
+        conversation_history: slicedHistory,
+      })
     ).unwrap();
     if (result.status === 'clarification_needed') {
-      return result.message || 'Please clarify the requested spreadsheet update.';
+      return {
+        message: result.message || 'Please clarify the requested spreadsheet update.',
+        entity: result.entity || entity,
+        matched_row_ids: [],
+        applied_filter_summary: '',
+        status: result.status,
+      };
     }
     if (result.status === 'not_found') {
-      return result.message || `No matching rows were found in ${entity}.`;
+      return {
+        message: result.message || `No matching rows were found in ${entity}.`,
+        entity: result.entity || entity,
+        matched_row_ids: [],
+        applied_filter_summary: '',
+        status: result.status,
+      };
     }
-    return `Mutation preview ready: ${result.affected_count} row(s) in ${entity} are affected. Review the diff and confirm it in the spreadsheet panel.`;
+    const diffIds = Array.isArray(result.diff)
+      ? result.diff.map((d: any) => String(d.row_identifier || d.id || '').trim()).filter(Boolean)
+      : Array.isArray(result.target_rows)
+        ? result.target_rows.map((r: any) => String(r?.id || '').trim()).filter(Boolean)
+        : [];
+    return {
+      message: `Mutation preview ready: ${result.affected_count} row(s) in ${entity} are affected. Review the diff and confirm it in the spreadsheet panel.`,
+      entity: result.entity || entity,
+      matched_row_ids: diffIds,
+      applied_filter_summary: '',
+      status: result.status || 'preview',
+    };
   };
 
   // Unified form submit (auto-detects query vs mutation intent)
@@ -1912,6 +1990,11 @@ export default function SheetManagementPanel(): React.ReactElement {
         onApplySheetQueryResult={(payload) =>
           dispatch(applySheetQueryPayload(payload))
         }
+        onResetWorkspace={() => {
+          dispatch(clearSheetFiltersAndFeedback());
+          dispatch(discardMutationPreview());
+          setPendingMutations([]);
+        }}
       />
 
       {/* Citation Inspector Modal */}

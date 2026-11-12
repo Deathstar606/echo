@@ -1,41 +1,41 @@
 {
-  "started_at": "2026-11-10T13:42:17.004Z",
+  "started_at": "2026-11-12T16:59:17.753Z",
   "ingestion": {
     "ws1_docs": [
       {
-        "workspace_document_id": "e953a321-001f-4017-bb66-619cd6733f2d",
-        "doc_id": "e953a321-001f-4017-bb66-619cd6733f2d",
+        "workspace_document_id": "f6c6c0e2-d4b5-48c2-8012-c713a52edf70",
+        "doc_id": "f6c6c0e2-d4b5-48c2-8012-c713a52edf70",
         "filename": "QA_Batch_Recall.pdf",
-        "page_count": 2,
-        "chunk_count": 5
+        "page_count": 3,
+        "chunk_count": 13
       },
       {
-        "workspace_document_id": "eb3ab38f-b4f4-4189-9551-8c8e12620210",
-        "doc_id": "eb3ab38f-b4f4-4189-9551-8c8e12620210",
+        "workspace_document_id": "a56822b3-4e57-4908-b65d-002b238203b6",
+        "doc_id": "a56822b3-4e57-4908-b65d-002b238203b6",
         "filename": "Refund_Compliance_SOP.pdf",
-        "page_count": 2,
-        "chunk_count": 9
+        "page_count": 3,
+        "chunk_count": 13
       }
     ],
     "ws1_orders": {
-      "imported": 20,
-      "total": 20,
+      "imported": 32,
+      "total": 32,
       "columns": 25
     },
     "ws2_docs": [
       {
-        "workspace_document_id": "4f6721fa-0eb1-49c0-ba72-790a6890801f",
-        "doc_id": "4f6721fa-0eb1-49c0-ba72-790a6890801f",
+        "workspace_document_id": "41998113-a0ed-4c3e-ba75-4b39199c1b44",
+        "doc_id": "41998113-a0ed-4c3e-ba75-4b39199c1b44",
         "filename": "Allocation Priority Policy.pdf",
-        "page_count": 2,
+        "page_count": 3,
         "chunk_count": 8
       },
       {
-        "workspace_document_id": "e1ec6617-b709-4801-a2e3-fe37f466f70b",
-        "doc_id": "e1ec6617-b709-4801-a2e3-fe37f466f70b",
+        "workspace_document_id": "0ed24020-b23a-4d5d-ba37-427cc2a69034",
+        "doc_id": "0ed24020-b23a-4d5d-ba37-427cc2a69034",
         "filename": "Port Receiving Manifest.pdf",
         "page_count": 2,
-        "chunk_count": 6
+        "chunk_count": 19
       }
     ],
     "ws2_products": {
@@ -57,8 +57,8 @@
         "price"
       ],
       "mode": "replace",
-      "total_rows": 15,
-      "imported_count": 15,
+      "total_rows": 20,
+      "imported_count": 20,
       "rejected_count": 0,
       "errors": []
     },
@@ -83,25 +83,25 @@
         "fulfillment_status"
       ],
       "mode": "replace",
-      "total_rows": 13,
-      "imported_count": 13,
+      "total_rows": 22,
+      "imported_count": 22,
       "rejected_count": 0,
       "errors": []
     },
     "ws3_docs": [
       {
-        "workspace_document_id": "33e50350-4e44-47d7-b305-815dc0bcc31a",
-        "doc_id": "33e50350-4e44-47d7-b305-815dc0bcc31a",
+        "workspace_document_id": "fdff2471-001b-418d-a8b6-cf601a04a117",
+        "doc_id": "fdff2471-001b-418d-a8b6-cf601a04a117",
         "filename": "Finance Credit Control Policy.pdf",
-        "page_count": 2,
-        "chunk_count": 7
+        "page_count": 3,
+        "chunk_count": 11
       },
       {
-        "workspace_document_id": "af09f524-f2b4-48bf-aa06-ac3c31c9bb4a",
-        "doc_id": "af09f524-f2b4-48bf-aa06-ac3c31c9bb4a",
+        "workspace_document_id": "19353761-26a4-49ce-b9d7-84b7ba6db2dd",
+        "doc_id": "19353761-26a4-49ce-b9d7-84b7ba6db2dd",
         "filename": "Q4 VIP Expansion Brief.pdf",
         "page_count": 2,
-        "chunk_count": 7
+        "chunk_count": 10
       }
     ],
     "ws3_wholesale": {
@@ -124,8 +124,8 @@
         "last_payment_date"
       ],
       "mode": "replace",
-      "total_rows": 16,
-      "imported_count": 16,
+      "total_rows": 24,
+      "imported_count": 24,
       "rejected_count": 0,
       "errors": []
     },
@@ -133,24 +133,24 @@
       {
         "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
         "docs": 2,
-        "chunks": 14
-      },
-      {
-        "workspace_id": "11111111-2222-3333-4444-555555555555",
-        "docs": 2,
-        "chunks": 14
+        "chunks": 27
       },
       {
         "workspace_id": "d47544a4-6e80-41bb-9ddf-e694c714b4fe",
         "docs": 2,
-        "chunks": 14
+        "chunks": 21
+      },
+      {
+        "workspace_id": "11111111-2222-3333-4444-555555555555",
+        "docs": 2,
+        "chunks": 26
       }
     ],
     "row_counts": {
-      "orders": 20,
-      "products": 15,
-      "backorders_dataset": 13,
-      "wholesale_accunts_dataset": 16
+      "orders": 32,
+      "products": 20,
+      "backorders_dataset": 22,
+      "wholesale_accunts_dataset": 24
     }
   },
   "scenarios": {
@@ -169,7 +169,7 @@
           "msg": "conflicting_rows_count === 2 (got 2)"
         },
         {
-          "ok": true,
+          "ok": false,
           "msg": ">= 2 Socratic options"
         },
         {
@@ -181,8 +181,8 @@
           "msg": "Citations include orders table"
         },
         {
-          "ok": true,
-          "msg": "Mutates exactly 1015/1017/1018/1020 (got ORD-2026-1015,ORD-2026-1017,ORD-2026-1018,ORD-2026-1020)"
+          "ok": false,
+          "msg": "Mutates exactly 1015/1017/1018/1020 (got )"
         },
         {
           "ok": true,
@@ -193,15 +193,15 @@
           "msg": "Option 1 preserves Promo_Discount_Pct"
         },
         {
-          "ok": true,
-          "msg": "4 customer emails (got 4)"
+          "ok": false,
+          "msg": "4 customer emails (got undefined)"
         },
         {
-          "ok": true,
+          "ok": false,
           "msg": "Turn 3 EXECUTED, 4 rows updated"
         },
         {
-          "ok": true,
+          "ok": false,
           "msg": "DB: 4 targeted rows now B-501"
         },
         {
@@ -212,26 +212,33 @@
       "prompt": "Find all undelivered or processing orders in orders.csv containing defective batches from the QA Batch Recall report, swap them to clean replacement batches with expedited shipping per our Refund & Replacement SOP, and email the customers their updated fulfillment details.",
       "turn1": {
         "http": 200,
-        "latency_ms": 20666,
+        "latency_ms": 40216,
         "status": "CLARIFICATION_REQUIRED",
-        "workflow_id": "10d5dd24-9ca3-4f2d-b8f8-336248f60ab3",
-        "conflict_summary": "Pre-shipment batch replacement and expedited shipping requested for undelivered orders ORD-2026-1015, ORD-2026-1017, ORD-2026-1018, and ORD-2026-1020 under QA Bulletin ECHO-QAB-2026-11B. However, per Treasury Salvage Governance (SOP-REV-802 Section 4.2), granting a complimentary air-freight upgrade and clean hardware unit swap cannot auto-execute on orders with existing promotional discounts (ORD-2026-1018 with Promo_Discount_Pct=10%) or high-value subtotal (ORD-2026-1020 with Order_Subtotal_BDT=28,000 >= 25,000 BDT and Promo_Discount_Pct=15%).",
+        "workflow_id": "8692f706-ec81-4d2a-b9d7-85cccb205833",
+        "target_entity": "orders",
+        "matched_row_ids": [
+          "ORD-2026-1015",
+          "ORD-2026-1017",
+          "ORD-2026-1018",
+          "ORD-2026-1020"
+        ],
+        "conflict_summary": "Under Treasury Salvage Governance (SOP-REV-802 Section 4), granting a complimentary Expedited air-freight upgrade plus a brand-new Batch B-501 hardware unit is prohibited from auto-executing when an undelivered recalled order EITHER carries an existing promotional discount (Promo_Discount_Pct > 0) OR exceeds the High-Value Order Threshold (Order_Subtotal_BDT >= 25,000 BDT). Two undelivered Processing rows trigger this conflict: ORD-2026-1018 (B-409, Promo_Discount_Pct = 10%) and ORD-2026-1020 (B-409, Promo_Discount_Pct = 15%, Order_Subtotal_BDT = 28,000 BDT >= 25,000 BDT).",
         "affected_rows_count": 4,
         "conflicting_rows_count": 2,
         "socratic_questions": [
           {
-            "question_id": "PRE_SHIPMENT_PROMO_STAGGER_RESOLUTION",
-            "question_text": "How should the pre-shipment salvage swap to clean Batch B-501 and expedited shipping be applied to promo-discounted and high-value orders (ORD-2026-1018 and ORD-2026-1020)?",
+            "question_id": "treasury_salvage_governance_gate",
+            "question_text": "How should treasury salvage and promotional stacking conflicts for recalled undelivered orders ORD-2026-1018 and ORD-2026-1020 be resolved alongside clean orders ORD-2026-1015 and ORD-2026-1017?",
             "options": [
               {
-                "option_id": "OPTION_1_PRESERVE_PROMO_DISCOUNTS",
+                "option_id": "OPTION_1",
                 "label": "Execute B-501 Replacement Swap + Expedited Shipping & Preserve Existing Promo Discounts",
-                "rule_interpretation": "Update all 4 qualifying undelivered recalled orders (ORD-2026-1015, ORD-2026-1017, ORD-2026-1018, ORD-2026-1020): set Batch_Code = 'B-501', Shipping_Tier = 'Expedited', Dispatch_Status = 'Ready for Expedited Dispatch', and Refund_Status = 'Replacement Swapped (B-501)' while preserving existing Promo_Discount_Pct values unchanged (0 on ORD-2026-1015 & ORD-2026-1017, 10 on ORD-2026-1018, 15 on ORD-2026-1020). Email all 4 affected customers confirming their clean B-501 unit replacement and free expedited shipping upgrade under Bulletin ECHO-QAB-2026-11B."
+                "rule_interpretation": "Update all 4 qualifying undelivered recalled orders (ORD-2026-1015, ORD-2026-1017, ORD-2026-1018, ORD-2026-1020): set Batch_Code = \"B-501\", Shipping_Tier = \"Expedited\", Dispatch_Status = \"Ready for Expedited Dispatch\", and Refund_Status = \"Replacement Swapped (B-501)\" while preserving their existing Promo_Discount_Pct values unchanged (0 on ORD-2026-1015 & ORD-2026-1017, 10 on ORD-2026-1018, 15 on ORD-2026-1020). Email all 4 affected customers confirming their clean B-501 unit replacement and free expedited shipping upgrade under Bulletin ECHO-QAB-2026-11B."
               },
               {
-                "option_id": "OPTION_2_STRIP_PROMO_DISCOUNTS",
-                "label": "Strip Promotional Discounts on Conflicting Orders for Expedited B-501 Replacement",
-                "rule_interpretation": "Swap clean orders ORD-2026-1015 and ORD-2026-1017 to Batch_Code = 'B-501', Shipping_Tier = 'Expedited', Dispatch_Status = 'Ready for Expedited Dispatch', and Refund_Status = 'Replacement Swapped (B-501)'. For conflicting promo/high-value orders ORD-2026-1018 and ORD-2026-1020, strip Promo_Discount_Pct to 0, set Batch_Code = 'B-501', Shipping_Tier = 'Expedited', Dispatch_Status = 'Ready for Expedited Dispatch', and Refund_Status = 'Replacement Swapped - Promo Stripped'. Email all 4 customers their updated fulfillment details."
+                "option_id": "OPTION_2",
+                "label": "Strip Promotional Discounts on Conflicting Orders for Expedited B-501 Replacement / Cancel & Refund High-Value Exception",
+                "rule_interpretation": "Swap clean orders ORD-2026-1015 and ORD-2026-1017 to Batch_Code = \"B-501\", Shipping_Tier = \"Expedited\", Dispatch_Status = \"Ready for Expedited Dispatch\", and Refund_Status = \"Replacement Swapped (B-501)\". For conflicting promo/high-value orders ORD-2026-1018 and ORD-2026-1020, strip Promo_Discount_Pct to 0 (removing stacked promotional discounts in exchange for the complimentary expedited replacement), set Batch_Code = \"B-501\", Shipping_Tier = \"Expedited\", Dispatch_Status = \"Ready for Expedited Dispatch\", and Refund_Status = \"Replacement Swapped - Promo Stripped\", and email all 4 customers their updated fulfillment details."
               }
             ]
           }
@@ -239,338 +246,92 @@
         "citations": [
           {
             "source_type": "document",
-            "source_name": "QA_Batch_Recall.pdf",
-            "locator": "Page 1, Chunk 4",
-            "excerpt": "1. TELEMETRY SUMMARY & ROOT CAUSE ANALYSIS 3. Dispatch a recall notification email citing Bulletin ECHO-QAB-2026-11B to every affected customer. 4. PRE-SHIPMENT WAREHOUSE INTERCEPT & CLEAN REPLACEMENT BATCH (B-501) SALVAGE 4.1 Clean Replacement Batch Inventory (\"B-501\"): Warehouse Quality Control has certified and stag"
+            "source_name": "Refund_Compliance_SOP.pdf",
+            "locator": "ECHO WORKSTATION SYSTEMS INC. - FINANCIAL OPERATIONS, RECALL REFUND & REPLACEMENT COMPLIANCE SOP / Page 2 / Chunk 8",
+            "breadcrumb_header": "[Document: FINANCIAL OPERATIONS, RECALL REFUND & REPLACEMENT COMPLIANCE SOP | Section: ECHO WORKSTATION SYSTEMS INC. - FINANCIAL OPERATIONS, RECALL REFUND & REPLACEMENT COMPLIANCE SOP | Applies to: a unit swap to Batch_Code = \"B-501\", Shipping_Tier = \"Expedited\",, _row_ids, customers, B-404, B-409, B-501, ORD-2026-1015, ORD-2026-1017]",
+            "excerpt": "ECHO WORKSTATION SYSTEMS INC. - FINANCIAL OPERATIONS, RECALL REFUND & REPLACEMENT COMPLIANCE SOP batches (B-404, B-409) and swap them to clean replacement Batch \"B-501\" with expedited shipping: 4.1 Standard Pre-Shipment Salvage Entitlement (Clean Undelivered Orders): Undelivered (\"Processing\" or \"Pending\") orders conta"
           },
           {
             "source_type": "document",
             "source_name": "QA_Batch_Recall.pdf",
-            "locator": "Page 2, Chunk 5",
-            "excerpt": "batches: - ELIGIBLE UNDELIVERED ROWS: Select ONLY rows in orders.csv where Batch_Code is \"B-404\" or \"B-409\" AND Dispatch_Status is \"Processing\" (or \"Pending\"). In the canonical orders ledger, this matches exactly 4 undelivered orders: ORD-2026-1015 (B-404, Processing), ORD-2026-1017 (B-404, Processing), ORD-2026-1018 ("
+            "locator": "ECHO WORKSTATION SYSTEMS INC. - URGENT HARDWARE QUALITY ASSURANCE & FIELD RECALL BULLETIN / Page 2 / Chunk 9",
+            "breadcrumb_header": "[Document: URGENT HARDWARE QUALITY ASSURANCE & FIELD RECALL BULLETIN | Section: ECHO WORKSTATION SYSTEMS INC. - URGENT HARDWARE QUALITY ASSURANCE & FIELD RECALL BULLETIN | Applies to: Filter (Strict Exclusion of Shipped & Delivered Rows):, B-501, EW-DOCK-G4, EW-COMP-S1, B-404, B-409, ORD-2026-1015, ORD-2026-1017]",
+            "excerpt": "ECHO WORKSTATION SYSTEMS INC. - URGENT HARDWARE QUALITY ASSURANCE & FIELD RECALL BULLETIN Warehouse Quality Control has certified and staged 500 replacement units under Clean Replacement Batch \"B-501\" (covering both EW-DOCK-G4 and EW-COMP-S1) for immediate pre-shipment unit swaps. 4.2 Undelivered / Processing Scope Fil"
           },
           {
             "source_type": "document",
             "source_name": "Refund_Compliance_SOP.pdf",
-            "locator": "Page 1, Chunk 5",
-            "excerpt": "2. MANDATORY RECALL COMPENSATION & VOUCHER POLICY 4. PRE-SHIPMENT REPLACEMENT & SALVAGE CLAUSE (UNDELIVERED PROCESSING / PENDING ORDERS) When the operator instructs the system to intercept undelivered (\"Processing\" or \"Pending\") orders containing recalled batches (B-404, B-409) and swap them to clean replacement Batch "
+            "locator": "FINANCIAL OPERATIONS, RECALL REFUND & REPLACEMENT COMPLIANCE SOP / Page 1 / Chunk 1",
+            "breadcrumb_header": "[Document: FINANCIAL OPERATIONS, RECALL REFUND & REPLACEMENT COMPLIANCE SOP | Section: FINANCIAL OPERATIONS, RECALL REFUND & REPLACEMENT COMPLIANCE SOP | Applies to: All Class-1 & Class-2 Hardware Recall, RMA, & SLA Compensation Workflows, SOP-REV-802, Document ID: SOP-REV-802 (Version 4]",
+            "excerpt": "FINANCIAL OPERATIONS, RECALL REFUND & REPLACEMENT COMPLIANCE SOP ECHO WORKSTATION SYSTEMS INC. Document ID: SOP-REV-802 (Version 4.2 -- Extended Multi-Rail Treasury Schedule) Department: Global Revenue Operations, Treasury & Customer Trust Applies To: All Class-1 & Class-2 Hardware Recall, RMA, & SLA Compensation Workf"
           },
           {
             "source_type": "document",
-            "source_name": "Refund_Compliance_SOP.pdf",
-            "locator": "Page 2, Chunk 8",
-            "excerpt": "Header & Metadata replacement and free expedited shipping upgrade under Bulletin ECHO-QAB-2026-11B. - OPTION 2 (Strip Promotional Discounts on Conflicting Orders for Expedited B-501 Replacement / Cancel & Refund High-Value Exception): Swap clean orders ORD-2026-1015 and ORD-2026-1017 to Batch_Code = \"B-501\", Shipping_T"
+            "source_name": "QA_Batch_Recall.pdf",
+            "locator": "3. AFFECTED BATCH LOTS, SKUs & MANDATORY DATABASE ACTIONS / Page 1 / Chunk 5",
+            "breadcrumb_header": "[Document: URGENT HARDWARE QUALITY ASSURANCE & FIELD RECALL BULLETIN | Section: 3. AFFECTED BATCH LOTS, SKUs & MANDATORY DATABASE ACTIONS | Applies to: BATCH LOTS, SKUs & MANDATORY DATABASE ACTIONS, ed Defective Recall Identifiers:, B-404, EW-DOCK-G4, B-409, EW-COMP-S1]",
+            "excerpt": "3. AFFECTED BATCH LOTS, SKUs & MANDATORY DATABASE ACTIONS Operations must immediately scan the active orders table (orders.csv / Commercial Orders Dataset.csv) to isolate customer orders matching the recalled manufacturing batches: 3.1 Targeted Defective Recall Identifiers: - Defective Manufacturing Batch / Lot Codes: "
+          },
+          {
+            "source_type": "document",
+            "source_name": "QA_Batch_Recall.pdf",
+            "locator": "7. FULFILLMENT HUB BATCH MATRIX & SUPPLIER CORRECTIVE ACTION (SCAR-2026-11) / Page 3 / Chunk 13",
+            "breadcrumb_header": "[Document: URGENT HARDWARE QUALITY ASSURANCE & FIELD RECALL BULLETIN | Section: 7. FULFILLMENT HUB BATCH MATRIX & SUPPLIER CORRECTIVE ACTION (SCAR-2026-11) | Applies to: SCAR-2026-11, ISO-9001, ECHO-QAB-2026-11B, 36 months]",
+            "excerpt": "7. FULFILLMENT HUB BATCH MATRIX & SUPPLIER CORRECTIVE ACTION (SCAR-2026-11) Before committing batch swaps across hubs, operations must verify replacement inventory counts in warehouse_inventory_batches.csv. Upon allocation, warehouse supervisors at Dhaka Central (qa.dhaka@echoworkstation.example) and Chittagong Port (q"
           },
           {
             "source_type": "table",
             "source_name": "orders",
             "locator": "Row ORD-2026-1018",
-            "excerpt": "Order_ID=ORD-2026-1018, Order_Date=\"2026-11-05T18:00:00.000Z\", Customer_Name=Mustafizur Rahman, Customer_Email=mustafiz.r@example.com, Delivery_City=Sylhet, Item_SKU=EW-COMP-S1, Item_Name=Echo Studio Compute Unit, Quantity=1, Unit_Price_BDT=8200, Order_Subtotal_BDT=8200, Shipping_Cost_BDT=450, Total_Amount_BDT=8650, Pa"
+            "excerpt": "Order_ID=ORD-2026-1018, Order_Date=\"2026-11-05T18:00:00.000Z\", Customer_Name=Mustafizur Rahman, Delivery_City=Sylhet, Item_SKU=EW-COMP-S1, Item_Name=Echo Studio Compute Unit, Quantity=1, Unit_Price_BDT=8200, Order_Subtotal_BDT=8200, Shipping_Cost_BDT=450, Total_Amount_BDT=8650, Payment_Method=Bank Transfer, Fulfillment"
           },
           {
             "source_type": "table",
             "source_name": "orders",
             "locator": "Row ORD-2026-1020",
-            "excerpt": "Order_ID=ORD-2026-1020, Order_Date=\"2026-11-05T18:00:00.000Z\", Customer_Name=Rumana Akter, Customer_Email=rumana.a@example.com, Delivery_City=Chittagong, Item_SKU=EW-COMP-S1, Item_Name=Echo Studio Compute Unit, Quantity=1, Unit_Price_BDT=28000, Order_Subtotal_BDT=28000, Shipping_Cost_BDT=850, Total_Amount_BDT=28850, Pa"
+            "excerpt": "Order_ID=ORD-2026-1020, Order_Date=\"2026-11-05T18:00:00.000Z\", Customer_Name=Rumana Akter, Delivery_City=Chittagong, Item_SKU=EW-COMP-S1, Item_Name=Echo Studio Compute Unit, Quantity=1, Unit_Price_BDT=28000, Order_Subtotal_BDT=28000, Shipping_Cost_BDT=850, Total_Amount_BDT=28850, Payment_Method=Cash on Delivery, Fulfil"
           },
           {
             "source_type": "table",
             "source_name": "orders",
             "locator": "Row ORD-2026-1015",
-            "excerpt": "Order_ID=ORD-2026-1015, Order_Date=\"2026-11-04T18:00:00.000Z\", Customer_Name=Sadia Mehzabin, Customer_Email=sadia.m@example.com, Delivery_City=Dhaka, Item_SKU=EW-DOCK-G4, Item_Name=Echo Workstation Gen-4 Dock, Quantity=1, Unit_Price_BDT=11500, Order_Subtotal_BDT=11500, Shipping_Cost_BDT=450, Total_Amount_BDT=11950, Pay"
+            "excerpt": "Order_ID=ORD-2026-1015, Order_Date=\"2026-11-04T18:00:00.000Z\", Customer_Name=Sadia Mehzabin, Delivery_City=Dhaka, Item_SKU=EW-DOCK-G4, Item_Name=Echo Workstation Gen-4 Dock, Quantity=1, Unit_Price_BDT=11500, Order_Subtotal_BDT=11500, Shipping_Cost_BDT=450, Total_Amount_BDT=11950, Payment_Method=Credit Card, Fulfillment"
           },
           {
             "source_type": "table",
             "source_name": "orders",
             "locator": "Row ORD-2026-1017",
-            "excerpt": "Order_ID=ORD-2026-1017, Order_Date=\"2026-11-05T18:00:00.000Z\", Customer_Name=Jannatul Ferdous, Customer_Email=jannat.f@example.com, Delivery_City=Dhaka, Item_SKU=EW-DOCK-G4, Item_Name=Echo Workstation Gen-4 Dock, Quantity=1, Unit_Price_BDT=5600, Order_Subtotal_BDT=5600, Shipping_Cost_BDT=300, Total_Amount_BDT=5900, Pay"
+            "excerpt": "Order_ID=ORD-2026-1017, Order_Date=\"2026-11-05T18:00:00.000Z\", Customer_Name=Jannatul Ferdous, Delivery_City=Dhaka, Item_SKU=EW-DOCK-G4, Item_Name=Echo Workstation Gen-4 Dock, Quantity=1, Unit_Price_BDT=5600, Order_Subtotal_BDT=5600, Shipping_Cost_BDT=300, Total_Amount_BDT=5900, Payment_Method=Credit Card, Fulfillment_"
+          },
+          {
+            "source_type": "table",
+            "source_name": "warehouse_inventory_batches",
+            "locator": "Row EW-COMP-S1",
+            "excerpt": "Batch_Record_ID=BAT-02, Batch_Code=B-409, Item_SKU=EW-COMP-S1, Item_Name=Echo Studio Compute Unit, Fulfillment_Hub=Chittagong Port, Available_Units=0, Quarantined_Units=28, QC_Status=Recalled - VRM Thermal Hold, Firmware_Rev=v1.9.0, Restock_ETA=N/A"
+          },
+          {
+            "source_type": "table",
+            "source_name": "warehouse_inventory_batches",
+            "locator": "Row EW-KVM-PRO",
+            "excerpt": "Batch_Record_ID=BAT-08, Batch_Code=B-502, Item_SKU=EW-KVM-PRO, Item_Name=Echo Pro 4-Port KVM Switch, Fulfillment_Hub=Dhaka Central, Available_Units=120, Quarantined_Units=0, QC_Status=Certified Clean Firmware, Firmware_Rev=v2.4.3, Restock_ETA=In Stock"
+          },
+          {
+            "source_type": "table",
+            "source_name": "warehouse_inventory_batches",
+            "locator": "Row EW-COMP-S1",
+            "excerpt": "Batch_Record_ID=BAT-07, Batch_Code=B-501, Item_SKU=EW-COMP-S1, Item_Name=Echo Studio Compute Unit, Fulfillment_Hub=Chittagong Port, Available_Units=220, Quarantined_Units=0, QC_Status=Certified Clean Salvage, Firmware_Rev=v2.1.4, Restock_ETA=In Stock"
           }
         ]
       },
       "selected_option": {
-        "option_id": "OPTION_1_PRESERVE_PROMO_DISCOUNTS",
+        "option_id": "OPTION_1",
         "label": "Execute B-501 Replacement Swap + Expedited Shipping & Preserve Existing Promo Discounts",
-        "rule_interpretation": "Update all 4 qualifying undelivered recalled orders (ORD-2026-1015, ORD-2026-1017, ORD-2026-1018, ORD-2026-1020): set Batch_Code = 'B-501', Shipping_Tier = 'Expedited', Dispatch_Status = 'Ready for Expedited Dispatch', and Refund_Status = 'Replacement Swapped (B-501)' while preserving existing Promo_Discount_Pct values unchanged (0 on ORD-2026-1015 & ORD-2026-1017, 10 on ORD-2026-1018, 15 on ORD-2026-1020). Email all 4 affected customers confirming their clean B-501 unit replacement and free expedited shipping upgrade under Bulletin ECHO-QAB-2026-11B."
+        "rule_interpretation": "Update all 4 qualifying undelivered recalled orders (ORD-2026-1015, ORD-2026-1017, ORD-2026-1018, ORD-2026-1020): set Batch_Code = \"B-501\", Shipping_Tier = \"Expedited\", Dispatch_Status = \"Ready for Expedited Dispatch\", and Refund_Status = \"Replacement Swapped (B-501)\" while preserving their existing Promo_Discount_Pct values unchanged (0 on ORD-2026-1015 & ORD-2026-1017, 10 on ORD-2026-1018, 15 on ORD-2026-1020). Email all 4 affected customers confirming their clean B-501 unit replacement and free expedited shipping upgrade under Bulletin ECHO-QAB-2026-11B."
       },
       "turn2": {
-        "http": 200,
-        "latency_ms": 6001,
-        "status": "PREVIEW_READY",
-        "workflow_id": "10d5dd24-9ca3-4f2d-b8f8-336248f60ab3",
-        "mutations_preview": [
-          {
-            "table_name": "orders",
-            "row_identifier": "ORD-2026-1020",
-            "before": {
-              "Batch_Code": "B-409",
-              "Shipping_Tier": "Standard",
-              "Dispatch_Status": "Processing",
-              "Refund_Status": "None"
-            },
-            "after": {
-              "Batch_Code": "B-501",
-              "Shipping_Tier": "Expedited",
-              "Dispatch_Status": "Ready for Expedited Dispatch",
-              "Refund_Status": "Replacement Swapped (B-501)"
-            }
-          },
-          {
-            "table_name": "orders",
-            "row_identifier": "ORD-2026-1018",
-            "before": {
-              "Batch_Code": "B-409",
-              "Shipping_Tier": "Standard",
-              "Dispatch_Status": "Processing",
-              "Refund_Status": "None"
-            },
-            "after": {
-              "Batch_Code": "B-501",
-              "Shipping_Tier": "Expedited",
-              "Dispatch_Status": "Ready for Expedited Dispatch",
-              "Refund_Status": "Replacement Swapped (B-501)"
-            }
-          },
-          {
-            "table_name": "orders",
-            "row_identifier": "ORD-2026-1017",
-            "before": {
-              "Batch_Code": "B-404",
-              "Shipping_Tier": "Standard",
-              "Dispatch_Status": "Processing",
-              "Refund_Status": "None"
-            },
-            "after": {
-              "Batch_Code": "B-501",
-              "Shipping_Tier": "Expedited",
-              "Dispatch_Status": "Ready for Expedited Dispatch",
-              "Refund_Status": "Replacement Swapped (B-501)"
-            }
-          },
-          {
-            "table_name": "orders",
-            "row_identifier": "ORD-2026-1015",
-            "before": {
-              "Batch_Code": "B-404",
-              "Shipping_Tier": "Standard",
-              "Dispatch_Status": "Processing",
-              "Refund_Status": "None"
-            },
-            "after": {
-              "Batch_Code": "B-501",
-              "Shipping_Tier": "Expedited",
-              "Dispatch_Status": "Ready for Expedited Dispatch",
-              "Refund_Status": "Replacement Swapped (B-501)"
-            }
-          }
-        ],
-        "emails_preview": [
-          {
-            "recipient_email": "rumana.a@example.com",
-            "customer_identifier": "Rumana Akter",
-            "subject": "Fulfillment Update: Clean Unit Replacement B-501 (Bulletin ECHO-QAB-2026-11B)",
-            "body": "Dear Rumana Akter, Pursuant to QA Bulletin ECHO-QAB-2026-11B, your order ORD-2026-1020 has been intercepted prior to dispatch. We have swapped your unit to clean replacement batch B-501 with a complimentary expedited shipping upgrade while preserving your existing promo discount.",
-            "metadata": {
-              "applied_rule": "OPTION_1_PRESERVE_PROMO_DISCOUNTS",
-              "row_identifier": "ORD-2026-1020",
-              "option_id": "OPTION_1_PRESERVE_PROMO_DISCOUNTS"
-            }
-          },
-          {
-            "recipient_email": "mustafiz.r@example.com",
-            "customer_identifier": "Mustafizur Rahman",
-            "subject": "Fulfillment Update: Clean Unit Replacement B-501 (Bulletin ECHO-QAB-2026-11B)",
-            "body": "Dear Mustafizur Rahman, Pursuant to QA Bulletin ECHO-QAB-2026-11B, your order ORD-2026-1018 has been intercepted prior to dispatch. We have swapped your unit to clean replacement batch B-501 with a complimentary expedited shipping upgrade while preserving your existing promo discount.",
-            "metadata": {
-              "applied_rule": "OPTION_1_PRESERVE_PROMO_DISCOUNTS",
-              "row_identifier": "ORD-2026-1018",
-              "option_id": "OPTION_1_PRESERVE_PROMO_DISCOUNTS"
-            }
-          },
-          {
-            "recipient_email": "jannat.f@example.com",
-            "customer_identifier": "Jannatul Ferdous",
-            "subject": "Fulfillment Update: Clean Unit Replacement B-501 (Bulletin ECHO-QAB-2026-11B)",
-            "body": "Dear Jannatul Ferdous, Pursuant to QA Bulletin ECHO-QAB-2026-11B, your order ORD-2026-1017 has been intercepted prior to dispatch. We have swapped your unit to clean replacement batch B-501 with a complimentary expedited shipping upgrade while preserving your existing promo discount.",
-            "metadata": {
-              "applied_rule": "OPTION_1_PRESERVE_PROMO_DISCOUNTS",
-              "row_identifier": "ORD-2026-1017",
-              "option_id": "OPTION_1_PRESERVE_PROMO_DISCOUNTS"
-            }
-          },
-          {
-            "recipient_email": "sadia.m@example.com",
-            "customer_identifier": "Sadia Mehzabin",
-            "subject": "Fulfillment Update: Clean Unit Replacement B-501 (Bulletin ECHO-QAB-2026-11B)",
-            "body": "Dear Sadia Mehzabin, Pursuant to QA Bulletin ECHO-QAB-2026-11B, your order ORD-2026-1015 has been intercepted prior to dispatch. We have swapped your unit to clean replacement batch B-501 with a complimentary expedited shipping upgrade while preserving your existing promo discount.",
-            "metadata": {
-              "applied_rule": "OPTION_1_PRESERVE_PROMO_DISCOUNTS",
-              "row_identifier": "ORD-2026-1015",
-              "option_id": "OPTION_1_PRESERVE_PROMO_DISCOUNTS"
-            }
-          }
-        ],
-        "citations": [
-          {
-            "source_type": "document",
-            "source_name": "QA_Batch_Recall.pdf",
-            "locator": "Page 1, Chunk 4",
-            "excerpt": "1. TELEMETRY SUMMARY & ROOT CAUSE ANALYSIS 3. Dispatch a recall notification email citing Bulletin ECHO-QAB-2026-11B to every affected customer. 4. PRE-SHIPMENT WAREHOUSE INTERCEPT & CLEAN REPLACEMENT BATCH (B-501) SALVAGE 4.1 Clean Replacement Batch Inventory (\"B-501\"): Warehouse Quality Control has certified and stag"
-          },
-          {
-            "source_type": "document",
-            "source_name": "QA_Batch_Recall.pdf",
-            "locator": "Page 2, Chunk 5",
-            "excerpt": "batches: - ELIGIBLE UNDELIVERED ROWS: Select ONLY rows in orders.csv where Batch_Code is \"B-404\" or \"B-409\" AND Dispatch_Status is \"Processing\" (or \"Pending\"). In the canonical orders ledger, this matches exactly 4 undelivered orders: ORD-2026-1015 (B-404, Processing), ORD-2026-1017 (B-404, Processing), ORD-2026-1018 ("
-          },
-          {
-            "source_type": "document",
-            "source_name": "Refund_Compliance_SOP.pdf",
-            "locator": "Page 1, Chunk 5",
-            "excerpt": "2. MANDATORY RECALL COMPENSATION & VOUCHER POLICY 4. PRE-SHIPMENT REPLACEMENT & SALVAGE CLAUSE (UNDELIVERED PROCESSING / PENDING ORDERS) When the operator instructs the system to intercept undelivered (\"Processing\" or \"Pending\") orders containing recalled batches (B-404, B-409) and swap them to clean replacement Batch "
-          },
-          {
-            "source_type": "document",
-            "source_name": "Refund_Compliance_SOP.pdf",
-            "locator": "Page 2, Chunk 8",
-            "excerpt": "Header & Metadata replacement and free expedited shipping upgrade under Bulletin ECHO-QAB-2026-11B. - OPTION 2 (Strip Promotional Discounts on Conflicting Orders for Expedited B-501 Replacement / Cancel & Refund High-Value Exception): Swap clean orders ORD-2026-1015 and ORD-2026-1017 to Batch_Code = \"B-501\", Shipping_T"
-          },
-          {
-            "source_type": "table",
-            "source_name": "orders",
-            "locator": "Row ORD-2026-1020",
-            "excerpt": "Order_ID=ORD-2026-1020, Order_Date=\"2026-11-05T18:00:00.000Z\", Customer_Name=Rumana Akter, Customer_Email=rumana.a@example.com, Delivery_City=Chittagong, Item_SKU=EW-COMP-S1, Item_Name=Echo Studio Compute Unit, Quantity=1, Unit_Price_BDT=28000, Order_Subtotal_BDT=28000, Shipping_Cost_BDT=850, Total_Amount_BDT=28850, Pa"
-          },
-          {
-            "source_type": "table",
-            "source_name": "orders",
-            "locator": "Row ORD-2026-1018",
-            "excerpt": "Order_ID=ORD-2026-1018, Order_Date=\"2026-11-05T18:00:00.000Z\", Customer_Name=Mustafizur Rahman, Customer_Email=mustafiz.r@example.com, Delivery_City=Sylhet, Item_SKU=EW-COMP-S1, Item_Name=Echo Studio Compute Unit, Quantity=1, Unit_Price_BDT=8200, Order_Subtotal_BDT=8200, Shipping_Cost_BDT=450, Total_Amount_BDT=8650, Pa"
-          },
-          {
-            "source_type": "table",
-            "source_name": "orders",
-            "locator": "Row ORD-2026-1017",
-            "excerpt": "Order_ID=ORD-2026-1017, Order_Date=\"2026-11-05T18:00:00.000Z\", Customer_Name=Jannatul Ferdous, Customer_Email=jannat.f@example.com, Delivery_City=Dhaka, Item_SKU=EW-DOCK-G4, Item_Name=Echo Workstation Gen-4 Dock, Quantity=1, Unit_Price_BDT=5600, Order_Subtotal_BDT=5600, Shipping_Cost_BDT=300, Total_Amount_BDT=5900, Pay"
-          },
-          {
-            "source_type": "table",
-            "source_name": "orders",
-            "locator": "Row ORD-2026-1015",
-            "excerpt": "Order_ID=ORD-2026-1015, Order_Date=\"2026-11-04T18:00:00.000Z\", Customer_Name=Sadia Mehzabin, Customer_Email=sadia.m@example.com, Delivery_City=Dhaka, Item_SKU=EW-DOCK-G4, Item_Name=Echo Workstation Gen-4 Dock, Quantity=1, Unit_Price_BDT=11500, Order_Subtotal_BDT=11500, Shipping_Cost_BDT=450, Total_Amount_BDT=11950, Pay"
-          }
-        ]
-      },
-      "turn3": {
-        "http": 200,
-        "latency_ms": 546,
-        "status": "EXECUTED",
-        "workflow_id": "10d5dd24-9ca3-4f2d-b8f8-336248f60ab3",
-        "updated_rows_count": 4,
-        "dispatched_emails_count": 4,
-        "dispatched_emails": [
-          {
-            "to": "rumana.a@example.com",
-            "customer_identifier": "Rumana Akter",
-            "subject": "Fulfillment Update: Clean Unit Replacement B-501 (Bulletin ECHO-QAB-2026-11B)",
-            "text": "Dear Rumana Akter, Pursuant to QA Bulletin ECHO-QAB-2026-11B, your order ORD-2026-1020 has been intercepted prior to dispatch. We have swapped your unit to clean replacement batch B-501 with a complimentary expedited shipping upgrade while preserving your existing promo discount.",
-            "metadata": {
-              "applied_rule": "OPTION_1_PRESERVE_PROMO_DISCOUNTS",
-              "row_identifier": "ORD-2026-1020",
-              "option_id": "OPTION_1_PRESERVE_PROMO_DISCOUNTS"
-            },
-            "dispatched_at": "2026-11-10T13:42:54.754Z",
-            "delivery_mode": "dry_run"
-          },
-          {
-            "to": "mustafiz.r@example.com",
-            "customer_identifier": "Mustafizur Rahman",
-            "subject": "Fulfillment Update: Clean Unit Replacement B-501 (Bulletin ECHO-QAB-2026-11B)",
-            "text": "Dear Mustafizur Rahman, Pursuant to QA Bulletin ECHO-QAB-2026-11B, your order ORD-2026-1018 has been intercepted prior to dispatch. We have swapped your unit to clean replacement batch B-501 with a complimentary expedited shipping upgrade while preserving your existing promo discount.",
-            "metadata": {
-              "applied_rule": "OPTION_1_PRESERVE_PROMO_DISCOUNTS",
-              "row_identifier": "ORD-2026-1018",
-              "option_id": "OPTION_1_PRESERVE_PROMO_DISCOUNTS"
-            },
-            "dispatched_at": "2026-11-10T13:42:54.754Z",
-            "delivery_mode": "dry_run"
-          },
-          {
-            "to": "jannat.f@example.com",
-            "customer_identifier": "Jannatul Ferdous",
-            "subject": "Fulfillment Update: Clean Unit Replacement B-501 (Bulletin ECHO-QAB-2026-11B)",
-            "text": "Dear Jannatul Ferdous, Pursuant to QA Bulletin ECHO-QAB-2026-11B, your order ORD-2026-1017 has been intercepted prior to dispatch. We have swapped your unit to clean replacement batch B-501 with a complimentary expedited shipping upgrade while preserving your existing promo discount.",
-            "metadata": {
-              "applied_rule": "OPTION_1_PRESERVE_PROMO_DISCOUNTS",
-              "row_identifier": "ORD-2026-1017",
-              "option_id": "OPTION_1_PRESERVE_PROMO_DISCOUNTS"
-            },
-            "dispatched_at": "2026-11-10T13:42:54.754Z",
-            "delivery_mode": "dry_run"
-          },
-          {
-            "to": "sadia.m@example.com",
-            "customer_identifier": "Sadia Mehzabin",
-            "subject": "Fulfillment Update: Clean Unit Replacement B-501 (Bulletin ECHO-QAB-2026-11B)",
-            "text": "Dear Sadia Mehzabin, Pursuant to QA Bulletin ECHO-QAB-2026-11B, your order ORD-2026-1015 has been intercepted prior to dispatch. We have swapped your unit to clean replacement batch B-501 with a complimentary expedited shipping upgrade while preserving your existing promo discount.",
-            "metadata": {
-              "applied_rule": "OPTION_1_PRESERVE_PROMO_DISCOUNTS",
-              "row_identifier": "ORD-2026-1015",
-              "option_id": "OPTION_1_PRESERVE_PROMO_DISCOUNTS"
-            },
-            "dispatched_at": "2026-11-10T13:42:54.754Z",
-            "delivery_mode": "dry_run"
-          }
-        ],
-        "citations": [
-          {
-            "source_type": "document",
-            "source_name": "QA_Batch_Recall.pdf",
-            "locator": "Page 1, Chunk 4",
-            "excerpt": "1. TELEMETRY SUMMARY & ROOT CAUSE ANALYSIS 3. Dispatch a recall notification email citing Bulletin ECHO-QAB-2026-11B to every affected customer. 4. PRE-SHIPMENT WAREHOUSE INTERCEPT & CLEAN REPLACEMENT BATCH (B-501) SALVAGE 4.1 Clean Replacement Batch Inventory (\"B-501\"): Warehouse Quality Control has certified and stag"
-          },
-          {
-            "source_type": "document",
-            "source_name": "QA_Batch_Recall.pdf",
-            "locator": "Page 2, Chunk 5",
-            "excerpt": "batches: - ELIGIBLE UNDELIVERED ROWS: Select ONLY rows in orders.csv where Batch_Code is \"B-404\" or \"B-409\" AND Dispatch_Status is \"Processing\" (or \"Pending\"). In the canonical orders ledger, this matches exactly 4 undelivered orders: ORD-2026-1015 (B-404, Processing), ORD-2026-1017 (B-404, Processing), ORD-2026-1018 ("
-          },
-          {
-            "source_type": "document",
-            "source_name": "Refund_Compliance_SOP.pdf",
-            "locator": "Page 1, Chunk 5",
-            "excerpt": "2. MANDATORY RECALL COMPENSATION & VOUCHER POLICY 4. PRE-SHIPMENT REPLACEMENT & SALVAGE CLAUSE (UNDELIVERED PROCESSING / PENDING ORDERS) When the operator instructs the system to intercept undelivered (\"Processing\" or \"Pending\") orders containing recalled batches (B-404, B-409) and swap them to clean replacement Batch "
-          },
-          {
-            "source_type": "document",
-            "source_name": "Refund_Compliance_SOP.pdf",
-            "locator": "Page 2, Chunk 8",
-            "excerpt": "Header & Metadata replacement and free expedited shipping upgrade under Bulletin ECHO-QAB-2026-11B. - OPTION 2 (Strip Promotional Discounts on Conflicting Orders for Expedited B-501 Replacement / Cancel & Refund High-Value Exception): Swap clean orders ORD-2026-1015 and ORD-2026-1017 to Batch_Code = \"B-501\", Shipping_T"
-          },
-          {
-            "source_type": "table",
-            "source_name": "orders",
-            "locator": "Row ORD-2026-1020",
-            "excerpt": "Order_ID=ORD-2026-1020, Order_Date=\"2026-11-05T18:00:00.000Z\", Customer_Name=Rumana Akter, Customer_Email=rumana.a@example.com, Delivery_City=Chittagong, Item_SKU=EW-COMP-S1, Item_Name=Echo Studio Compute Unit, Quantity=1, Unit_Price_BDT=28000, Order_Subtotal_BDT=28000, Shipping_Cost_BDT=850, Total_Amount_BDT=28850, Pa"
-          },
-          {
-            "source_type": "table",
-            "source_name": "orders",
-            "locator": "Row ORD-2026-1018",
-            "excerpt": "Order_ID=ORD-2026-1018, Order_Date=\"2026-11-05T18:00:00.000Z\", Customer_Name=Mustafizur Rahman, Customer_Email=mustafiz.r@example.com, Delivery_City=Sylhet, Item_SKU=EW-COMP-S1, Item_Name=Echo Studio Compute Unit, Quantity=1, Unit_Price_BDT=8200, Order_Subtotal_BDT=8200, Shipping_Cost_BDT=450, Total_Amount_BDT=8650, Pa"
-          },
-          {
-            "source_type": "table",
-            "source_name": "orders",
-            "locator": "Row ORD-2026-1017",
-            "excerpt": "Order_ID=ORD-2026-1017, Order_Date=\"2026-11-05T18:00:00.000Z\", Customer_Name=Jannatul Ferdous, Customer_Email=jannat.f@example.com, Delivery_City=Dhaka, Item_SKU=EW-DOCK-G4, Item_Name=Echo Workstation Gen-4 Dock, Quantity=1, Unit_Price_BDT=5600, Order_Subtotal_BDT=5600, Shipping_Cost_BDT=300, Total_Amount_BDT=5900, Pay"
-          },
-          {
-            "source_type": "table",
-            "source_name": "orders",
-            "locator": "Row ORD-2026-1015",
-            "excerpt": "Order_ID=ORD-2026-1015, Order_Date=\"2026-11-04T18:00:00.000Z\", Customer_Name=Sadia Mehzabin, Customer_Email=sadia.m@example.com, Delivery_City=Dhaka, Item_SKU=EW-DOCK-G4, Item_Name=Echo Workstation Gen-4 Dock, Quantity=1, Unit_Price_BDT=11500, Order_Subtotal_BDT=11500, Shipping_Cost_BDT=450, Total_Amount_BDT=11950, Pay"
-          }
-        ]
+        "http": 502,
+        "latency_ms": 58259,
+        "error": "Gemini AI error: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later."
       },
       "db_after": [
         {
@@ -583,10 +344,10 @@
         },
         {
           "Order_ID": "ORD-2026-1015",
-          "Batch_Code": "B-501",
-          "Shipping_Tier": "Expedited",
-          "Dispatch_Status": "Ready for Expedited Dispatch",
-          "Refund_Status": "Replacement Swapped (B-501)",
+          "Batch_Code": "B-404",
+          "Shipping_Tier": "Standard",
+          "Dispatch_Status": "Processing",
+          "Refund_Status": "None",
           "Promo_Discount_Pct": "0"
         },
         {
@@ -599,18 +360,18 @@
         },
         {
           "Order_ID": "ORD-2026-1017",
-          "Batch_Code": "B-501",
-          "Shipping_Tier": "Expedited",
-          "Dispatch_Status": "Ready for Expedited Dispatch",
-          "Refund_Status": "Replacement Swapped (B-501)",
+          "Batch_Code": "B-404",
+          "Shipping_Tier": "Standard",
+          "Dispatch_Status": "Processing",
+          "Refund_Status": "None",
           "Promo_Discount_Pct": "0"
         },
         {
           "Order_ID": "ORD-2026-1018",
-          "Batch_Code": "B-501",
-          "Shipping_Tier": "Expedited",
-          "Dispatch_Status": "Ready for Expedited Dispatch",
-          "Refund_Status": "Replacement Swapped (B-501)",
+          "Batch_Code": "B-409",
+          "Shipping_Tier": "Standard",
+          "Dispatch_Status": "Processing",
+          "Refund_Status": "None",
           "Promo_Discount_Pct": "10"
         },
         {
@@ -623,10 +384,10 @@
         },
         {
           "Order_ID": "ORD-2026-1020",
-          "Batch_Code": "B-501",
-          "Shipping_Tier": "Expedited",
-          "Dispatch_Status": "Ready for Expedited Dispatch",
-          "Refund_Status": "Replacement Swapped (B-501)",
+          "Batch_Code": "B-409",
+          "Shipping_Tier": "Standard",
+          "Dispatch_Status": "Processing",
+          "Refund_Status": "None",
           "Promo_Discount_Pct": "15"
         }
       ]
@@ -646,57 +407,67 @@
           "msg": "Citations include BOTH backorders_dataset and products"
         },
         {
-          "ok": true,
+          "ok": false,
           "msg": ">= 2 Socratic options"
         },
         {
-          "ok": true,
-          "msg": "products: 1 row, size sum -> 10 (got {\"M\":2,\"L\":3,\"XL\":3,\"XXL\":2})"
+          "ok": false,
+          "msg": "products: 1 row, size sum -> 10 (got )"
         },
         {
-          "ok": true,
-          "msg": "backorders_dataset: 6 rows mutated (got 6)"
+          "ok": false,
+          "msg": "backorders_dataset: 6 rows mutated (got 0)"
         },
         {
           "ok": true,
           "msg": "Backorder allocations match Option 2 FIFO (54 units)"
         },
         {
-          "ok": true,
-          "msg": "6 buyer emails (got 6)"
+          "ok": false,
+          "msg": "6 buyer emails (got undefined)"
         },
         {
-          "ok": true,
-          "msg": "Turn 3 EXECUTED, 7 rows updated across 2 tables (got 7)"
+          "ok": false,
+          "msg": "Turn 3 EXECUTED, 7 rows updated across 2 tables (got undefined)"
         },
         {
-          "ok": true,
+          "ok": false,
           "msg": "DB: Classic Short-Sleeve Polo stock = 10"
         }
       ],
       "prompt": "Reconcile the newly arrived inventory in the Port Receiving Manifest against open backorders in backorders_dataset.csv and update remaining available stock in products.csv according to our Allocation Priority Policy, then notify affected backorder buyers by email.",
       "turn1": {
         "http": 200,
-        "latency_ms": 14642,
+        "latency_ms": 51660,
         "status": "CLARIFICATION_REQUIRED",
-        "workflow_id": "64d31e6c-221b-4819-9cf3-f65e93c05240",
-        "conflict_summary": "Cross-catalog inventory reconciliation between backorders_dataset.csv and products.csv triggers a Minimum Storefront Buffer Deficit conflict under SOP-OPS-019 Section 4.2. Exactly 40 net passed units from Port Receiving Manifest PRM-2026-1104-CTG combined with 24 existing storefront units of 'Classic Short-Sleeve Polo' (SKU: VL-POLO-BLK, row_id: 'Classic Short-Sleeve Polo') provide a total available pool of 64 units. However, fulfilling all 60 units of open Pending backorders across rows BO-2001, BO-2002, BO-2004, BO-2006, BO-2009, and BO-2013 leaves only 4 units in storefront stock—which is 6 units below the mandatory 10-unit Minimum Storefront Buffer. Operator selection is required between prioritizing 100% backorder fulfillment (reducing storefront stock to 4 units) or enforcing the 10-unit storefront buffer first (allocating 54 surplus units to backorders).",
+        "workflow_id": "b968916e-6b70-405b-8ec1-3b9007ea0f89",
+        "target_entity": "backorders_dataset",
+        "matched_row_ids": [
+          "BO-2001",
+          "BO-2002",
+          "BO-2004",
+          "BO-2006",
+          "BO-2009",
+          "BO-2013",
+          "Classic Short-Sleeve Polo"
+        ],
+        "conflict_summary": "Cross-catalog buffer deficit conflict: Reconciling 64 combined units of SKU VL-POLO-BLK ('Classic Short-Sleeve Polo') against 60 units of open Pending backorders (BO-2001, BO-2002, BO-2004, BO-2006, BO-2009, BO-2013) and the 10-unit Minimum Storefront Buffer Rule in products.csv requires 70 units total, resulting in a deficit of 6 units. Automated execution must pause in CLARIFICATION_REQUIRED under SOP-OPS-019 Section 4.2.",
         "affected_rows_count": 7,
         "conflicting_rows_count": 7,
         "socratic_questions": [
           {
-            "question_id": "alloc_buffer_resolution",
-            "question_text": "How should the system resolve the 6-unit deficit between fulfilling all 60 open backorder units and maintaining the mandatory 10-unit Minimum Storefront Buffer for 'Classic Short-Sleeve Polo' (SKU: VL-POLO-BLK)?",
+            "question_id": "cross_catalog_reconciliation_option",
+            "question_text": "How should the system resolve the 6-unit storefront buffer deficit for 'Classic Short-Sleeve Polo' when reconciling port receiving manifest PRM-2026-1104-CTG against open backorders and products.csv?",
             "options": [
               {
                 "option_id": "option_1",
-                "label": "Prioritize Clearing Backorders First (Storefront Stock Set to 4 Units)",
-                "rule_interpretation": "Table 'backorders_dataset': Update all 6 open Pending rows for 'Classic Short-Sleeve Polo' to 100% allocation and fulfilled status: set BO-2001 quantity_allocated = 12 and fulfillment_status = 'Fulfilled', BO-2002 quantity_allocated = 10 and fulfillment_status = 'Fulfilled', BO-2004 quantity_allocated = 8 and fulfillment_status = 'Fulfilled', BO-2006 quantity_allocated = 10 and fulfillment_status = 'Fulfilled', BO-2009 quantity_allocated = 12 and fulfillment_status = 'Fulfilled', BO-2013 quantity_allocated = 8 and fulfillment_status = 'Fulfilled'. Table 'products': Update row 'Classic Short-Sleeve Polo' column 'size' from '{\"M\":4,\"L\":8,\"XL\":8,\"XXL\":4}' to '{\"M\":1,\"L\":1,\"XL\":1,\"XXL\":1}' (4 total units). Email Notifications: Send full fulfillment dispatch confirmation emails to all 6 affected buyers (Sarah Jenkins, Lukas Lindqvist, Marcus Vance, Hannah Abbott, Kenji Takahashi, Daniel Kim)."
+                "label": "Option 1 (Prioritize Clearing Backorders First -- Set products.csv Storefront Stock to Remaining 4 Units)",
+                "rule_interpretation": "Table 'backorders_dataset': Allocate 100% of requested units across all 6 open Pending VL-POLO-BLK rows (BO-2001: 12, BO-2002: 10, BO-2004: 8, BO-2006: 10, BO-2009: 12, BO-2013: 8) and set fulfillment_status = 'Fulfilled' on all 6 rows. Table 'products': Update row 'Classic Short-Sleeve Polo' column 'size' from '{\"M\":4,\"L\":8,\"XL\":8,\"XXL\":4}' to '{\"M\":1,\"L\":1,\"XL\":1,\"XXL\":1}' (4 remaining units). Email Notifications: Send full fulfillment dispatch confirmation emails to all 6 affected buyers (Sarah Jenkins, Lukas Lindqvist, Marcus Vance, Hannah Abbott, Kenji Takahashi, Daniel Kim)."
               },
               {
                 "option_id": "option_2",
-                "label": "Enforce 10-Unit Minimum Storefront Buffer First (Allocate 54 Surplus Units to Backorders)",
-                "rule_interpretation": "Table 'products': Enforce the 10-unit Minimum Storefront Buffer on row 'Classic Short-Sleeve Polo' by updating column 'size' from '{\"M\":4,\"L\":8,\"XL\":8,\"XXL\":4}' to '{\"M\":2,\"L\":3,\"XL\":3,\"XXL\":2}' (10 reserved units). Table 'backorders_dataset': Allocate the remaining 54 surplus units by Priority guarantee and FIFO order_date ascending: set BO-2001 quantity_allocated = 12 and fulfillment_status = 'Fulfilled', BO-2004 quantity_allocated = 8 and fulfillment_status = 'Fulfilled', BO-2002 quantity_allocated = 10 and fulfillment_status = 'Fulfilled', BO-2006 quantity_allocated = 10 and fulfillment_status = 'Fulfilled', BO-2009 quantity_allocated = 12 and fulfillment_status = 'Fulfilled', and BO-2013 quantity_allocated = 2 and fulfillment_status = 'Partial' (6 units short). Email Notifications: Send full dispatch confirmation emails to the 5 fulfilled buyers (Sarah Jenkins, Lukas Lindqvist, Marcus Vance, Hannah Abbott, Kenji Takahashi) and a partial fulfillment notice (2 of 8 units allocated, with a 5% credit on the unfulfilled balance) to Daniel Kim (BO-2013)."
+                "label": "Option 2 (Enforce 10-Unit Minimum Storefront Buffer in products.csv First -- Allocate 54 Surplus Units to Backorders)",
+                "rule_interpretation": "Table 'products': Enforce the 10-unit Minimum Storefront Buffer on row 'Classic Short-Sleeve Polo' by updating column 'size' from '{\"M\":4,\"L\":8,\"XL\":8,\"XXL\":4}' to '{\"M\":2,\"L\":3,\"XL\":3,\"XXL\":2}' (10 units reserved). Table 'backorders_dataset': Allocate remaining 54 surplus units by Priority guarantee and FIFO order_date ascending: set BO-2001 quantity_allocated = 12 ('Fulfilled'), BO-2004 quantity_allocated = 8 ('Fulfilled'), BO-2002 quantity_allocated = 10 ('Fulfilled'), BO-2006 quantity_allocated = 10 ('Fulfilled'), BO-2009 quantity_allocated = 12 ('Fulfilled'), and set newest Standard backorder BO-2013 to quantity_allocated = 2 and fulfillment_status = 'Partial'. Email Notifications: Send full dispatch confirmation emails to the 5 fulfilled buyers and a partial fulfillment notice (2 of 8 units allocated, 5% credit on unfulfilled balance) to Daniel Kim (BO-2013)."
               }
             ]
           }
@@ -705,62 +476,66 @@
           {
             "source_type": "document",
             "source_name": "Allocation Priority Policy.pdf",
-            "locator": "Page 1, Chunk 4",
-            "excerpt": "Header & Metadata BO-2006 = 10 (\"Fulfilled\"), while newer Standard rows BO-2009 and BO-2013 remain at quantity_allocated = 0 with fulfillment_status = \"Backordered\". 4. Cross-Catalog Storefront Buffer Rule & Multi-Table Reconciliation (backorders_dataset.csv + products.csv) When the operator instructs the system to rec"
+            "locator": "2. Mandatory Two-Step Priority Waterfall / Page 1 / Chunk 3",
+            "breadcrumb_header": "[Document: ALLOCATION PRIORITY, SHORT-SHIPMENT & STOREFRONT BUFFER SOP | Section: 2. Mandatory Two-Step Priority Waterfall | Applies to: BO-2001, BO-2004, VL-POLO-BLK, BO-2002, BO-2006, BO-2009, BO-2013, CLARIFICATION_REQUIRED]",
+            "excerpt": "2. Mandatory Two-Step Priority Waterfall 1. Step 1 -- 100% Priority Tier Guarantee: All open Pending backorders placed by accounts in the Priority Buyer Tier (BO-2001: 12 units, BO-2004: 8 units; 20 units total for VL-POLO-BLK) must be allocated 100% of their Quantity Requested first, and their fulfillment_status must "
           },
           {
             "source_type": "document",
             "source_name": "Allocation Priority Policy.pdf",
-            "locator": "Page 2, Chunk 5",
-            "excerpt": "SKU VL-POLO-BLK) must maintain a Minimum Storefront Buffer of at least 10 total units across its \"size\" JSON stock map unless explicitly overridden by the operator. 4.2 Cross-Catalog Buffer Deficit Conflict (64 Combined Units vs. 60 Backorder Units + 10 Buffer Units = 70 Needed): \"Classic Short-Sleeve Polo\" (VL-POLO-BL"
+            "locator": "VELOURA SUPPLY CHAIN & INVENTORY CONTROL - ALLOCATION PRIORITY, SHORT-SHIPMENT & STOREFRONT BUFFER SOP / Page 2 / Chunk 4",
+            "breadcrumb_header": "[Document: ALLOCATION PRIORITY, SHORT-SHIPMENT & STOREFRONT BUFFER SOP | Section: VELOURA SUPPLY CHAIN & INVENTORY CONTROL - ALLOCATION PRIORITY, SHORT-SHIPMENT & STOREFRONT BUFFER SOP | Applies to: backorder buyers (Sarah Jenkins, Lukas Lindqvist, Marcus, SHORT-SHIPMENT, VL-POLO-BLK, PRM-2026-1104-CTG, CLARIFICATION_REQUIRED, BO-2001, BO-2002, BO-2004]",
+            "excerpt": "VELOURA SUPPLY CHAIN & INVENTORY CONTROL - ALLOCATION PRIORITY, SHORT-SHIPMENT & STOREFRONT BUFFER SOP Minimum Storefront Buffer of at least 10 total units across its \"size\" JSON stock map unless explicitly overridden by the operator. 4.2 Cross-Catalog Buffer Deficit Conflict (64 Combined Units vs. 60 Backorder Units +"
           },
           {
             "source_type": "document",
             "source_name": "Port Receiving Manifest.pdf",
-            "locator": "Page 2, Chunk 6",
-            "excerpt": "Header & Metadata reconciled): allocate the 40 net passed port manifest units across the 6 open Pending rows in backorders_dataset.csv per SOP-OPS-019 Section 3. - For cross-catalog inventory reconciliation across BOTH backorders_dataset.csv AND products.csv: reconcile the 64 combined units (40 manifest + 24 storefront"
+            "locator": "5. Mandatory Instruction to Fulfillment Desk / Page 2 / Chunk 6",
+            "breadcrumb_header": "[Document: PORT RECEIVING, QC INSPECTION & CROSS-CATALOG INVENTORY MANIFEST | Section: 5. Mandatory Instruction to Fulfillment Desk | Applies to: SOP-OPS-019]",
+            "excerpt": "5. Mandatory Instruction to Fulfillment Desk - For backorder-only port allocation (when products.csv stock is NOT being reconciled): allocate the 40 net passed port manifest units across the 6 open Pending rows in backorders_dataset.csv per SOP-OPS-019 Section 3. - For cross-catalog inventory reconciliation across BOTH"
           },
           {
             "source_type": "document",
             "source_name": "Port Receiving Manifest.pdf",
-            "locator": "Page 1, Chunk 2",
-            "excerpt": "Header & Metadata carton-by-carton physical tally prior to releasing inventory into the warehouse allocation system. 2. Container Line-Item Tally & Catalog SKU Linkage - SKU Code: VL-POLO-BLK | Catalog Product Name in products.csv: \"Classic Short-Sleeve Polo\" (listed in backorders_dataset.csv as \"Classic Short-Sleeve P"
+            "locator": "2. Container Line-Item Tally & Catalog SKU Linkage / Page 1 / Chunk 3",
+            "breadcrumb_header": "[Document: PORT RECEIVING, QC INSPECTION & CROSS-CATALOG INVENTORY MANIFEST | Section: 2. Container Line-Item Tally & Catalog SKU Linkage | Applies to: VL-POLO-BLK, VL-SHIRT-PMB, BO-2003, BO-2007, BO-2010, VL-SHIRT-CRL, BO-2005, BO-2008]",
+            "excerpt": "2. Container Line-Item Tally & Catalog SKU Linkage - SKU Code: VL-POLO-BLK | Catalog Product Name in products.csv: \"Classic Short-Sleeve Polo\" (listed in backorders_dataset.csv as \"Classic Short-Sleeve Polo (Black)\") | Manifested Qty: 60 units | QC Rejected Qty: 20 units | Net Passed Qty (Available from Port): 40 units"
           },
           {
             "source_type": "table",
             "source_name": "backorders_dataset",
             "locator": "Row BO-2001",
-            "excerpt": "backorder_id=BO-2001, order_date=\"2026-10-09T18:00:00.000Z\", buyer_company=Apex Apparel Group, buyer_name=Sarah Jenkins, buyer_email=s.jenkins@apexapparel.com, buyer_tier=Priority, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=12, quantity_allocated=0, unit_price=1890, fulfill"
+            "excerpt": "backorder_id=BO-2001, order_date=\"2026-10-09T18:00:00.000Z\", buyer_company=Apex Apparel Group, buyer_name=Sarah Jenkins, buyer_tier=Priority, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=12, quantity_allocated=0, unit_price=1890, fulfillment_status=Pending"
           },
           {
             "source_type": "table",
             "source_name": "backorders_dataset",
             "locator": "Row BO-2002",
-            "excerpt": "backorder_id=BO-2002, order_date=\"2026-10-11T18:00:00.000Z\", buyer_company=Nordic Thread Collective, buyer_name=Lukas Lindqvist, buyer_email=llindqvist@nordicthread.se, buyer_tier=Standard, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=10, quantity_allocated=0, unit_price=1890"
+            "excerpt": "backorder_id=BO-2002, order_date=\"2026-10-11T18:00:00.000Z\", buyer_company=Nordic Thread Collective, buyer_name=Lukas Lindqvist, buyer_tier=Standard, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=10, quantity_allocated=0, unit_price=1890, fulfillment_status=Pending"
           },
           {
             "source_type": "table",
             "source_name": "backorders_dataset",
             "locator": "Row BO-2004",
-            "excerpt": "backorder_id=BO-2004, order_date=\"2026-10-13T18:00:00.000Z\", buyer_company=Harborline Retail Partners, buyer_name=Marcus Vance, buyer_email=mvance@harborlineretail.com, buyer_tier=Priority, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=8, quantity_allocated=0, unit_price=1890,"
+            "excerpt": "backorder_id=BO-2004, order_date=\"2026-10-13T18:00:00.000Z\", buyer_company=Harborline Retail Partners, buyer_name=Marcus Vance, buyer_tier=Priority, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=8, quantity_allocated=0, unit_price=1890, fulfillment_status=Pending"
           },
           {
             "source_type": "table",
             "source_name": "backorders_dataset",
             "locator": "Row BO-2006",
-            "excerpt": "backorder_id=BO-2006, order_date=\"2026-10-15T18:00:00.000Z\", buyer_company=Elmwood Boutique Supply, buyer_name=Hannah Abbott, buyer_email=habbott@elmwoodsupply.co.uk, buyer_tier=Standard, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=10, quantity_allocated=0, unit_price=1890, "
+            "excerpt": "backorder_id=BO-2006, order_date=\"2026-10-15T18:00:00.000Z\", buyer_company=Elmwood Boutique Supply, buyer_name=Hannah Abbott, buyer_tier=Standard, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=10, quantity_allocated=0, unit_price=1890, fulfillment_status=Pending"
           },
           {
             "source_type": "table",
             "source_name": "backorders_dataset",
             "locator": "Row BO-2009",
-            "excerpt": "backorder_id=BO-2009, order_date=\"2026-10-21T18:00:00.000Z\", buyer_company=Meridian Urban Wear, buyer_name=Kenji Takahashi, buyer_email=ktakahashi@meridianurban.jp, buyer_tier=Standard, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=12, quantity_allocated=0, unit_price=1890, fu"
+            "excerpt": "backorder_id=BO-2009, order_date=\"2026-10-21T18:00:00.000Z\", buyer_company=Meridian Urban Wear, buyer_name=Kenji Takahashi, buyer_tier=Standard, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=12, quantity_allocated=0, unit_price=1890, fulfillment_status=Pending"
           },
           {
             "source_type": "table",
             "source_name": "backorders_dataset",
             "locator": "Row BO-2013",
-            "excerpt": "backorder_id=BO-2013, order_date=\"2026-10-27T18:00:00.000Z\", buyer_company=Pacific Rim Clothiers, buyer_name=Daniel Kim, buyer_email=dkim@pacificrimclothiers.com, buyer_tier=Standard, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=8, quantity_allocated=0, unit_price=1890, fulfi"
+            "excerpt": "backorder_id=BO-2013, order_date=\"2026-10-27T18:00:00.000Z\", buyer_company=Pacific Rim Clothiers, buyer_name=Daniel Kim, buyer_tier=Standard, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=8, quantity_allocated=0, unit_price=1890, fulfillment_status=Pending"
           },
           {
             "source_type": "table",
@@ -772,400 +547,29 @@
       },
       "selected_option": {
         "option_id": "option_2",
-        "label": "Enforce 10-Unit Minimum Storefront Buffer First (Allocate 54 Surplus Units to Backorders)",
-        "rule_interpretation": "Table 'products': Enforce the 10-unit Minimum Storefront Buffer on row 'Classic Short-Sleeve Polo' by updating column 'size' from '{\"M\":4,\"L\":8,\"XL\":8,\"XXL\":4}' to '{\"M\":2,\"L\":3,\"XL\":3,\"XXL\":2}' (10 reserved units). Table 'backorders_dataset': Allocate the remaining 54 surplus units by Priority guarantee and FIFO order_date ascending: set BO-2001 quantity_allocated = 12 and fulfillment_status = 'Fulfilled', BO-2004 quantity_allocated = 8 and fulfillment_status = 'Fulfilled', BO-2002 quantity_allocated = 10 and fulfillment_status = 'Fulfilled', BO-2006 quantity_allocated = 10 and fulfillment_status = 'Fulfilled', BO-2009 quantity_allocated = 12 and fulfillment_status = 'Fulfilled', and BO-2013 quantity_allocated = 2 and fulfillment_status = 'Partial' (6 units short). Email Notifications: Send full dispatch confirmation emails to the 5 fulfilled buyers (Sarah Jenkins, Lukas Lindqvist, Marcus Vance, Hannah Abbott, Kenji Takahashi) and a partial fulfillment notice (2 of 8 units allocated, with a 5% credit on the unfulfilled balance) to Daniel Kim (BO-2013)."
+        "label": "Option 2 (Enforce 10-Unit Minimum Storefront Buffer in products.csv First -- Allocate 54 Surplus Units to Backorders)",
+        "rule_interpretation": "Table 'products': Enforce the 10-unit Minimum Storefront Buffer on row 'Classic Short-Sleeve Polo' by updating column 'size' from '{\"M\":4,\"L\":8,\"XL\":8,\"XXL\":4}' to '{\"M\":2,\"L\":3,\"XL\":3,\"XXL\":2}' (10 units reserved). Table 'backorders_dataset': Allocate remaining 54 surplus units by Priority guarantee and FIFO order_date ascending: set BO-2001 quantity_allocated = 12 ('Fulfilled'), BO-2004 quantity_allocated = 8 ('Fulfilled'), BO-2002 quantity_allocated = 10 ('Fulfilled'), BO-2006 quantity_allocated = 10 ('Fulfilled'), BO-2009 quantity_allocated = 12 ('Fulfilled'), and set newest Standard backorder BO-2013 to quantity_allocated = 2 and fulfillment_status = 'Partial'. Email Notifications: Send full dispatch confirmation emails to the 5 fulfilled buyers and a partial fulfillment notice (2 of 8 units allocated, 5% credit on unfulfilled balance) to Daniel Kim (BO-2013)."
       },
       "turn2": {
-        "http": 200,
-        "latency_ms": 10314,
-        "status": "PREVIEW_READY",
-        "workflow_id": "64d31e6c-221b-4819-9cf3-f65e93c05240",
-        "mutations_preview": [
-          {
-            "table_name": "backorders_dataset",
-            "row_identifier": "BO-2001",
-            "before": {
-              "quantity_allocated": 0,
-              "fulfillment_status": "Pending"
-            },
-            "after": {
-              "quantity_allocated": 12,
-              "fulfillment_status": "Fulfilled"
-            }
-          },
-          {
-            "table_name": "backorders_dataset",
-            "row_identifier": "BO-2004",
-            "before": {
-              "quantity_allocated": 0,
-              "fulfillment_status": "Pending"
-            },
-            "after": {
-              "quantity_allocated": 8,
-              "fulfillment_status": "Fulfilled"
-            }
-          },
-          {
-            "table_name": "backorders_dataset",
-            "row_identifier": "BO-2002",
-            "before": {
-              "quantity_allocated": 0,
-              "fulfillment_status": "Pending"
-            },
-            "after": {
-              "quantity_allocated": 10,
-              "fulfillment_status": "Fulfilled"
-            }
-          },
-          {
-            "table_name": "backorders_dataset",
-            "row_identifier": "BO-2006",
-            "before": {
-              "quantity_allocated": 0,
-              "fulfillment_status": "Pending"
-            },
-            "after": {
-              "quantity_allocated": 10,
-              "fulfillment_status": "Fulfilled"
-            }
-          },
-          {
-            "table_name": "backorders_dataset",
-            "row_identifier": "BO-2009",
-            "before": {
-              "quantity_allocated": 0,
-              "fulfillment_status": "Pending"
-            },
-            "after": {
-              "quantity_allocated": 12,
-              "fulfillment_status": "Fulfilled"
-            }
-          },
-          {
-            "table_name": "backorders_dataset",
-            "row_identifier": "BO-2013",
-            "before": {
-              "quantity_allocated": 0,
-              "fulfillment_status": "Pending"
-            },
-            "after": {
-              "quantity_allocated": 2,
-              "fulfillment_status": "Partial"
-            }
-          },
-          {
-            "table_name": "products",
-            "row_identifier": "Classic Short-Sleeve Polo",
-            "before": {
-              "size": "{\"M\":4,\"L\":8,\"XL\":8,\"XXL\":4}"
-            },
-            "after": {
-              "size": "{\"M\":2,\"L\":3,\"XL\":3,\"XXL\":2}"
-            }
-          }
-        ],
-        "emails_preview": [
-          {
-            "recipient_email": "s.jenkins@apexapparel.com",
-            "customer_identifier": "Sarah Jenkins (Apex Apparel Group)",
-            "subject": "Dispatch Confirmation - Order BO-2001",
-            "body": "Dear Sarah Jenkins, We are pleased to inform you that your backorder BO-2001 for Apex Apparel Group (Classic Short-Sleeve Polo) has been fully allocated with 12 units and is now marked as Fulfilled under manifest PRM-2026-1104-CTG.",
-            "metadata": {
-              "applied_rule": "Option 2 Priority Tier 100% Allocation Guarantee",
-              "row_identifier": "BO-2001",
-              "option_id": "option_2"
-            }
-          },
-          {
-            "recipient_email": "mvance@harborlineretail.com",
-            "customer_identifier": "Marcus Vance (Harborline Retail Partners)",
-            "subject": "Dispatch Confirmation - Order BO-2004",
-            "body": "Dear Marcus Vance, We are pleased to inform you that your backorder BO-2004 for Harborline Retail Partners (Classic Short-Sleeve Polo) has been fully allocated with 8 units and is now marked as Fulfilled under manifest PRM-2026-1104-CTG.",
-            "metadata": {
-              "applied_rule": "Option 2 Priority Tier 100% Allocation Guarantee",
-              "row_identifier": "BO-2004",
-              "option_id": "option_2"
-            }
-          },
-          {
-            "recipient_email": "llindqvist@nordicthread.se",
-            "customer_identifier": "Lukas Lindqvist (Nordic Thread Collective)",
-            "subject": "Dispatch Confirmation - Order BO-2002",
-            "body": "Dear Lukas Lindqvist, We are pleased to inform you that your backorder BO-2002 for Nordic Thread Collective (Classic Short-Sleeve Polo) has been fully allocated with 10 units and is now marked as Fulfilled under manifest PRM-2026-1104-CTG.",
-            "metadata": {
-              "applied_rule": "Option 2 FIFO Full Allocation for Standard Tier",
-              "row_identifier": "BO-2002",
-              "option_id": "option_2"
-            }
-          },
-          {
-            "recipient_email": "habbott@elmwoodsupply.co.uk",
-            "customer_identifier": "Hannah Abbott (Elmwood Boutique Supply)",
-            "subject": "Dispatch Confirmation - Order BO-2006",
-            "body": "Dear Hannah Abbott, We are pleased to inform you that your backorder BO-2006 for Elmwood Boutique Supply (Classic Short-Sleeve Polo) has been fully allocated with 10 units and is now marked as Fulfilled under manifest PRM-2026-1104-CTG.",
-            "metadata": {
-              "applied_rule": "Option 2 FIFO Full Allocation for Standard Tier",
-              "row_identifier": "BO-2006",
-              "option_id": "option_2"
-            }
-          },
-          {
-            "recipient_email": "ktakahashi@meridianurban.jp",
-            "customer_identifier": "Kenji Takahashi (Meridian Urban Wear)",
-            "subject": "Dispatch Confirmation - Order BO-2009",
-            "body": "Dear Kenji Takahashi, We are pleased to inform you that your backorder BO-2009 for Meridian Urban Wear (Classic Short-Sleeve Polo) has been fully allocated with 12 units and is now marked as Fulfilled under manifest PRM-2026-1104-CTG.",
-            "metadata": {
-              "applied_rule": "Option 2 FIFO Full Allocation for Standard Tier",
-              "row_identifier": "BO-2009",
-              "option_id": "option_2"
-            }
-          },
-          {
-            "recipient_email": "dkim@pacificrimclothiers.com",
-            "customer_identifier": "Daniel Kim (Pacific Rim Clothiers)",
-            "subject": "Partial Fulfillment Notice - Order BO-2013",
-            "body": "Dear Daniel Kim, We are writing to notify you regarding your backorder BO-2013 for Pacific Rim Clothiers (Classic Short-Sleeve Polo). Due to port receiving short-shipments and storefront buffer enforcement, 2 of your 8 requested units have been allocated (Status: Partial). A 5% credit has been applied to your unfulfilled balance.",
-            "metadata": {
-              "applied_rule": "Option 2 Partial Allocation with Unfulfilled Balance Credit",
-              "row_identifier": "BO-2013",
-              "option_id": "option_2"
-            }
-          }
-        ],
-        "citations": [
-          {
-            "source_type": "document",
-            "source_name": "Allocation Priority Policy.pdf",
-            "locator": "Page 1, Chunk 4",
-            "excerpt": "Header & Metadata BO-2006 = 10 (\"Fulfilled\"), while newer Standard rows BO-2009 and BO-2013 remain at quantity_allocated = 0 with fulfillment_status = \"Backordered\". 4. Cross-Catalog Storefront Buffer Rule & Multi-Table Reconciliation (backorders_dataset.csv + products.csv) When the operator instructs the system to rec"
-          },
-          {
-            "source_type": "document",
-            "source_name": "Allocation Priority Policy.pdf",
-            "locator": "Page 2, Chunk 5",
-            "excerpt": "SKU VL-POLO-BLK) must maintain a Minimum Storefront Buffer of at least 10 total units across its \"size\" JSON stock map unless explicitly overridden by the operator. 4.2 Cross-Catalog Buffer Deficit Conflict (64 Combined Units vs. 60 Backorder Units + 10 Buffer Units = 70 Needed): \"Classic Short-Sleeve Polo\" (VL-POLO-BL"
-          },
-          {
-            "source_type": "document",
-            "source_name": "Port Receiving Manifest.pdf",
-            "locator": "Page 2, Chunk 6",
-            "excerpt": "Header & Metadata reconciled): allocate the 40 net passed port manifest units across the 6 open Pending rows in backorders_dataset.csv per SOP-OPS-019 Section 3. - For cross-catalog inventory reconciliation across BOTH backorders_dataset.csv AND products.csv: reconcile the 64 combined units (40 manifest + 24 storefront"
-          },
-          {
-            "source_type": "document",
-            "source_name": "Port Receiving Manifest.pdf",
-            "locator": "Page 1, Chunk 2",
-            "excerpt": "Header & Metadata carton-by-carton physical tally prior to releasing inventory into the warehouse allocation system. 2. Container Line-Item Tally & Catalog SKU Linkage - SKU Code: VL-POLO-BLK | Catalog Product Name in products.csv: \"Classic Short-Sleeve Polo\" (listed in backorders_dataset.csv as \"Classic Short-Sleeve P"
-          },
-          {
-            "source_type": "table",
-            "source_name": "backorders_dataset",
-            "locator": "Row BO-2001",
-            "excerpt": "backorder_id=BO-2001, order_date=\"2026-10-09T18:00:00.000Z\", buyer_company=Apex Apparel Group, buyer_name=Sarah Jenkins, buyer_email=s.jenkins@apexapparel.com, buyer_tier=Priority, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=12, quantity_allocated=0, unit_price=1890, fulfill"
-          },
-          {
-            "source_type": "table",
-            "source_name": "backorders_dataset",
-            "locator": "Row BO-2004",
-            "excerpt": "backorder_id=BO-2004, order_date=\"2026-10-13T18:00:00.000Z\", buyer_company=Harborline Retail Partners, buyer_name=Marcus Vance, buyer_email=mvance@harborlineretail.com, buyer_tier=Priority, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=8, quantity_allocated=0, unit_price=1890,"
-          },
-          {
-            "source_type": "table",
-            "source_name": "backorders_dataset",
-            "locator": "Row BO-2002",
-            "excerpt": "backorder_id=BO-2002, order_date=\"2026-10-11T18:00:00.000Z\", buyer_company=Nordic Thread Collective, buyer_name=Lukas Lindqvist, buyer_email=llindqvist@nordicthread.se, buyer_tier=Standard, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=10, quantity_allocated=0, unit_price=1890"
-          },
-          {
-            "source_type": "table",
-            "source_name": "backorders_dataset",
-            "locator": "Row BO-2006",
-            "excerpt": "backorder_id=BO-2006, order_date=\"2026-10-15T18:00:00.000Z\", buyer_company=Elmwood Boutique Supply, buyer_name=Hannah Abbott, buyer_email=habbott@elmwoodsupply.co.uk, buyer_tier=Standard, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=10, quantity_allocated=0, unit_price=1890, "
-          },
-          {
-            "source_type": "table",
-            "source_name": "backorders_dataset",
-            "locator": "Row BO-2009",
-            "excerpt": "backorder_id=BO-2009, order_date=\"2026-10-21T18:00:00.000Z\", buyer_company=Meridian Urban Wear, buyer_name=Kenji Takahashi, buyer_email=ktakahashi@meridianurban.jp, buyer_tier=Standard, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=12, quantity_allocated=0, unit_price=1890, fu"
-          },
-          {
-            "source_type": "table",
-            "source_name": "backorders_dataset",
-            "locator": "Row BO-2013",
-            "excerpt": "backorder_id=BO-2013, order_date=\"2026-10-27T18:00:00.000Z\", buyer_company=Pacific Rim Clothiers, buyer_name=Daniel Kim, buyer_email=dkim@pacificrimclothiers.com, buyer_tier=Standard, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=8, quantity_allocated=0, unit_price=1890, fulfi"
-          },
-          {
-            "source_type": "table",
-            "source_name": "products",
-            "locator": "Row Classic Short-Sleeve Polo",
-            "excerpt": "name=Classic Short-Sleeve Polo, category=polo, description=The Veloura Classic Short-Sleeve Polo combines timeless style with modern comfort. Available in a sophisticated blue hue with subtle vertical stitching, this versatile polo features a refined fit ideal for casual or smart-casual settings. Pair it with light tro"
-          }
-        ]
-      },
-      "turn3": {
-        "http": 200,
-        "latency_ms": 762,
-        "status": "EXECUTED",
-        "workflow_id": "64d31e6c-221b-4819-9cf3-f65e93c05240",
-        "updated_rows_count": 7,
-        "dispatched_emails_count": 6,
-        "dispatched_emails": [
-          {
-            "to": "s.jenkins@apexapparel.com",
-            "customer_identifier": "Sarah Jenkins (Apex Apparel Group)",
-            "subject": "Dispatch Confirmation - Order BO-2001",
-            "text": "Dear Sarah Jenkins, We are pleased to inform you that your backorder BO-2001 for Apex Apparel Group (Classic Short-Sleeve Polo) has been fully allocated with 12 units and is now marked as Fulfilled under manifest PRM-2026-1104-CTG.",
-            "metadata": {
-              "applied_rule": "Option 2 Priority Tier 100% Allocation Guarantee",
-              "row_identifier": "BO-2001",
-              "option_id": "option_2"
-            },
-            "dispatched_at": "2026-11-10T13:43:20.531Z",
-            "delivery_mode": "dry_run"
-          },
-          {
-            "to": "mvance@harborlineretail.com",
-            "customer_identifier": "Marcus Vance (Harborline Retail Partners)",
-            "subject": "Dispatch Confirmation - Order BO-2004",
-            "text": "Dear Marcus Vance, We are pleased to inform you that your backorder BO-2004 for Harborline Retail Partners (Classic Short-Sleeve Polo) has been fully allocated with 8 units and is now marked as Fulfilled under manifest PRM-2026-1104-CTG.",
-            "metadata": {
-              "applied_rule": "Option 2 Priority Tier 100% Allocation Guarantee",
-              "row_identifier": "BO-2004",
-              "option_id": "option_2"
-            },
-            "dispatched_at": "2026-11-10T13:43:20.531Z",
-            "delivery_mode": "dry_run"
-          },
-          {
-            "to": "llindqvist@nordicthread.se",
-            "customer_identifier": "Lukas Lindqvist (Nordic Thread Collective)",
-            "subject": "Dispatch Confirmation - Order BO-2002",
-            "text": "Dear Lukas Lindqvist, We are pleased to inform you that your backorder BO-2002 for Nordic Thread Collective (Classic Short-Sleeve Polo) has been fully allocated with 10 units and is now marked as Fulfilled under manifest PRM-2026-1104-CTG.",
-            "metadata": {
-              "applied_rule": "Option 2 FIFO Full Allocation for Standard Tier",
-              "row_identifier": "BO-2002",
-              "option_id": "option_2"
-            },
-            "dispatched_at": "2026-11-10T13:43:20.531Z",
-            "delivery_mode": "dry_run"
-          },
-          {
-            "to": "habbott@elmwoodsupply.co.uk",
-            "customer_identifier": "Hannah Abbott (Elmwood Boutique Supply)",
-            "subject": "Dispatch Confirmation - Order BO-2006",
-            "text": "Dear Hannah Abbott, We are pleased to inform you that your backorder BO-2006 for Elmwood Boutique Supply (Classic Short-Sleeve Polo) has been fully allocated with 10 units and is now marked as Fulfilled under manifest PRM-2026-1104-CTG.",
-            "metadata": {
-              "applied_rule": "Option 2 FIFO Full Allocation for Standard Tier",
-              "row_identifier": "BO-2006",
-              "option_id": "option_2"
-            },
-            "dispatched_at": "2026-11-10T13:43:20.531Z",
-            "delivery_mode": "dry_run"
-          },
-          {
-            "to": "ktakahashi@meridianurban.jp",
-            "customer_identifier": "Kenji Takahashi (Meridian Urban Wear)",
-            "subject": "Dispatch Confirmation - Order BO-2009",
-            "text": "Dear Kenji Takahashi, We are pleased to inform you that your backorder BO-2009 for Meridian Urban Wear (Classic Short-Sleeve Polo) has been fully allocated with 12 units and is now marked as Fulfilled under manifest PRM-2026-1104-CTG.",
-            "metadata": {
-              "applied_rule": "Option 2 FIFO Full Allocation for Standard Tier",
-              "row_identifier": "BO-2009",
-              "option_id": "option_2"
-            },
-            "dispatched_at": "2026-11-10T13:43:20.531Z",
-            "delivery_mode": "dry_run"
-          },
-          {
-            "to": "dkim@pacificrimclothiers.com",
-            "customer_identifier": "Daniel Kim (Pacific Rim Clothiers)",
-            "subject": "Partial Fulfillment Notice - Order BO-2013",
-            "text": "Dear Daniel Kim, We are writing to notify you regarding your backorder BO-2013 for Pacific Rim Clothiers (Classic Short-Sleeve Polo). Due to port receiving short-shipments and storefront buffer enforcement, 2 of your 8 requested units have been allocated (Status: Partial). A 5% credit has been applied to your unfulfilled balance.",
-            "metadata": {
-              "applied_rule": "Option 2 Partial Allocation with Unfulfilled Balance Credit",
-              "row_identifier": "BO-2013",
-              "option_id": "option_2"
-            },
-            "dispatched_at": "2026-11-10T13:43:20.531Z",
-            "delivery_mode": "dry_run"
-          }
-        ],
-        "citations": [
-          {
-            "source_type": "document",
-            "source_name": "Allocation Priority Policy.pdf",
-            "locator": "Page 1, Chunk 4",
-            "excerpt": "Header & Metadata BO-2006 = 10 (\"Fulfilled\"), while newer Standard rows BO-2009 and BO-2013 remain at quantity_allocated = 0 with fulfillment_status = \"Backordered\". 4. Cross-Catalog Storefront Buffer Rule & Multi-Table Reconciliation (backorders_dataset.csv + products.csv) When the operator instructs the system to rec"
-          },
-          {
-            "source_type": "document",
-            "source_name": "Allocation Priority Policy.pdf",
-            "locator": "Page 2, Chunk 5",
-            "excerpt": "SKU VL-POLO-BLK) must maintain a Minimum Storefront Buffer of at least 10 total units across its \"size\" JSON stock map unless explicitly overridden by the operator. 4.2 Cross-Catalog Buffer Deficit Conflict (64 Combined Units vs. 60 Backorder Units + 10 Buffer Units = 70 Needed): \"Classic Short-Sleeve Polo\" (VL-POLO-BL"
-          },
-          {
-            "source_type": "document",
-            "source_name": "Port Receiving Manifest.pdf",
-            "locator": "Page 2, Chunk 6",
-            "excerpt": "Header & Metadata reconciled): allocate the 40 net passed port manifest units across the 6 open Pending rows in backorders_dataset.csv per SOP-OPS-019 Section 3. - For cross-catalog inventory reconciliation across BOTH backorders_dataset.csv AND products.csv: reconcile the 64 combined units (40 manifest + 24 storefront"
-          },
-          {
-            "source_type": "document",
-            "source_name": "Port Receiving Manifest.pdf",
-            "locator": "Page 1, Chunk 2",
-            "excerpt": "Header & Metadata carton-by-carton physical tally prior to releasing inventory into the warehouse allocation system. 2. Container Line-Item Tally & Catalog SKU Linkage - SKU Code: VL-POLO-BLK | Catalog Product Name in products.csv: \"Classic Short-Sleeve Polo\" (listed in backorders_dataset.csv as \"Classic Short-Sleeve P"
-          },
-          {
-            "source_type": "table",
-            "source_name": "backorders_dataset",
-            "locator": "Row BO-2001",
-            "excerpt": "backorder_id=BO-2001, order_date=\"2026-10-09T18:00:00.000Z\", buyer_company=Apex Apparel Group, buyer_name=Sarah Jenkins, buyer_email=s.jenkins@apexapparel.com, buyer_tier=Priority, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=12, quantity_allocated=0, unit_price=1890, fulfill"
-          },
-          {
-            "source_type": "table",
-            "source_name": "backorders_dataset",
-            "locator": "Row BO-2004",
-            "excerpt": "backorder_id=BO-2004, order_date=\"2026-10-13T18:00:00.000Z\", buyer_company=Harborline Retail Partners, buyer_name=Marcus Vance, buyer_email=mvance@harborlineretail.com, buyer_tier=Priority, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=8, quantity_allocated=0, unit_price=1890,"
-          },
-          {
-            "source_type": "table",
-            "source_name": "backorders_dataset",
-            "locator": "Row BO-2002",
-            "excerpt": "backorder_id=BO-2002, order_date=\"2026-10-11T18:00:00.000Z\", buyer_company=Nordic Thread Collective, buyer_name=Lukas Lindqvist, buyer_email=llindqvist@nordicthread.se, buyer_tier=Standard, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=10, quantity_allocated=0, unit_price=1890"
-          },
-          {
-            "source_type": "table",
-            "source_name": "backorders_dataset",
-            "locator": "Row BO-2006",
-            "excerpt": "backorder_id=BO-2006, order_date=\"2026-10-15T18:00:00.000Z\", buyer_company=Elmwood Boutique Supply, buyer_name=Hannah Abbott, buyer_email=habbott@elmwoodsupply.co.uk, buyer_tier=Standard, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=10, quantity_allocated=0, unit_price=1890, "
-          },
-          {
-            "source_type": "table",
-            "source_name": "backorders_dataset",
-            "locator": "Row BO-2009",
-            "excerpt": "backorder_id=BO-2009, order_date=\"2026-10-21T18:00:00.000Z\", buyer_company=Meridian Urban Wear, buyer_name=Kenji Takahashi, buyer_email=ktakahashi@meridianurban.jp, buyer_tier=Standard, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=12, quantity_allocated=0, unit_price=1890, fu"
-          },
-          {
-            "source_type": "table",
-            "source_name": "backorders_dataset",
-            "locator": "Row BO-2013",
-            "excerpt": "backorder_id=BO-2013, order_date=\"2026-10-27T18:00:00.000Z\", buyer_company=Pacific Rim Clothiers, buyer_name=Daniel Kim, buyer_email=dkim@pacificrimclothiers.com, buyer_tier=Standard, sku_code=VL-POLO-BLK, product_name=Classic Short-Sleeve Polo (Black), quantity_requested=8, quantity_allocated=0, unit_price=1890, fulfi"
-          },
-          {
-            "source_type": "table",
-            "source_name": "products",
-            "locator": "Row Classic Short-Sleeve Polo",
-            "excerpt": "name=Classic Short-Sleeve Polo, category=polo, description=The Veloura Classic Short-Sleeve Polo combines timeless style with modern comfort. Available in a sophisticated blue hue with subtle vertical stitching, this versatile polo features a refined fit ideal for casual or smart-casual settings. Pair it with light tro"
-          }
-        ]
+        "http": 502,
+        "latency_ms": 67954,
+        "error": "Gemini AI error: This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later."
       },
       "db_after": {
         "products": [
           {
             "name": "Classic Short-Sleeve Polo",
-            "size": "{\"M\":2,\"L\":3,\"XL\":3,\"XXL\":2}"
+            "size": {
+              "L": 8,
+              "M": 4,
+              "XL": 8,
+              "XXL": 4
+            }
           }
         ],
         "backorders": [
           {
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
             "backorder_id": "BO-2005",
             "order_date": "2026-10-14T18:00:00.000Z",
             "buyer_company": "Verve Contemporary Retail",
@@ -1177,10 +581,40 @@
             "quantity_requested": "20",
             "quantity_allocated": "20",
             "unit_price": "1790",
-            "fulfillment_status": "Fulfilled",
-            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f"
+            "fulfillment_status": "Fulfilled"
           },
           {
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+            "backorder_id": "BO-2020",
+            "order_date": "2026-11-04T18:00:00.000Z",
+            "buyer_company": "Monarch Textile Traders",
+            "buyer_name": "Tariq Al-Mansoor",
+            "buyer_email": "talmansoor@monarchtextile.ae",
+            "buyer_tier": "Priority",
+            "sku_code": "VL-SHIRT-LIN",
+            "product_name": "Linen Resort Overshirt",
+            "quantity_requested": "8",
+            "quantity_allocated": "0",
+            "unit_price": "2490",
+            "fulfillment_status": "Pending"
+          },
+          {
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+            "backorder_id": "BO-2016",
+            "order_date": "2026-10-31T18:00:00.000Z",
+            "buyer_company": "Harborline Retail Partners",
+            "buyer_name": "Marcus Vance",
+            "buyer_email": "mvance@harborlineretail.com",
+            "buyer_tier": "Priority",
+            "sku_code": "VL-POLO-RET",
+            "product_name": "Retro Knit Polo Shirt",
+            "quantity_requested": "12",
+            "quantity_allocated": "0",
+            "unit_price": "2390",
+            "fulfillment_status": "Pending"
+          },
+          {
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
             "backorder_id": "BO-2009",
             "order_date": "2026-10-21T18:00:00.000Z",
             "buyer_company": "Meridian Urban Wear",
@@ -1190,27 +624,42 @@
             "sku_code": "VL-POLO-BLK",
             "product_name": "Classic Short-Sleeve Polo (Black)",
             "quantity_requested": "12",
-            "quantity_allocated": "12",
+            "quantity_allocated": "0",
             "unit_price": "1890",
-            "fulfillment_status": "Fulfilled",
-            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f"
+            "fulfillment_status": "Pending"
           },
           {
-            "backorder_id": "BO-2001",
-            "order_date": "2026-10-09T18:00:00.000Z",
-            "buyer_company": "Apex Apparel Group",
-            "buyer_name": "Sarah Jenkins",
-            "buyer_email": "s.jenkins@apexapparel.com",
-            "buyer_tier": "Priority",
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+            "backorder_id": "BO-2002",
+            "order_date": "2026-10-11T18:00:00.000Z",
+            "buyer_company": "Nordic Thread Collective",
+            "buyer_name": "Lukas Lindqvist",
+            "buyer_email": "llindqvist@nordicthread.se",
+            "buyer_tier": "Standard",
             "sku_code": "VL-POLO-BLK",
             "product_name": "Classic Short-Sleeve Polo (Black)",
-            "quantity_requested": "12",
-            "quantity_allocated": "12",
+            "quantity_requested": "10",
+            "quantity_allocated": "0",
             "unit_price": "1890",
-            "fulfillment_status": "Fulfilled",
-            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f"
+            "fulfillment_status": "Pending"
           },
           {
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+            "backorder_id": "BO-2021",
+            "order_date": "2026-11-05T18:00:00.000Z",
+            "buyer_company": "Elmwood Boutique Supply",
+            "buyer_name": "Hannah Abbott",
+            "buyer_email": "habbott@elmwoodsupply.co.uk",
+            "buyer_tier": "Standard",
+            "sku_code": "VL-POLO-RET",
+            "product_name": "Retro Knit Polo Shirt",
+            "quantity_requested": "8",
+            "quantity_allocated": "0",
+            "unit_price": "2390",
+            "fulfillment_status": "Pending"
+          },
+          {
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
             "backorder_id": "BO-2011",
             "order_date": "2026-10-24T18:00:00.000Z",
             "buyer_company": "Crestview Department Stores",
@@ -1222,25 +671,25 @@
             "quantity_requested": "25",
             "quantity_allocated": "25",
             "unit_price": "1790",
-            "fulfillment_status": "Fulfilled",
-            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f"
+            "fulfillment_status": "Fulfilled"
           },
           {
-            "backorder_id": "BO-2004",
-            "order_date": "2026-10-13T18:00:00.000Z",
-            "buyer_company": "Harborline Retail Partners",
-            "buyer_name": "Marcus Vance",
-            "buyer_email": "mvance@harborlineretail.com",
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+            "backorder_id": "BO-2001",
+            "order_date": "2026-10-09T18:00:00.000Z",
+            "buyer_company": "Apex Apparel Group",
+            "buyer_name": "Sarah Jenkins",
+            "buyer_email": "s.jenkins@apexapparel.com",
             "buyer_tier": "Priority",
             "sku_code": "VL-POLO-BLK",
             "product_name": "Classic Short-Sleeve Polo (Black)",
-            "quantity_requested": "8",
-            "quantity_allocated": "8",
+            "quantity_requested": "12",
+            "quantity_allocated": "0",
             "unit_price": "1890",
-            "fulfillment_status": "Fulfilled",
-            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f"
+            "fulfillment_status": "Pending"
           },
           {
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
             "backorder_id": "BO-2012",
             "order_date": "2026-10-25T18:00:00.000Z",
             "buyer_company": "Oakridge Haberdashery",
@@ -1252,100 +701,10 @@
             "quantity_requested": "6",
             "quantity_allocated": "6",
             "unit_price": "1790",
-            "fulfillment_status": "Shipped",
-            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f"
+            "fulfillment_status": "Shipped"
           },
           {
-            "backorder_id": "BO-2013",
-            "order_date": "2026-10-27T18:00:00.000Z",
-            "buyer_company": "Pacific Rim Clothiers",
-            "buyer_name": "Daniel Kim",
-            "buyer_email": "dkim@pacificrimclothiers.com",
-            "buyer_tier": "Standard",
-            "sku_code": "VL-POLO-BLK",
-            "product_name": "Classic Short-Sleeve Polo (Black)",
-            "quantity_requested": "8",
-            "quantity_allocated": "2",
-            "unit_price": "1890",
-            "fulfillment_status": "Partial",
-            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f"
-          },
-          {
-            "backorder_id": "BO-2008",
-            "order_date": "2026-10-18T18:00:00.000Z",
-            "buyer_company": "Monarch Textile Traders",
-            "buyer_name": "Tariq Al-Mansoor",
-            "buyer_email": "talmansoor@monarchtextile.ae",
-            "buyer_tier": "Priority",
-            "sku_code": "VL-SHIRT-CRL",
-            "product_name": "Crinkle Layer Shirt",
-            "quantity_requested": "14",
-            "quantity_allocated": "14",
-            "unit_price": "1790",
-            "fulfillment_status": "Shipped",
-            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f"
-          },
-          {
-            "backorder_id": "BO-2010",
-            "order_date": "2026-10-22T18:00:00.000Z",
-            "buyer_company": "Solstice Menswear Co.",
-            "buyer_name": "Elena Rostova",
-            "buyer_email": "erostova@solsticemenswear.io",
-            "buyer_tier": "Standard",
-            "sku_code": "VL-SHIRT-PMB",
-            "product_name": "Palm Breeze Shirt",
-            "quantity_requested": "8",
-            "quantity_allocated": "8",
-            "unit_price": "990",
-            "fulfillment_status": "Fulfilled",
-            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f"
-          },
-          {
-            "backorder_id": "BO-2006",
-            "order_date": "2026-10-15T18:00:00.000Z",
-            "buyer_company": "Elmwood Boutique Supply",
-            "buyer_name": "Hannah Abbott",
-            "buyer_email": "habbott@elmwoodsupply.co.uk",
-            "buyer_tier": "Standard",
-            "sku_code": "VL-POLO-BLK",
-            "product_name": "Classic Short-Sleeve Polo (Black)",
-            "quantity_requested": "10",
-            "quantity_allocated": "10",
-            "unit_price": "1890",
-            "fulfillment_status": "Fulfilled",
-            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f"
-          },
-          {
-            "backorder_id": "BO-2002",
-            "order_date": "2026-10-11T18:00:00.000Z",
-            "buyer_company": "Nordic Thread Collective",
-            "buyer_name": "Lukas Lindqvist",
-            "buyer_email": "llindqvist@nordicthread.se",
-            "buyer_tier": "Standard",
-            "sku_code": "VL-POLO-BLK",
-            "product_name": "Classic Short-Sleeve Polo (Black)",
-            "quantity_requested": "10",
-            "quantity_allocated": "10",
-            "unit_price": "1890",
-            "fulfillment_status": "Fulfilled",
-            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f"
-          },
-          {
-            "backorder_id": "BO-2003",
-            "order_date": "2026-10-12T18:00:00.000Z",
-            "buyer_company": "Beacon Street Outfitters",
-            "buyer_name": "Thomas Wright",
-            "buyer_email": "twright@beaconoutfitters.com",
-            "buyer_tier": "Priority",
-            "sku_code": "VL-SHIRT-PMB",
-            "product_name": "Palm Breeze Shirt",
-            "quantity_requested": "15",
-            "quantity_allocated": "15",
-            "unit_price": "990",
-            "fulfillment_status": "Fulfilled",
-            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f"
-          },
-          {
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
             "backorder_id": "BO-2007",
             "order_date": "2026-10-17T18:00:00.000Z",
             "buyer_company": "Sterling Heritage Apparel",
@@ -1357,8 +716,187 @@
             "quantity_requested": "10",
             "quantity_allocated": "10",
             "unit_price": "990",
-            "fulfillment_status": "Shipped",
-            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f"
+            "fulfillment_status": "Shipped"
+          },
+          {
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+            "backorder_id": "BO-2008",
+            "order_date": "2026-10-18T18:00:00.000Z",
+            "buyer_company": "Monarch Textile Traders",
+            "buyer_name": "Tariq Al-Mansoor",
+            "buyer_email": "talmansoor@monarchtextile.ae",
+            "buyer_tier": "Priority",
+            "sku_code": "VL-SHIRT-CRL",
+            "product_name": "Crinkle Layer Shirt",
+            "quantity_requested": "14",
+            "quantity_allocated": "14",
+            "unit_price": "1790",
+            "fulfillment_status": "Shipped"
+          },
+          {
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+            "backorder_id": "BO-2010",
+            "order_date": "2026-10-22T18:00:00.000Z",
+            "buyer_company": "Solstice Menswear Co.",
+            "buyer_name": "Elena Rostova",
+            "buyer_email": "erostova@solsticemenswear.io",
+            "buyer_tier": "Standard",
+            "sku_code": "VL-SHIRT-PMB",
+            "product_name": "Palm Breeze Shirt",
+            "quantity_requested": "8",
+            "quantity_allocated": "8",
+            "unit_price": "990",
+            "fulfillment_status": "Fulfilled"
+          },
+          {
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+            "backorder_id": "BO-2017",
+            "order_date": "2026-11-01T18:00:00.000Z",
+            "buyer_company": "Nordic Thread Collective",
+            "buyer_name": "Lukas Lindqvist",
+            "buyer_email": "llindqvist@nordicthread.se",
+            "buyer_tier": "Standard",
+            "sku_code": "VL-KNIT-MER",
+            "product_name": "Merino Knit Pullover",
+            "quantity_requested": "10",
+            "quantity_allocated": "0",
+            "unit_price": "3290",
+            "fulfillment_status": "Pending"
+          },
+          {
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+            "backorder_id": "BO-2014",
+            "order_date": "2026-10-28T18:00:00.000Z",
+            "buyer_company": "Apex Apparel Group",
+            "buyer_name": "Sarah Jenkins",
+            "buyer_email": "s.jenkins@apexapparel.com",
+            "buyer_tier": "Priority",
+            "sku_code": "VL-KNIT-MER",
+            "product_name": "Merino Knit Pullover",
+            "quantity_requested": "14",
+            "quantity_allocated": "0",
+            "unit_price": "3290",
+            "fulfillment_status": "Pending"
+          },
+          {
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+            "backorder_id": "BO-2022",
+            "order_date": "2026-11-06T18:00:00.000Z",
+            "buyer_company": "Solstice Menswear Co.",
+            "buyer_name": "Elena Rostova",
+            "buyer_email": "erostova@solsticemenswear.io",
+            "buyer_tier": "Standard",
+            "sku_code": "VL-SHIRT-OXF",
+            "product_name": "Oxford Mandarin Collar Shirt",
+            "quantity_requested": "10",
+            "quantity_allocated": "0",
+            "unit_price": "1890",
+            "fulfillment_status": "Pending"
+          },
+          {
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+            "backorder_id": "BO-2015",
+            "order_date": "2026-10-29T18:00:00.000Z",
+            "buyer_company": "Beacon Street Outfitters",
+            "buyer_name": "Thomas Wright",
+            "buyer_email": "twright@beaconoutfitters.com",
+            "buyer_tier": "Priority",
+            "sku_code": "VL-SHIRT-LIN",
+            "product_name": "Linen Resort Overshirt",
+            "quantity_requested": "10",
+            "quantity_allocated": "0",
+            "unit_price": "2490",
+            "fulfillment_status": "Pending"
+          },
+          {
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+            "backorder_id": "BO-2003",
+            "order_date": "2026-10-12T18:00:00.000Z",
+            "buyer_company": "Beacon Street Outfitters",
+            "buyer_name": "Thomas Wright",
+            "buyer_email": "twright@beaconoutfitters.com",
+            "buyer_tier": "Priority",
+            "sku_code": "VL-SHIRT-PMB",
+            "product_name": "Palm Breeze Shirt",
+            "quantity_requested": "15",
+            "quantity_allocated": "15",
+            "unit_price": "990",
+            "fulfillment_status": "Fulfilled"
+          },
+          {
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+            "backorder_id": "BO-2006",
+            "order_date": "2026-10-15T18:00:00.000Z",
+            "buyer_company": "Elmwood Boutique Supply",
+            "buyer_name": "Hannah Abbott",
+            "buyer_email": "habbott@elmwoodsupply.co.uk",
+            "buyer_tier": "Standard",
+            "sku_code": "VL-POLO-BLK",
+            "product_name": "Classic Short-Sleeve Polo (Black)",
+            "quantity_requested": "10",
+            "quantity_allocated": "0",
+            "unit_price": "1890",
+            "fulfillment_status": "Pending"
+          },
+          {
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+            "backorder_id": "BO-2018",
+            "order_date": "2026-11-02T18:00:00.000Z",
+            "buyer_company": "Verve Contemporary Retail",
+            "buyer_name": "Sofia Rossi",
+            "buyer_email": "srossi@ververetail.it",
+            "buyer_tier": "Priority",
+            "sku_code": "VL-SHIRT-OXF",
+            "product_name": "Oxford Mandarin Collar Shirt",
+            "quantity_requested": "16",
+            "quantity_allocated": "0",
+            "unit_price": "1890",
+            "fulfillment_status": "Pending"
+          },
+          {
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+            "backorder_id": "BO-2004",
+            "order_date": "2026-10-13T18:00:00.000Z",
+            "buyer_company": "Harborline Retail Partners",
+            "buyer_name": "Marcus Vance",
+            "buyer_email": "mvance@harborlineretail.com",
+            "buyer_tier": "Priority",
+            "sku_code": "VL-POLO-BLK",
+            "product_name": "Classic Short-Sleeve Polo (Black)",
+            "quantity_requested": "8",
+            "quantity_allocated": "0",
+            "unit_price": "1890",
+            "fulfillment_status": "Pending"
+          },
+          {
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+            "backorder_id": "BO-2019",
+            "order_date": "2026-11-03T18:00:00.000Z",
+            "buyer_company": "Sterling Heritage Apparel",
+            "buyer_name": "Oliver Grant",
+            "buyer_email": "ogrant@sterlingheritage.co.uk",
+            "buyer_tier": "Priority",
+            "sku_code": "VL-POLO-HEN",
+            "product_name": "Pima Cotton Henley",
+            "quantity_requested": "15",
+            "quantity_allocated": "0",
+            "unit_price": "1690",
+            "fulfillment_status": "On Hold"
+          },
+          {
+            "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+            "backorder_id": "BO-2013",
+            "order_date": "2026-10-27T18:00:00.000Z",
+            "buyer_company": "Pacific Rim Clothiers",
+            "buyer_name": "Daniel Kim",
+            "buyer_email": "dkim@pacificrimclothiers.com",
+            "buyer_tier": "Standard",
+            "sku_code": "VL-POLO-BLK",
+            "product_name": "Classic Short-Sleeve Polo (Black)",
+            "quantity_requested": "8",
+            "quantity_allocated": "0",
+            "unit_price": "1890",
+            "fulfillment_status": "Pending"
           }
         ]
       }
@@ -1421,26 +959,34 @@
       "prompt": "Audit all wholesale accounts in wholesale_accunts_dataset.csv with overdue balances, enforce the required credit limit reductions and account holds per our Finance Credit Control Policy while factoring in Q4 VIP Expansion retention rules, and email the account contacts.",
       "turn1": {
         "http": 200,
-        "latency_ms": 11564,
+        "latency_ms": 54794,
         "status": "CLARIFICATION_REQUIRED",
-        "workflow_id": "88352a78-d1e6-4722-8f11-b0333d02f07e",
-        "conflict_summary": "Under FIN-POL-008 Section 5 and DIR-COM-2026-Q4 Section 5, 5 accounts carry overdue balances and are targeted for overdue receivables audits: ACC-1004, ACC-1007, ACC-1008, ACC-1009, and ACC-1016. A governance conflict arises because ACC-1004 (annual spend $16,200 >= $15,000) and ACC-1007 (Gold tier) qualify for Q4 VIP Retention Protection (exempting them from the 25% credit limit reduction and Credit Hold status), whereas standard overdue accounts ACC-1008, ACC-1009, and ACC-1016 do not qualify and are subject to the mandatory 25% credit limit cut and Credit Hold status. The operator must choose between Option 1 (Enforce strict policy across all 5 accounts without VIP exemptions) and Option 2 (Apply the 14-day VIP retention grace rule to ACC-1004 and ACC-1007 while enforcing the strict cut and hold on ACC-1008, ACC-1009, and ACC-1016).",
+        "workflow_id": "972e4f03-bcb9-42b2-8ebc-218ed6623327",
+        "target_entity": "wholesale_accunts_dataset",
+        "matched_row_ids": [
+          "ACC-1004",
+          "ACC-1007",
+          "ACC-1008",
+          "ACC-1009",
+          "ACC-1016"
+        ],
+        "conflict_summary": "Under FIN-POL-008 Section 5, 5 accounts carry overdue balances (ACC-1004, ACC-1007, ACC-1008, ACC-1009, ACC-1016) and are targeted for a mandatory 25% credit limit reduction and Credit Hold status. However, a conflict arises under DIR-COM-2026-Q4 Section 5 because ACC-1004 and ACC-1007 qualify for Q4 VIP Retention Protection (Gold tier or annual spend >= $15,000), exempting them from the penalty.",
         "affected_rows_count": 5,
         "conflicting_rows_count": 2,
         "socratic_questions": [
           {
-            "question_id": "overdue_audit_resolution",
-            "question_text": "How should the system handle the overdue receivables audit for high-value and Gold-tier accounts (ACC-1004 and ACC-1007) given the conflicting Q4 VIP Retention Protection rules?",
+            "question_id": "overdue_audit_retention_conflict",
+            "question_text": "How should the overdue receivables audit handle accounts ACC-1004 and ACC-1007 that qualify for both Finance Credit Control penalties and Q4 VIP Retention Protection?",
             "options": [
               {
                 "option_id": "Option_1",
                 "label": "Enforce Strict Finance Credit Control Policy Across All 5 Overdue Accounts -- No VIP Exemption",
-                "rule_interpretation": "Apply updates to all 5 affected accounts (ACC-1004, ACC-1007, ACC-1008, ACC-1009, ACC-1016). Reduce credit_limit by 25% across all 5 accounts (ACC-1004: 10000 -> 7500, ACC-1007: 25000 -> 18750, ACC-1008: 3500 -> 2625, ACC-1009: 7200 -> 5400, ACC-1016: 2500 -> 1875) and update account_status to \"Credit Hold\" for all 5 accounts. Dispatch formal Credit Hold and 25% credit reduction notification emails to the respective Account Managers (David Chen, Tariq Al-Mansoor, Chloe Bennett, Priya Nair, Nathan Brooks) and workspace registered buyers referencing company_name and account_id."
+                "rule_interpretation": "Reduce credit_limit by 25% (multiply by 0.75) and set account_status = 'Credit Hold' on all 5 overdue accounts: ACC-1004 (credit_limit: 10000 -> 7500, account_status: 'Credit Hold'), ACC-1007 (credit_limit: 25000 -> 18750, account_status: 'Credit Hold'), ACC-1008 (credit_limit: 3500 -> 2625, account_status: 'Credit Hold'), ACC-1009 (credit_limit: 7200 -> 5400, account_status: 'Credit Hold'), and ACC-1016 (credit_limit: 2500 -> 1875, account_status: 'Credit Hold'). Dispatch formal Credit Hold and 25% credit reduction emails to all 5 Account Managers (David Chen, Tariq Al-Mansoor, Chloe Bennett, Priya Nair, Nathan Brooks)."
               },
               {
                 "option_id": "Option_2",
                 "label": "Apply Q4 VIP 14-Day Retention Grace Rule to High-Spend/Gold Accounts ACC-1004 & ACC-1007; Enforce Strict -25% Cut & Credit Hold on Standard Overdue Accounts ACC-1008, ACC-1009, ACC-1016",
-                "rule_interpretation": "For standard overdue accounts ACC-1008, ACC-1009, and ACC-1016: reduce credit_limit by 25% (ACC-1008: 3500 -> 2625, ACC-1009: 7200 -> 5400, ACC-1016: 2500 -> 1875) and set account_status = \"Credit Hold\". For VIP Retention protected accounts ACC-1004 and ACC-1007: preserve their existing credit_limit (0% cut: ACC-1004 stays at 10000, ACC-1007 stays at 25000) and set account_status = \"Retention Grace (14-Day)\" (modifying the status from \"Active\"). Dispatch 14-day split-settlement retention notices to David Chen (ACC-1004) and Tariq Al-Mansoor (ACC-1007) alongside Credit Hold notices to Chloe Bennett (ACC-1008), Priya Nair (ACC-1009), and Nathan Brooks (ACC-1016) and their workspace contacts."
+                "rule_interpretation": "For standard overdue accounts ACC-1008, ACC-1009, and ACC-1016: reduce credit_limit by 25% (ACC-1008: 3500 -> 2625, ACC-1009: 7200 -> 5400, ACC-1016: 2500 -> 1875) and set account_status = 'Credit Hold'. For VIP Retention protected accounts ACC-1004 and ACC-1007: preserve their existing credit_limit (0% cut: ACC-1004 stays at 10000, ACC-1007 stays at 25000) and set account_status = 'Retention Grace (14-Day)'. Send a 14-day split-settlement retention notice to David Chen (ACC-1004) and Tariq Al-Mansoor (ACC-1007) alongside Credit Hold notices to Chloe Bennett (ACC-1008), Priya Nair (ACC-1009), and Nathan Brooks (ACC-1016)."
               }
             ]
           }
@@ -1448,74 +994,88 @@
         "citations": [
           {
             "source_type": "document",
-            "source_name": "Finance Credit Control Policy.pdf",
-            "locator": "Page 1, Chunk 4",
-            "excerpt": "Header & Metadata selected prior to executing database mutations or dispatching partner communications. 5. Section 5 -- Overdue Receivables Audit, Mandatory 25% Credit Limit Reduction & Credit Hold Enforcement When the operator instructs the system to audit all wholesale accounts in wholesale_accunts_dataset.csv with o"
-          },
-          {
-            "source_type": "document",
             "source_name": "Q4 VIP Expansion Brief.pdf",
-            "locator": "Page 2, Chunk 5",
-            "excerpt": "Standard overdue accounts with current_tier = \"Silver\" and annual_spend < USD 15,000 -- specifically ACC-1008 ($6,200 spend, $450 overdue), ACC-1009 ($11,500 spend, $920 overdue), and ACC-1016 ($4,800 spend, $310 overdue) -- do NOT qualify for Q4 VIP Retention protection and are always subject to the strict -25% credit"
+            "locator": "VELOURA COMMERCIAL DISTRIBUTION * EXECUTIVE DIRECTIVE - Q4 VIP WHOLESALE TIER EXPANSION & PARTNER RETENTION BRIEF / Page 2 / Chunk 6",
+            "breadcrumb_header": "[Document: Q4 VIP WHOLESALE TIER EXPANSION & PARTNER RETENTION BRIEF | Section: VELOURA COMMERCIAL DISTRIBUTION * EXECUTIVE DIRECTIVE - Q4 VIP WHOLESALE TIER EXPANSION & PARTNER RETENTION BRIEF | Applies to: ACC-1007, ACC-1008, ACC-1009, ACC-1016, FIN-POL-008, DIR-COM-2026-Q4, ACC-1004, 25%]",
+            "excerpt": "VELOURA COMMERCIAL DISTRIBUTION * EXECUTIVE DIRECTIVE - Q4 VIP WHOLESALE TIER EXPANSION & PARTNER RETENTION BRIEF - ACC-1007 (Monarch Textile Traders, Account Manager: Tariq Al-Mansoor, Gold, annual_spend = $34,000 >= $15,000, overdue_balance = $1,200, credit_limit = $25,000) Standard overdue accounts with current_tier"
           },
           {
             "source_type": "document",
             "source_name": "Finance Credit Control Policy.pdf",
-            "locator": "Page 2, Chunk 6",
-            "excerpt": "Header & Metadata All 11 accounts with overdue_balance = 0 MUST be excluded from the overdue audit. 5.2 Mandatory Underwriting Penalty (25% Credit Limit Cut & Credit Hold): Under strict Finance Credit Control rules, every account with overdue_balance > 0 is subject to an immediate 25% reduction in credit_limit (new cre"
+            "locator": "VELOURA CORPORATE TREASURY & RISK COMPLIANCE - FINANCE CREDIT CONTROL & UNDERWRITING POLICY / Page 2 / Chunk 6",
+            "breadcrumb_header": "[Document: FINANCE CREDIT CONTROL & UNDERWRITING POLICY | Section: VELOURA CORPORATE TREASURY & RISK COMPLIANCE - FINANCE CREDIT CONTROL & UNDERWRITING POLICY | Applies to: _row_ids = [\"ACC-1004\", \"ACC-1007\", \"ACC-1008\", \"ACC-1009\", \"ACC-1016\"], conflicting_row_ids = [\"ACC-1004\",, ACC-1004, ACC-1007, ACC-1008, ACC-1009, ACC-1016, ACC-1001, ACC-1005]",
+            "excerpt": "VELOURA CORPORATE TREASURY & RISK COMPLIANCE - FINANCE CREDIT CONTROL & UNDERWRITING POLICY Select ALL wholesale accounts in wholesale_accunts_dataset.csv where overdue_balance > 0 (regardless of whether current_tier is Silver or Gold). In the canonical registry, exactly 5 accounts have overdue_balance > 0: - ACC-1004 "
+          },
+          {
+            "source_type": "document",
+            "source_name": "Finance Credit Control Policy.pdf",
+            "locator": "4. Audit Trail & Provenance Requirements / Page 1 / Chunk 5",
+            "breadcrumb_header": "[Document: FINANCE CREDIT CONTROL & UNDERWRITING POLICY | Section: 4. Audit Trail & Provenance Requirements | Applies to: Overdue Audit Filter (5 Qualifying Overdue Accounts):, FIN-POL-008, 25%, Policy Code: FIN-POL-008 (Rev]",
+            "excerpt": "4. Audit Trail & Provenance Requirements All credit control interventions must log the exact account_id, company_name, account_manager, annual_spend, overdue_balance, and the specific resolution option selected prior to executing database mutations or dispatching partner communications. 5. Section 5 -- Overdue Receivab"
           },
           {
             "source_type": "document",
             "source_name": "Q4 VIP Expansion Brief.pdf",
-            "locator": "Page 1, Chunk 3",
-            "excerpt": "Header & Metadata Limit: +25% Expansion (Subject to FIN-POL-008 Section 3.2) | Restock Priority: 24h SLA. 4. Account Manager Notification Standards Every outbound partner email must greet the designated Account Manager by name, reference their company_name and account_id, and state their updated tier, credit_limit, acc"
+            "locator": "4. Account Manager Notification Standards / Page 1 / Chunk 5",
+            "breadcrumb_header": "[Document: Q4 VIP WHOLESALE TIER EXPANSION & PARTNER RETENTION BRIEF | Section: 4. Account Manager Notification Standards | Applies to: FIN-POL-008, ACC-1004, DIR-COM-2026-Q4, > 0, >= $15,000,, Document ID: DIR-COM-2026-Q4 (Rev]",
+            "excerpt": "4. Account Manager Notification Standards Every outbound partner email must greet the designated Account Manager by name, reference their company_name and account_id, and state their updated tier, credit_limit, account_status, and any required arrears settlement action. 5. Section 5 -- Q4 VIP Retention Protection Claus"
           },
           {
             "source_type": "table",
             "source_name": "wholesale_accunts_dataset",
             "locator": "Row ACC-1004",
-            "excerpt": "account_id=ACC-1004, company_name=Vanguard Garment Distributors, account_manager=David Chen, contact_email=dchen@vanguardgarments.com, region=APAC, current_tier=Silver, annual_spend=16200, overdue_balance=1850, credit_limit=10000, account_status=Active, last_payment_date=\"2026-08-13T18:00:00.000Z\""
+            "excerpt": "account_id=ACC-1004, company_name=Vanguard Garment Distributors, account_manager=David Chen, region=APAC, current_tier=Silver, annual_spend=16200, overdue_balance=1850, credit_limit=10000, account_status=Active, last_payment_date=\"2026-08-13T18:00:00.000Z\""
           },
           {
             "source_type": "table",
             "source_name": "wholesale_accunts_dataset",
             "locator": "Row ACC-1007",
-            "excerpt": "account_id=ACC-1007, company_name=Monarch Textile Traders, account_manager=Tariq Al-Mansoor, contact_email=talmansoor@monarchtextile.ae, region=MENA, current_tier=Gold, annual_spend=34000, overdue_balance=1200, credit_limit=25000, account_status=Active, last_payment_date=\"2026-09-18T18:00:00.000Z\""
+            "excerpt": "account_id=ACC-1007, company_name=Monarch Textile Traders, account_manager=Tariq Al-Mansoor, region=MENA, current_tier=Gold, annual_spend=34000, overdue_balance=1200, credit_limit=25000, account_status=Active, last_payment_date=\"2026-09-18T18:00:00.000Z\""
           },
           {
             "source_type": "table",
             "source_name": "wholesale_accunts_dataset",
             "locator": "Row ACC-1008",
-            "excerpt": "account_id=ACC-1008, company_name=Pinecrest Dry Goods, account_manager=Chloe Bennett, contact_email=cbennett@pinecrestdrygoods.com, region=North America, current_tier=Silver, annual_spend=6200, overdue_balance=450, credit_limit=3500, account_status=Active, last_payment_date=\"2026-09-04T18:00:00.000Z\""
+            "excerpt": "account_id=ACC-1008, company_name=Pinecrest Dry Goods, account_manager=Chloe Bennett, region=North America, current_tier=Silver, annual_spend=6200, overdue_balance=450, credit_limit=3500, account_status=Active, last_payment_date=\"2026-09-04T18:00:00.000Z\""
           },
           {
             "source_type": "table",
             "source_name": "wholesale_accunts_dataset",
             "locator": "Row ACC-1009",
-            "excerpt": "account_id=ACC-1009, company_name=Crestview Department Stores, account_manager=Priya Nair, contact_email=pnair@crestviewstores.com, region=North America, current_tier=Silver, annual_spend=11500, overdue_balance=920, credit_limit=7200, account_status=Active, last_payment_date=\"2026-09-01T18:00:00.000Z\""
+            "excerpt": "account_id=ACC-1009, company_name=Crestview Department Stores, account_manager=Priya Nair, region=North America, current_tier=Silver, annual_spend=11500, overdue_balance=920, credit_limit=7200, account_status=Active, last_payment_date=\"2026-09-01T18:00:00.000Z\""
           },
           {
             "source_type": "table",
             "source_name": "wholesale_accunts_dataset",
             "locator": "Row ACC-1016",
-            "excerpt": "account_id=ACC-1016, company_name=Redstone Menswear Guild, account_manager=Nathan Brooks, contact_email=nbrooks@redstoneguild.com, region=North America, current_tier=Silver, annual_spend=4800, overdue_balance=310, credit_limit=2500, account_status=Active, last_payment_date=\"2026-08-28T18:00:00.000Z\""
+            "excerpt": "account_id=ACC-1016, company_name=Redstone Menswear Guild, account_manager=Nathan Brooks, region=North America, current_tier=Silver, annual_spend=4800, overdue_balance=310, credit_limit=2500, account_status=Active, last_payment_date=\"2026-08-28T18:00:00.000Z\""
           }
         ]
       },
       "selected_option": {
         "option_id": "Option_2",
         "label": "Apply Q4 VIP 14-Day Retention Grace Rule to High-Spend/Gold Accounts ACC-1004 & ACC-1007; Enforce Strict -25% Cut & Credit Hold on Standard Overdue Accounts ACC-1008, ACC-1009, ACC-1016",
-        "rule_interpretation": "For standard overdue accounts ACC-1008, ACC-1009, and ACC-1016: reduce credit_limit by 25% (ACC-1008: 3500 -> 2625, ACC-1009: 7200 -> 5400, ACC-1016: 2500 -> 1875) and set account_status = \"Credit Hold\". For VIP Retention protected accounts ACC-1004 and ACC-1007: preserve their existing credit_limit (0% cut: ACC-1004 stays at 10000, ACC-1007 stays at 25000) and set account_status = \"Retention Grace (14-Day)\" (modifying the status from \"Active\"). Dispatch 14-day split-settlement retention notices to David Chen (ACC-1004) and Tariq Al-Mansoor (ACC-1007) alongside Credit Hold notices to Chloe Bennett (ACC-1008), Priya Nair (ACC-1009), and Nathan Brooks (ACC-1016) and their workspace contacts."
+        "rule_interpretation": "For standard overdue accounts ACC-1008, ACC-1009, and ACC-1016: reduce credit_limit by 25% (ACC-1008: 3500 -> 2625, ACC-1009: 7200 -> 5400, ACC-1016: 2500 -> 1875) and set account_status = 'Credit Hold'. For VIP Retention protected accounts ACC-1004 and ACC-1007: preserve their existing credit_limit (0% cut: ACC-1004 stays at 10000, ACC-1007 stays at 25000) and set account_status = 'Retention Grace (14-Day)'. Send a 14-day split-settlement retention notice to David Chen (ACC-1004) and Tariq Al-Mansoor (ACC-1007) alongside Credit Hold notices to Chloe Bennett (ACC-1008), Priya Nair (ACC-1009), and Nathan Brooks (ACC-1016)."
       },
       "turn2": {
         "http": 200,
-        "latency_ms": 46243,
+        "latency_ms": 13479,
         "status": "PREVIEW_READY",
-        "workflow_id": "88352a78-d1e6-4722-8f11-b0333d02f07e",
+        "workflow_id": "972e4f03-bcb9-42b2-8ebc-218ed6623327",
         "mutations_preview": [
           {
             "table_name": "wholesale_accunts_dataset",
             "row_identifier": "ACC-1007",
+            "before": {
+              "account_status": "Active"
+            },
+            "after": {
+              "account_status": "Retention Grace (14-Day)"
+            }
+          },
+          {
+            "table_name": "wholesale_accunts_dataset",
+            "row_identifier": "ACC-1004",
             "before": {
               "account_status": "Active"
             },
@@ -1537,18 +1097,6 @@
           },
           {
             "table_name": "wholesale_accunts_dataset",
-            "row_identifier": "ACC-1009",
-            "before": {
-              "credit_limit": 7200,
-              "account_status": "Active"
-            },
-            "after": {
-              "credit_limit": 5400,
-              "account_status": "Credit Hold"
-            }
-          },
-          {
-            "table_name": "wholesale_accunts_dataset",
             "row_identifier": "ACC-1016",
             "before": {
               "credit_limit": 2500,
@@ -1561,68 +1109,70 @@
           },
           {
             "table_name": "wholesale_accunts_dataset",
-            "row_identifier": "ACC-1004",
+            "row_identifier": "ACC-1009",
             "before": {
+              "credit_limit": 7200,
               "account_status": "Active"
             },
             "after": {
-              "account_status": "Retention Grace (14-Day)"
+              "credit_limit": 5400,
+              "account_status": "Credit Hold"
             }
           }
         ],
         "emails_preview": [
           {
             "recipient_email": "talmansoor@monarchtextile.ae",
-            "customer_identifier": "Tariq Al-Mansoor (ACC-1007)",
+            "customer_identifier": "Tariq Al-Mansoor",
             "subject": "Q4 VIP 14-Day Retention Grace Notice - Monarch Textile Traders (ACC-1007)",
-            "body": "Dear Tariq Al-Mansoor, pursuant to the Q4 VIP Expansion Brief, your account Monarch Textile Traders (ACC-1007) has been granted the 14-Day Retention Grace status regarding your outstanding overdue balance of $1,200. Your credit limit is preserved at $25,000 without reduction.",
+            "body": "Dear Tariq Al-Mansoor,\n\nWe are writing regarding Monarch Textile Traders (Account ID: ACC-1007). Under the Q4 VIP Retention Protection Clause, your account has been granted a 14-day split-settlement retention grace period regarding your overdue balance of $1,200. Your current tier is Gold, annual spend is $34,000, credit limit is preserved at $25,000 with 0% cut, and your account status has been updated to 'Retention Grace (14-Day)'. Please arrange settlement within the 14-day window to maintain uninterrupted operations.\n\nSincerely,\nVeloura Corporate Treasury & Risk Compliance",
             "metadata": {
-              "applied_rule": "Q4 VIP 14-Day Retention Grace Rule",
+              "applied_rule": "Apply Q4 VIP 14-Day Retention Grace Rule to High-Spend/Gold Accounts (ACC-1007)",
               "row_identifier": "ACC-1007",
               "option_id": "Option_2"
             }
           },
           {
-            "recipient_email": "cbennett@pinecrestdrygoods.com",
-            "customer_identifier": "Chloe Bennett (ACC-1008)",
-            "subject": "Credit Control Notice: Credit Hold and Limit Reduction - Pinecrest Dry Goods (ACC-1008)",
-            "body": "Dear Chloe Bennett, under Finance Credit Control Policy FIN-POL-008 Section 5, your account Pinecrest Dry Goods (ACC-1008) is placed on Credit Hold due to an unpaid overdue balance of $450. Additionally, your credit limit has been reduced by 25% from $3,500 to $2,625.",
+            "recipient_email": "dchen@vanguardgarments.com",
+            "customer_identifier": "David Chen",
+            "subject": "Q4 VIP 14-Day Retention Grace Notice - Vanguard Garment Distributors (ACC-1004)",
+            "body": "Dear David Chen,\n\nWe are writing regarding Vanguard Garment Distributors (Account ID: ACC-1004). Under the Q4 VIP Retention Protection Clause, your account qualifies for protection based on your annual spend of $16,200. You have been granted a 14-day split-settlement retention grace period for your overdue balance of $1,850. Your credit limit is preserved at $10,000 with 0% cut, and your account status has been updated to 'Retention Grace (14-Day)'. Please arrange settlement within the 14-day grace window.\n\nSincerely,\nVeloura Corporate Treasury & Risk Compliance",
             "metadata": {
-              "applied_rule": "Mandatory 25% Credit Limit Reduction & Credit Hold Enforcement",
+              "applied_rule": "Apply Q4 VIP 14-Day Retention Grace Rule to High-Spend/Gold Accounts (ACC-1004)",
+              "row_identifier": "ACC-1004",
+              "option_id": "Option_2"
+            }
+          },
+          {
+            "recipient_email": "cbennett@pinecrestdrygoods.com",
+            "customer_identifier": "Chloe Bennett",
+            "subject": "Credit Hold and Credit Limit Reduction Notice - Pinecrest Dry Goods (ACC-1008)",
+            "body": "Dear Chloe Bennett,\n\nWe are writing regarding Pinecrest Dry Goods (Account ID: ACC-1008). Due to an outstanding overdue balance of $450 and in accordance with our Finance Credit Control Policy, your account has been placed on 'Credit Hold' and your credit limit has been reduced by 25% from $3,500 to $2,625. Please settle your overdue balance immediately to lift the credit hold.\n\nSincerely,\nVeloura Corporate Treasury & Risk Compliance",
+            "metadata": {
+              "applied_rule": "Enforce Strict -25% Cut & Credit Hold on Standard Overdue Accounts (ACC-1008)",
               "row_identifier": "ACC-1008",
               "option_id": "Option_2"
             }
           },
           {
             "recipient_email": "pnair@crestviewstores.com",
-            "customer_identifier": "Priya Nair (ACC-1009)",
-            "subject": "Credit Control Notice: Credit Hold and Limit Reduction - Crestview Department Stores (ACC-1009)",
-            "body": "Dear Priya Nair, under Finance Credit Control Policy FIN-POL-008 Section 5, your account Crestview Department Stores (ACC-1009) is placed on Credit Hold due to an unpaid overdue balance of $920. Additionally, your credit limit has been reduced by 25% from $7,200 to $5,400.",
+            "customer_identifier": "Priya Nair",
+            "subject": "Credit Hold and Credit Limit Reduction Notice - Crestview Department Stores (ACC-1009)",
+            "body": "Dear Priya Nair,\n\nWe are writing regarding Crestview Department Stores (Account ID: ACC-1009). Due to an outstanding overdue balance of $920 and in accordance with our Finance Credit Control Policy, your account has been placed on 'Credit Hold' and your credit limit has been reduced by 25% from $7,200 to $5,400. Please settle your overdue balance immediately to lift the credit hold.\n\nSincerely,\nVeloura Corporate Treasury & Risk Compliance",
             "metadata": {
-              "applied_rule": "Mandatory 25% Credit Limit Reduction & Credit Hold Enforcement",
+              "applied_rule": "Enforce Strict -25% Cut & Credit Hold on Standard Overdue Accounts (ACC-1009)",
               "row_identifier": "ACC-1009",
               "option_id": "Option_2"
             }
           },
           {
             "recipient_email": "nbrooks@redstoneguild.com",
-            "customer_identifier": "Nathan Brooks (ACC-1016)",
-            "subject": "Credit Control Notice: Credit Hold and Limit Reduction - Redstone Menswear Guild (ACC-1016)",
-            "body": "Dear Nathan Brooks, under Finance Credit Control Policy FIN-POL-008 Section 5, your account Redstone Menswear Guild (ACC-1016) is placed on Credit Hold due to an unpaid overdue balance of $310. Additionally, your credit limit has been reduced by 25% from $2,500 to $1,875.",
+            "customer_identifier": "Nathan Brooks",
+            "subject": "Credit Hold and Credit Limit Reduction Notice - Redstone Menswear Guild (ACC-1016)",
+            "body": "Dear Nathan Brooks,\n\nWe are writing regarding Redstone Menswear Guild (Account ID: ACC-1016). Due to an outstanding overdue balance of $310 and in accordance with our Finance Credit Control Policy, your account has been placed on 'Credit Hold' and your credit limit has been reduced by 25% from $2,500 to $1,875. Please settle your overdue balance immediately to lift the credit hold.\n\nSincerely,\nVeloura Corporate Treasury & Risk Compliance",
             "metadata": {
-              "applied_rule": "Mandatory 25% Credit Limit Reduction & Credit Hold Enforcement",
+              "applied_rule": "Enforce Strict -25% Cut & Credit Hold on Standard Overdue Accounts (ACC-1016)",
               "row_identifier": "ACC-1016",
-              "option_id": "Option_2"
-            }
-          },
-          {
-            "recipient_email": "dchen@vanguardgarments.com",
-            "customer_identifier": "David Chen (ACC-1004)",
-            "subject": "Q4 VIP 14-Day Retention Grace Notice - Vanguard Garment Distributors (ACC-1004)",
-            "body": "Dear David Chen, pursuant to the Q4 VIP Expansion Brief, your account Vanguard Garment Distributors (ACC-1004) has been granted the 14-Day Retention Grace status regarding your outstanding overdue balance of $1,850. Your credit limit is preserved at $10,000 without reduction.",
-            "metadata": {
-              "applied_rule": "Q4 VIP 14-Day Retention Grace Rule",
-              "row_identifier": "ACC-1004",
               "option_id": "Option_2"
             }
           }
@@ -1630,188 +1180,196 @@
         "citations": [
           {
             "source_type": "document",
-            "source_name": "Finance Credit Control Policy.pdf",
-            "locator": "Page 1, Chunk 4",
-            "excerpt": "Header & Metadata selected prior to executing database mutations or dispatching partner communications. 5. Section 5 -- Overdue Receivables Audit, Mandatory 25% Credit Limit Reduction & Credit Hold Enforcement When the operator instructs the system to audit all wholesale accounts in wholesale_accunts_dataset.csv with o"
-          },
-          {
-            "source_type": "document",
             "source_name": "Q4 VIP Expansion Brief.pdf",
-            "locator": "Page 2, Chunk 5",
-            "excerpt": "Standard overdue accounts with current_tier = \"Silver\" and annual_spend < USD 15,000 -- specifically ACC-1008 ($6,200 spend, $450 overdue), ACC-1009 ($11,500 spend, $920 overdue), and ACC-1016 ($4,800 spend, $310 overdue) -- do NOT qualify for Q4 VIP Retention protection and are always subject to the strict -25% credit"
+            "locator": "VELOURA COMMERCIAL DISTRIBUTION * EXECUTIVE DIRECTIVE - Q4 VIP WHOLESALE TIER EXPANSION & PARTNER RETENTION BRIEF / Page 2 / Chunk 6",
+            "breadcrumb_header": "[Document: Q4 VIP WHOLESALE TIER EXPANSION & PARTNER RETENTION BRIEF | Section: VELOURA COMMERCIAL DISTRIBUTION * EXECUTIVE DIRECTIVE - Q4 VIP WHOLESALE TIER EXPANSION & PARTNER RETENTION BRIEF | Applies to: ACC-1007, ACC-1008, ACC-1009, ACC-1016, FIN-POL-008, DIR-COM-2026-Q4, ACC-1004, 25%]",
+            "excerpt": "VELOURA COMMERCIAL DISTRIBUTION * EXECUTIVE DIRECTIVE - Q4 VIP WHOLESALE TIER EXPANSION & PARTNER RETENTION BRIEF - ACC-1007 (Monarch Textile Traders, Account Manager: Tariq Al-Mansoor, Gold, annual_spend = $34,000 >= $15,000, overdue_balance = $1,200, credit_limit = $25,000) Standard overdue accounts with current_tier"
           },
           {
             "source_type": "document",
             "source_name": "Finance Credit Control Policy.pdf",
-            "locator": "Page 2, Chunk 6",
-            "excerpt": "Header & Metadata All 11 accounts with overdue_balance = 0 MUST be excluded from the overdue audit. 5.2 Mandatory Underwriting Penalty (25% Credit Limit Cut & Credit Hold): Under strict Finance Credit Control rules, every account with overdue_balance > 0 is subject to an immediate 25% reduction in credit_limit (new cre"
+            "locator": "VELOURA CORPORATE TREASURY & RISK COMPLIANCE - FINANCE CREDIT CONTROL & UNDERWRITING POLICY / Page 2 / Chunk 6",
+            "breadcrumb_header": "[Document: FINANCE CREDIT CONTROL & UNDERWRITING POLICY | Section: VELOURA CORPORATE TREASURY & RISK COMPLIANCE - FINANCE CREDIT CONTROL & UNDERWRITING POLICY | Applies to: _row_ids = [\"ACC-1004\", \"ACC-1007\", \"ACC-1008\", \"ACC-1009\", \"ACC-1016\"], conflicting_row_ids = [\"ACC-1004\",, ACC-1004, ACC-1007, ACC-1008, ACC-1009, ACC-1016, ACC-1001, ACC-1005]",
+            "excerpt": "VELOURA CORPORATE TREASURY & RISK COMPLIANCE - FINANCE CREDIT CONTROL & UNDERWRITING POLICY Select ALL wholesale accounts in wholesale_accunts_dataset.csv where overdue_balance > 0 (regardless of whether current_tier is Silver or Gold). In the canonical registry, exactly 5 accounts have overdue_balance > 0: - ACC-1004 "
+          },
+          {
+            "source_type": "document",
+            "source_name": "Finance Credit Control Policy.pdf",
+            "locator": "4. Audit Trail & Provenance Requirements / Page 1 / Chunk 5",
+            "breadcrumb_header": "[Document: FINANCE CREDIT CONTROL & UNDERWRITING POLICY | Section: 4. Audit Trail & Provenance Requirements | Applies to: Overdue Audit Filter (5 Qualifying Overdue Accounts):, FIN-POL-008, 25%, Policy Code: FIN-POL-008 (Rev]",
+            "excerpt": "4. Audit Trail & Provenance Requirements All credit control interventions must log the exact account_id, company_name, account_manager, annual_spend, overdue_balance, and the specific resolution option selected prior to executing database mutations or dispatching partner communications. 5. Section 5 -- Overdue Receivab"
           },
           {
             "source_type": "document",
             "source_name": "Q4 VIP Expansion Brief.pdf",
-            "locator": "Page 1, Chunk 3",
-            "excerpt": "Header & Metadata Limit: +25% Expansion (Subject to FIN-POL-008 Section 3.2) | Restock Priority: 24h SLA. 4. Account Manager Notification Standards Every outbound partner email must greet the designated Account Manager by name, reference their company_name and account_id, and state their updated tier, credit_limit, acc"
+            "locator": "4. Account Manager Notification Standards / Page 1 / Chunk 5",
+            "breadcrumb_header": "[Document: Q4 VIP WHOLESALE TIER EXPANSION & PARTNER RETENTION BRIEF | Section: 4. Account Manager Notification Standards | Applies to: FIN-POL-008, ACC-1004, DIR-COM-2026-Q4, > 0, >= $15,000,, Document ID: DIR-COM-2026-Q4 (Rev]",
+            "excerpt": "4. Account Manager Notification Standards Every outbound partner email must greet the designated Account Manager by name, reference their company_name and account_id, and state their updated tier, credit_limit, account_status, and any required arrears settlement action. 5. Section 5 -- Q4 VIP Retention Protection Claus"
           },
           {
             "source_type": "table",
             "source_name": "wholesale_accunts_dataset",
             "locator": "Row ACC-1007",
-            "excerpt": "account_id=ACC-1007, company_name=Monarch Textile Traders, account_manager=Tariq Al-Mansoor, contact_email=talmansoor@monarchtextile.ae, region=MENA, current_tier=Gold, annual_spend=34000, overdue_balance=1200, credit_limit=25000, account_status=Active, last_payment_date=\"2026-09-18T18:00:00.000Z\""
-          },
-          {
-            "source_type": "table",
-            "source_name": "wholesale_accunts_dataset",
-            "locator": "Row ACC-1008",
-            "excerpt": "account_id=ACC-1008, company_name=Pinecrest Dry Goods, account_manager=Chloe Bennett, contact_email=cbennett@pinecrestdrygoods.com, region=North America, current_tier=Silver, annual_spend=6200, overdue_balance=450, credit_limit=3500, account_status=Active, last_payment_date=\"2026-09-04T18:00:00.000Z\""
-          },
-          {
-            "source_type": "table",
-            "source_name": "wholesale_accunts_dataset",
-            "locator": "Row ACC-1009",
-            "excerpt": "account_id=ACC-1009, company_name=Crestview Department Stores, account_manager=Priya Nair, contact_email=pnair@crestviewstores.com, region=North America, current_tier=Silver, annual_spend=11500, overdue_balance=920, credit_limit=7200, account_status=Active, last_payment_date=\"2026-09-01T18:00:00.000Z\""
-          },
-          {
-            "source_type": "table",
-            "source_name": "wholesale_accunts_dataset",
-            "locator": "Row ACC-1016",
-            "excerpt": "account_id=ACC-1016, company_name=Redstone Menswear Guild, account_manager=Nathan Brooks, contact_email=nbrooks@redstoneguild.com, region=North America, current_tier=Silver, annual_spend=4800, overdue_balance=310, credit_limit=2500, account_status=Active, last_payment_date=\"2026-08-28T18:00:00.000Z\""
+            "excerpt": "account_id=ACC-1007, company_name=Monarch Textile Traders, account_manager=Tariq Al-Mansoor, region=MENA, current_tier=Gold, annual_spend=34000, overdue_balance=1200, credit_limit=25000, account_status=Active, last_payment_date=\"2026-09-18T18:00:00.000Z\""
           },
           {
             "source_type": "table",
             "source_name": "wholesale_accunts_dataset",
             "locator": "Row ACC-1004",
-            "excerpt": "account_id=ACC-1004, company_name=Vanguard Garment Distributors, account_manager=David Chen, contact_email=dchen@vanguardgarments.com, region=APAC, current_tier=Silver, annual_spend=16200, overdue_balance=1850, credit_limit=10000, account_status=Active, last_payment_date=\"2026-08-13T18:00:00.000Z\""
+            "excerpt": "account_id=ACC-1004, company_name=Vanguard Garment Distributors, account_manager=David Chen, region=APAC, current_tier=Silver, annual_spend=16200, overdue_balance=1850, credit_limit=10000, account_status=Active, last_payment_date=\"2026-08-13T18:00:00.000Z\""
+          },
+          {
+            "source_type": "table",
+            "source_name": "wholesale_accunts_dataset",
+            "locator": "Row ACC-1008",
+            "excerpt": "account_id=ACC-1008, company_name=Pinecrest Dry Goods, account_manager=Chloe Bennett, region=North America, current_tier=Silver, annual_spend=6200, overdue_balance=450, credit_limit=3500, account_status=Active, last_payment_date=\"2026-09-04T18:00:00.000Z\""
+          },
+          {
+            "source_type": "table",
+            "source_name": "wholesale_accunts_dataset",
+            "locator": "Row ACC-1016",
+            "excerpt": "account_id=ACC-1016, company_name=Redstone Menswear Guild, account_manager=Nathan Brooks, region=North America, current_tier=Silver, annual_spend=4800, overdue_balance=310, credit_limit=2500, account_status=Active, last_payment_date=\"2026-08-28T18:00:00.000Z\""
+          },
+          {
+            "source_type": "table",
+            "source_name": "wholesale_accunts_dataset",
+            "locator": "Row ACC-1009",
+            "excerpt": "account_id=ACC-1009, company_name=Crestview Department Stores, account_manager=Priya Nair, region=North America, current_tier=Silver, annual_spend=11500, overdue_balance=920, credit_limit=7200, account_status=Active, last_payment_date=\"2026-09-01T18:00:00.000Z\""
           }
         ]
       },
       "turn3": {
         "http": 200,
-        "latency_ms": 567,
+        "latency_ms": 618,
         "status": "EXECUTED",
-        "workflow_id": "88352a78-d1e6-4722-8f11-b0333d02f07e",
+        "workflow_id": "972e4f03-bcb9-42b2-8ebc-218ed6623327",
         "updated_rows_count": 5,
         "dispatched_emails_count": 5,
         "dispatched_emails": [
           {
             "to": "talmansoor@monarchtextile.ae",
-            "customer_identifier": "Tariq Al-Mansoor (ACC-1007)",
+            "customer_identifier": "Tariq Al-Mansoor",
             "subject": "Q4 VIP 14-Day Retention Grace Notice - Monarch Textile Traders (ACC-1007)",
-            "text": "Dear Tariq Al-Mansoor, pursuant to the Q4 VIP Expansion Brief, your account Monarch Textile Traders (ACC-1007) has been granted the 14-Day Retention Grace status regarding your outstanding overdue balance of $1,200. Your credit limit is preserved at $25,000 without reduction.",
+            "text": "Dear Tariq Al-Mansoor,\n\nWe are writing regarding Monarch Textile Traders (Account ID: ACC-1007). Under the Q4 VIP Retention Protection Clause, your account has been granted a 14-day split-settlement retention grace period regarding your overdue balance of $1,200. Your current tier is Gold, annual spend is $34,000, credit limit is preserved at $25,000 with 0% cut, and your account status has been updated to 'Retention Grace (14-Day)'. Please arrange settlement within the 14-day window to maintain uninterrupted operations.\n\nSincerely,\nVeloura Corporate Treasury & Risk Compliance",
             "metadata": {
-              "applied_rule": "Q4 VIP 14-Day Retention Grace Rule",
+              "applied_rule": "Apply Q4 VIP 14-Day Retention Grace Rule to High-Spend/Gold Accounts (ACC-1007)",
               "row_identifier": "ACC-1007",
               "option_id": "Option_2"
             },
-            "dispatched_at": "2026-11-10T13:44:19.022Z",
-            "delivery_mode": "dry_run"
-          },
-          {
-            "to": "cbennett@pinecrestdrygoods.com",
-            "customer_identifier": "Chloe Bennett (ACC-1008)",
-            "subject": "Credit Control Notice: Credit Hold and Limit Reduction - Pinecrest Dry Goods (ACC-1008)",
-            "text": "Dear Chloe Bennett, under Finance Credit Control Policy FIN-POL-008 Section 5, your account Pinecrest Dry Goods (ACC-1008) is placed on Credit Hold due to an unpaid overdue balance of $450. Additionally, your credit limit has been reduced by 25% from $3,500 to $2,625.",
-            "metadata": {
-              "applied_rule": "Mandatory 25% Credit Limit Reduction & Credit Hold Enforcement",
-              "row_identifier": "ACC-1008",
-              "option_id": "Option_2"
-            },
-            "dispatched_at": "2026-11-10T13:44:19.022Z",
-            "delivery_mode": "dry_run"
-          },
-          {
-            "to": "pnair@crestviewstores.com",
-            "customer_identifier": "Priya Nair (ACC-1009)",
-            "subject": "Credit Control Notice: Credit Hold and Limit Reduction - Crestview Department Stores (ACC-1009)",
-            "text": "Dear Priya Nair, under Finance Credit Control Policy FIN-POL-008 Section 5, your account Crestview Department Stores (ACC-1009) is placed on Credit Hold due to an unpaid overdue balance of $920. Additionally, your credit limit has been reduced by 25% from $7,200 to $5,400.",
-            "metadata": {
-              "applied_rule": "Mandatory 25% Credit Limit Reduction & Credit Hold Enforcement",
-              "row_identifier": "ACC-1009",
-              "option_id": "Option_2"
-            },
-            "dispatched_at": "2026-11-10T13:44:19.022Z",
-            "delivery_mode": "dry_run"
-          },
-          {
-            "to": "nbrooks@redstoneguild.com",
-            "customer_identifier": "Nathan Brooks (ACC-1016)",
-            "subject": "Credit Control Notice: Credit Hold and Limit Reduction - Redstone Menswear Guild (ACC-1016)",
-            "text": "Dear Nathan Brooks, under Finance Credit Control Policy FIN-POL-008 Section 5, your account Redstone Menswear Guild (ACC-1016) is placed on Credit Hold due to an unpaid overdue balance of $310. Additionally, your credit limit has been reduced by 25% from $2,500 to $1,875.",
-            "metadata": {
-              "applied_rule": "Mandatory 25% Credit Limit Reduction & Credit Hold Enforcement",
-              "row_identifier": "ACC-1016",
-              "option_id": "Option_2"
-            },
-            "dispatched_at": "2026-11-10T13:44:19.022Z",
+            "dispatched_at": "2026-11-12T17:04:23.101Z",
             "delivery_mode": "dry_run"
           },
           {
             "to": "dchen@vanguardgarments.com",
-            "customer_identifier": "David Chen (ACC-1004)",
+            "customer_identifier": "David Chen",
             "subject": "Q4 VIP 14-Day Retention Grace Notice - Vanguard Garment Distributors (ACC-1004)",
-            "text": "Dear David Chen, pursuant to the Q4 VIP Expansion Brief, your account Vanguard Garment Distributors (ACC-1004) has been granted the 14-Day Retention Grace status regarding your outstanding overdue balance of $1,850. Your credit limit is preserved at $10,000 without reduction.",
+            "text": "Dear David Chen,\n\nWe are writing regarding Vanguard Garment Distributors (Account ID: ACC-1004). Under the Q4 VIP Retention Protection Clause, your account qualifies for protection based on your annual spend of $16,200. You have been granted a 14-day split-settlement retention grace period for your overdue balance of $1,850. Your credit limit is preserved at $10,000 with 0% cut, and your account status has been updated to 'Retention Grace (14-Day)'. Please arrange settlement within the 14-day grace window.\n\nSincerely,\nVeloura Corporate Treasury & Risk Compliance",
             "metadata": {
-              "applied_rule": "Q4 VIP 14-Day Retention Grace Rule",
+              "applied_rule": "Apply Q4 VIP 14-Day Retention Grace Rule to High-Spend/Gold Accounts (ACC-1004)",
               "row_identifier": "ACC-1004",
               "option_id": "Option_2"
             },
-            "dispatched_at": "2026-11-10T13:44:19.022Z",
+            "dispatched_at": "2026-11-12T17:04:23.101Z",
+            "delivery_mode": "dry_run"
+          },
+          {
+            "to": "cbennett@pinecrestdrygoods.com",
+            "customer_identifier": "Chloe Bennett",
+            "subject": "Credit Hold and Credit Limit Reduction Notice - Pinecrest Dry Goods (ACC-1008)",
+            "text": "Dear Chloe Bennett,\n\nWe are writing regarding Pinecrest Dry Goods (Account ID: ACC-1008). Due to an outstanding overdue balance of $450 and in accordance with our Finance Credit Control Policy, your account has been placed on 'Credit Hold' and your credit limit has been reduced by 25% from $3,500 to $2,625. Please settle your overdue balance immediately to lift the credit hold.\n\nSincerely,\nVeloura Corporate Treasury & Risk Compliance",
+            "metadata": {
+              "applied_rule": "Enforce Strict -25% Cut & Credit Hold on Standard Overdue Accounts (ACC-1008)",
+              "row_identifier": "ACC-1008",
+              "option_id": "Option_2"
+            },
+            "dispatched_at": "2026-11-12T17:04:23.101Z",
+            "delivery_mode": "dry_run"
+          },
+          {
+            "to": "pnair@crestviewstores.com",
+            "customer_identifier": "Priya Nair",
+            "subject": "Credit Hold and Credit Limit Reduction Notice - Crestview Department Stores (ACC-1009)",
+            "text": "Dear Priya Nair,\n\nWe are writing regarding Crestview Department Stores (Account ID: ACC-1009). Due to an outstanding overdue balance of $920 and in accordance with our Finance Credit Control Policy, your account has been placed on 'Credit Hold' and your credit limit has been reduced by 25% from $7,200 to $5,400. Please settle your overdue balance immediately to lift the credit hold.\n\nSincerely,\nVeloura Corporate Treasury & Risk Compliance",
+            "metadata": {
+              "applied_rule": "Enforce Strict -25% Cut & Credit Hold on Standard Overdue Accounts (ACC-1009)",
+              "row_identifier": "ACC-1009",
+              "option_id": "Option_2"
+            },
+            "dispatched_at": "2026-11-12T17:04:23.101Z",
+            "delivery_mode": "dry_run"
+          },
+          {
+            "to": "nbrooks@redstoneguild.com",
+            "customer_identifier": "Nathan Brooks",
+            "subject": "Credit Hold and Credit Limit Reduction Notice - Redstone Menswear Guild (ACC-1016)",
+            "text": "Dear Nathan Brooks,\n\nWe are writing regarding Redstone Menswear Guild (Account ID: ACC-1016). Due to an outstanding overdue balance of $310 and in accordance with our Finance Credit Control Policy, your account has been placed on 'Credit Hold' and your credit limit has been reduced by 25% from $2,500 to $1,875. Please settle your overdue balance immediately to lift the credit hold.\n\nSincerely,\nVeloura Corporate Treasury & Risk Compliance",
+            "metadata": {
+              "applied_rule": "Enforce Strict -25% Cut & Credit Hold on Standard Overdue Accounts (ACC-1016)",
+              "row_identifier": "ACC-1016",
+              "option_id": "Option_2"
+            },
+            "dispatched_at": "2026-11-12T17:04:23.101Z",
             "delivery_mode": "dry_run"
           }
         ],
         "citations": [
           {
             "source_type": "document",
-            "source_name": "Finance Credit Control Policy.pdf",
-            "locator": "Page 1, Chunk 4",
-            "excerpt": "Header & Metadata selected prior to executing database mutations or dispatching partner communications. 5. Section 5 -- Overdue Receivables Audit, Mandatory 25% Credit Limit Reduction & Credit Hold Enforcement When the operator instructs the system to audit all wholesale accounts in wholesale_accunts_dataset.csv with o"
-          },
-          {
-            "source_type": "document",
             "source_name": "Q4 VIP Expansion Brief.pdf",
-            "locator": "Page 2, Chunk 5",
-            "excerpt": "Standard overdue accounts with current_tier = \"Silver\" and annual_spend < USD 15,000 -- specifically ACC-1008 ($6,200 spend, $450 overdue), ACC-1009 ($11,500 spend, $920 overdue), and ACC-1016 ($4,800 spend, $310 overdue) -- do NOT qualify for Q4 VIP Retention protection and are always subject to the strict -25% credit"
+            "locator": "VELOURA COMMERCIAL DISTRIBUTION * EXECUTIVE DIRECTIVE - Q4 VIP WHOLESALE TIER EXPANSION & PARTNER RETENTION BRIEF / Page 2 / Chunk 6",
+            "breadcrumb_header": "[Document: Q4 VIP WHOLESALE TIER EXPANSION & PARTNER RETENTION BRIEF | Section: VELOURA COMMERCIAL DISTRIBUTION * EXECUTIVE DIRECTIVE - Q4 VIP WHOLESALE TIER EXPANSION & PARTNER RETENTION BRIEF | Applies to: ACC-1007, ACC-1008, ACC-1009, ACC-1016, FIN-POL-008, DIR-COM-2026-Q4, ACC-1004, 25%]",
+            "excerpt": "VELOURA COMMERCIAL DISTRIBUTION * EXECUTIVE DIRECTIVE - Q4 VIP WHOLESALE TIER EXPANSION & PARTNER RETENTION BRIEF - ACC-1007 (Monarch Textile Traders, Account Manager: Tariq Al-Mansoor, Gold, annual_spend = $34,000 >= $15,000, overdue_balance = $1,200, credit_limit = $25,000) Standard overdue accounts with current_tier"
           },
           {
             "source_type": "document",
             "source_name": "Finance Credit Control Policy.pdf",
-            "locator": "Page 2, Chunk 6",
-            "excerpt": "Header & Metadata All 11 accounts with overdue_balance = 0 MUST be excluded from the overdue audit. 5.2 Mandatory Underwriting Penalty (25% Credit Limit Cut & Credit Hold): Under strict Finance Credit Control rules, every account with overdue_balance > 0 is subject to an immediate 25% reduction in credit_limit (new cre"
+            "locator": "VELOURA CORPORATE TREASURY & RISK COMPLIANCE - FINANCE CREDIT CONTROL & UNDERWRITING POLICY / Page 2 / Chunk 6",
+            "breadcrumb_header": "[Document: FINANCE CREDIT CONTROL & UNDERWRITING POLICY | Section: VELOURA CORPORATE TREASURY & RISK COMPLIANCE - FINANCE CREDIT CONTROL & UNDERWRITING POLICY | Applies to: _row_ids = [\"ACC-1004\", \"ACC-1007\", \"ACC-1008\", \"ACC-1009\", \"ACC-1016\"], conflicting_row_ids = [\"ACC-1004\",, ACC-1004, ACC-1007, ACC-1008, ACC-1009, ACC-1016, ACC-1001, ACC-1005]",
+            "excerpt": "VELOURA CORPORATE TREASURY & RISK COMPLIANCE - FINANCE CREDIT CONTROL & UNDERWRITING POLICY Select ALL wholesale accounts in wholesale_accunts_dataset.csv where overdue_balance > 0 (regardless of whether current_tier is Silver or Gold). In the canonical registry, exactly 5 accounts have overdue_balance > 0: - ACC-1004 "
+          },
+          {
+            "source_type": "document",
+            "source_name": "Finance Credit Control Policy.pdf",
+            "locator": "4. Audit Trail & Provenance Requirements / Page 1 / Chunk 5",
+            "breadcrumb_header": "[Document: FINANCE CREDIT CONTROL & UNDERWRITING POLICY | Section: 4. Audit Trail & Provenance Requirements | Applies to: Overdue Audit Filter (5 Qualifying Overdue Accounts):, FIN-POL-008, 25%, Policy Code: FIN-POL-008 (Rev]",
+            "excerpt": "4. Audit Trail & Provenance Requirements All credit control interventions must log the exact account_id, company_name, account_manager, annual_spend, overdue_balance, and the specific resolution option selected prior to executing database mutations or dispatching partner communications. 5. Section 5 -- Overdue Receivab"
           },
           {
             "source_type": "document",
             "source_name": "Q4 VIP Expansion Brief.pdf",
-            "locator": "Page 1, Chunk 3",
-            "excerpt": "Header & Metadata Limit: +25% Expansion (Subject to FIN-POL-008 Section 3.2) | Restock Priority: 24h SLA. 4. Account Manager Notification Standards Every outbound partner email must greet the designated Account Manager by name, reference their company_name and account_id, and state their updated tier, credit_limit, acc"
+            "locator": "4. Account Manager Notification Standards / Page 1 / Chunk 5",
+            "breadcrumb_header": "[Document: Q4 VIP WHOLESALE TIER EXPANSION & PARTNER RETENTION BRIEF | Section: 4. Account Manager Notification Standards | Applies to: FIN-POL-008, ACC-1004, DIR-COM-2026-Q4, > 0, >= $15,000,, Document ID: DIR-COM-2026-Q4 (Rev]",
+            "excerpt": "4. Account Manager Notification Standards Every outbound partner email must greet the designated Account Manager by name, reference their company_name and account_id, and state their updated tier, credit_limit, account_status, and any required arrears settlement action. 5. Section 5 -- Q4 VIP Retention Protection Claus"
           },
           {
             "source_type": "table",
             "source_name": "wholesale_accunts_dataset",
             "locator": "Row ACC-1007",
-            "excerpt": "account_id=ACC-1007, company_name=Monarch Textile Traders, account_manager=Tariq Al-Mansoor, contact_email=talmansoor@monarchtextile.ae, region=MENA, current_tier=Gold, annual_spend=34000, overdue_balance=1200, credit_limit=25000, account_status=Active, last_payment_date=\"2026-09-18T18:00:00.000Z\""
-          },
-          {
-            "source_type": "table",
-            "source_name": "wholesale_accunts_dataset",
-            "locator": "Row ACC-1008",
-            "excerpt": "account_id=ACC-1008, company_name=Pinecrest Dry Goods, account_manager=Chloe Bennett, contact_email=cbennett@pinecrestdrygoods.com, region=North America, current_tier=Silver, annual_spend=6200, overdue_balance=450, credit_limit=3500, account_status=Active, last_payment_date=\"2026-09-04T18:00:00.000Z\""
-          },
-          {
-            "source_type": "table",
-            "source_name": "wholesale_accunts_dataset",
-            "locator": "Row ACC-1009",
-            "excerpt": "account_id=ACC-1009, company_name=Crestview Department Stores, account_manager=Priya Nair, contact_email=pnair@crestviewstores.com, region=North America, current_tier=Silver, annual_spend=11500, overdue_balance=920, credit_limit=7200, account_status=Active, last_payment_date=\"2026-09-01T18:00:00.000Z\""
-          },
-          {
-            "source_type": "table",
-            "source_name": "wholesale_accunts_dataset",
-            "locator": "Row ACC-1016",
-            "excerpt": "account_id=ACC-1016, company_name=Redstone Menswear Guild, account_manager=Nathan Brooks, contact_email=nbrooks@redstoneguild.com, region=North America, current_tier=Silver, annual_spend=4800, overdue_balance=310, credit_limit=2500, account_status=Active, last_payment_date=\"2026-08-28T18:00:00.000Z\""
+            "excerpt": "account_id=ACC-1007, company_name=Monarch Textile Traders, account_manager=Tariq Al-Mansoor, region=MENA, current_tier=Gold, annual_spend=34000, overdue_balance=1200, credit_limit=25000, account_status=Active, last_payment_date=\"2026-09-18T18:00:00.000Z\""
           },
           {
             "source_type": "table",
             "source_name": "wholesale_accunts_dataset",
             "locator": "Row ACC-1004",
-            "excerpt": "account_id=ACC-1004, company_name=Vanguard Garment Distributors, account_manager=David Chen, contact_email=dchen@vanguardgarments.com, region=APAC, current_tier=Silver, annual_spend=16200, overdue_balance=1850, credit_limit=10000, account_status=Active, last_payment_date=\"2026-08-13T18:00:00.000Z\""
+            "excerpt": "account_id=ACC-1004, company_name=Vanguard Garment Distributors, account_manager=David Chen, region=APAC, current_tier=Silver, annual_spend=16200, overdue_balance=1850, credit_limit=10000, account_status=Active, last_payment_date=\"2026-08-13T18:00:00.000Z\""
+          },
+          {
+            "source_type": "table",
+            "source_name": "wholesale_accunts_dataset",
+            "locator": "Row ACC-1008",
+            "excerpt": "account_id=ACC-1008, company_name=Pinecrest Dry Goods, account_manager=Chloe Bennett, region=North America, current_tier=Silver, annual_spend=6200, overdue_balance=450, credit_limit=3500, account_status=Active, last_payment_date=\"2026-09-04T18:00:00.000Z\""
+          },
+          {
+            "source_type": "table",
+            "source_name": "wholesale_accunts_dataset",
+            "locator": "Row ACC-1016",
+            "excerpt": "account_id=ACC-1016, company_name=Redstone Menswear Guild, account_manager=Nathan Brooks, region=North America, current_tier=Silver, annual_spend=4800, overdue_balance=310, credit_limit=2500, account_status=Active, last_payment_date=\"2026-08-28T18:00:00.000Z\""
+          },
+          {
+            "source_type": "table",
+            "source_name": "wholesale_accunts_dataset",
+            "locator": "Row ACC-1009",
+            "excerpt": "account_id=ACC-1009, company_name=Crestview Department Stores, account_manager=Priya Nair, region=North America, current_tier=Silver, annual_spend=11500, overdue_balance=920, credit_limit=7200, account_status=Active, last_payment_date=\"2026-09-01T18:00:00.000Z\""
           }
         ]
       },
@@ -1876,6 +1434,18 @@
     }
   ],
   "baseline_restored": true,
-  "failures": [],
-  "finished_at": "2026-11-10T13:44:21.532Z"
+  "failures": [
+    "[S1] >= 2 Socratic options",
+    "[S1] Mutates exactly 1015/1017/1018/1020 (got )",
+    "[S1] 4 customer emails (got undefined)",
+    "[S1] Turn 3 EXECUTED, 4 rows updated",
+    "[S1] DB: 4 targeted rows now B-501",
+    "[S2] >= 2 Socratic options",
+    "[S2] products: 1 row, size sum -> 10 (got )",
+    "[S2] backorders_dataset: 6 rows mutated (got 0)",
+    "[S2] 6 buyer emails (got undefined)",
+    "[S2] Turn 3 EXECUTED, 7 rows updated across 2 tables (got undefined)",
+    "[S2] DB: Classic Short-Sleeve Polo stock = 10"
+  ],
+  "finished_at": "2026-11-12T17:04:30.168Z"
 }

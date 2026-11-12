@@ -9,6 +9,14 @@ const {
 } = require('./crossRagService');
 const { retrieveHybridDocumentChunks } = require('./crossRagService');
 const { findColumnDef, quoteIdentifier, validateFilter, validateSort } = require('./sheetSchemaService');
+const {
+  normalizeConversationHistory,
+  getLatestActiveContext,
+  hasFollowUpReference,
+  hasExplicitScopeReset,
+  formatConversationHistoryForPrompt,
+  resolveIdentifierFilterForIds,
+} = require('../utils/conversationHistory');
 
 const READ_PLAN_SCHEMA = {
   type: 'OBJECT',
@@ -540,9 +548,25 @@ async function executeReadQuery(businessId, plan) {
   };
 }
 
-async function generateCrossSourceReadAnswer({ businessId, prompt, targetEntities = [] }) {
+async function generateCrossSourceReadAnswer({
+  businessId,
+  prompt,
+  targetEntities = [],
+  conversationHistory = [],
+}) {
+  const normalizedHistory = normalizeConversationHistory(conversationHistory);
+  const activeCtx = getLatestActiveContext(
+    normalizedHistory,
+    Array.isArray(targetEntities) && targetEntities.length > 0 ? targetEntities[0] : null
+  );
+  const effectiveTargetEntities =
+    Array.isArray(targetEntities) && targetEntities.length > 0
+      ? targetEntities
+      : activeCtx.activeTargetTable
+        ? [activeCtx.activeTargetTable]
+        : [];
   const { tables } = await discoverWorkspaceSources(businessId, {
-    targetEntities,
+    targetEntities: effectiveTargetEntities,
     includeRows: false,
   });
   const chunks = await retrieveHybridDocumentChunks(businessId, prompt, {
@@ -557,6 +581,11 @@ async function generateCrossSourceReadAnswer({ businessId, prompt, targetEntitie
       citations: [],
     };
   }
+
+  const formattedHistory = formatConversationHistoryForPrompt(normalizedHistory);
+  const historySection = formattedHistory
+    ? `\nCONVERSATION CONTEXT (last ${normalizedHistory.length} turn(s); prior active table: ${activeCtx.activeTargetTable || 'none'}; prior matched_row_ids: ${JSON.stringify((activeCtx.matchedRowIds || []).slice(0, 40))}; prior filter summary: ${JSON.stringify(activeCtx.appliedFilterSummary || '')}):\n${formattedHistory}\n- FOLLOW-UP CHAINING RULE: If LATEST USER REQUEST uses pronouns/narrowing cues ("those", "them", "these", "of those", "only the ones...") referring to prior results on ${activeCtx.activeTargetTable || 'a prior table'}, chain the prior active filters/matched_row_ids with any new filter conditions.\n`
+    : '';
 
   const planPrompt = `Create a read-only query plan for the latest user request using only these active workspace sources.
 Return structured JSON only. Never return SQL.
@@ -589,7 +618,7 @@ ${JSON.stringify(chunks.map((chunk) => ({
     breadcrumb: chunk.breadcrumb_header,
     text: String(chunk.raw_text || '').slice(0, 1500),
   })))}
-
+${historySection}
 LATEST USER REQUEST:
 ${prompt}`;
 
@@ -608,8 +637,36 @@ ${prompt}`;
     };
   }
 
+  const shouldChainPriorIds =
+    normalizedHistory.length > 0 &&
+    activeCtx.matchedRowIds.length > 0 &&
+    hasFollowUpReference(prompt) &&
+    !hasExplicitScopeReset(prompt);
+
   const results = [];
   for (const tablePlan of plan) {
+    if (
+      shouldChainPriorIds &&
+      tablePlan.filter_logic === 'AND' &&
+      (!activeCtx.activeTargetTable ||
+        tablePlan.table.tableName.toLowerCase() === activeCtx.activeTargetTable.toLowerCase())
+    ) {
+      const idFilter = await resolveIdentifierFilterForIds(
+        tablePlan.table.schema,
+        businessId,
+        activeCtx.matchedRowIds,
+        query,
+        quoteIdentifier
+      );
+      if (
+        idFilter &&
+        !tablePlan.filters.some(
+          (f) => String(f.field || '').toLowerCase() === idFilter.field.toLowerCase()
+        )
+      ) {
+        tablePlan.filters.push(validateFilter(tablePlan.table.schema, idFilter));
+      }
+    }
     const execution = await executeReadQuery(businessId, tablePlan);
     results.push({
       table_name: tablePlan.table.tableName,

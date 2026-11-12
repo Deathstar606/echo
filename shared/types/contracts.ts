@@ -128,9 +128,20 @@ export interface QuerySort {
   direction: SortDirection;
 }
 
+export interface ConversationHistoryTurn {
+  turn_index: number;
+  user_prompt: string;
+  resolved_intent: string;
+  target_table?: string | null;
+  matched_row_ids?: string[];
+  applied_filter_summary?: string;
+  assistant_response_summary: string;
+}
+
 export interface SheetQueryRequest {
   entity?: string;
   message: string;
+  conversation_history?: ConversationHistoryTurn[];
 }
 
 /**
@@ -472,6 +483,8 @@ export interface WorkspaceEmailPreview {
 export interface ClarificationRequiredPayload {
   status: 'CLARIFICATION_REQUIRED';
   workflow_id: string;
+  target_entity?: string;
+  matched_row_ids?: string[];
   conflict_summary: string;
   affected_rows_count: number;
   conflicting_rows_count: number;
@@ -482,6 +495,8 @@ export interface ClarificationRequiredPayload {
 export interface PreviewReadyPayload {
   status: 'PREVIEW_READY';
   workflow_id: string;
+  target_entity?: string;
+  matched_row_ids?: string[];
   mutations_preview: WorkspaceMutationDiff[];
   emails_preview: WorkspaceEmailPreview[];
   citations: Citation[];
@@ -528,6 +543,7 @@ export interface RoutedSheetInstruction {
   answer?: string;
   count?: number;
   rows?: DynamicSheetRow[];
+  matched_ids?: string[];
   highlighted_rows?: Array<{
     table_name: string;
     row_identifier: string;

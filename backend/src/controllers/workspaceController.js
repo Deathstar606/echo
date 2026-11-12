@@ -24,6 +24,9 @@ const {
 const {
   generateWorkspaceCustomerReply,
 } = require('../services/workspaceReplyService');
+const {
+  normalizeConversationHistory,
+} = require('../utils/conversationHistory');
 
 function resolveBusinessIdFromReq(req) {
   return (
@@ -316,15 +319,17 @@ async function executeOperation(req, res, next) {
       (['user', 'customer'].includes(requestEntity) ? null : req.body?.entity) ||
       null;
 
+    const normalizedHistory = normalizeConversationHistory(
+      req.body?.conversation_history ?? req.body?.history
+    );
+
     if (requestEntity === 'customer') {
       const { aiResponse, suggestion, retrievedContext } =
         await generateWorkspaceCustomerReply({
           workspace: await findBusinessOrThrow(businessId),
           customerMessage: prompt,
           customerContext: req.body?.customer_context || {},
-          conversationHistory: Array.isArray(req.body?.history)
-            ? req.body.history.slice(-5)
-            : [],
+          conversationHistory: normalizedHistory,
         });
       return res.status(200).json({
         status: 'CONVERSATIONAL',
@@ -343,7 +348,7 @@ async function executeOperation(req, res, next) {
       businessId,
       prompt,
       entity: tableEntity,
-      history: req.body?.history,
+      history: normalizedHistory,
     });
 
     return res.status(200).json(result);

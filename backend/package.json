@@ -14,6 +14,7 @@
     "test:demo": "node --import tsx tests/demo_workflow_verification.js",
     "test:scenarios": "node --import tsx tests/verify_all_4_scenarios.js",
     "test:three-new": "node --import tsx tests/verify_three_new_scenarios.js",
+    "test:memory": "node --import tsx tests/conversational_memory_verification.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

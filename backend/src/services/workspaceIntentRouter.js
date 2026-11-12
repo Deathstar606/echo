@@ -13,6 +13,11 @@ const {
 const {
   normalizeEntityName,
 } = require('./sheetSchemaService');
+const {
+  normalizeConversationHistory,
+  getLatestActiveContext,
+  formatConversationHistoryForPrompt,
+} = require('../utils/conversationHistory');
 const AppError = require('../utils/AppError');
 
 const WORKSPACE_INTENTS = new Set([
@@ -205,13 +210,9 @@ async function routeWorkspaceIntent({
     includeAllIfOperational: true,
   });
   const sourceContext = formatWorkspaceSources(tables, documents, chunks);
-  const conversation = (Array.isArray(history) ? history : [])
-    .slice(-8)
-    .map((turn) => ({
-      role: turn?.role === 'assistant' ? 'assistant' : 'user',
-      content: String(turn?.content || '').slice(0, 800),
-    }))
-    .filter((turn) => turn.content);
+  const normalizedHistory = normalizeConversationHistory(history);
+  const activeHistoryContext = getLatestActiveContext(normalizedHistory, entity || null);
+  const formattedHistory = formatConversationHistoryForPrompt(normalizedHistory);
 
   const promptText = `Route the latest user request in this business workspace.
 
@@ -225,7 +226,7 @@ Choose exactly one intent:
 - clarification_needed: ONLY when no tables exist or the user's message is too vague to identify any intended action (NEVER use clarification_needed for policy conflicts, option choices, or column mismatches during a cross-document operation).
 
 Rules:
-- Use only exact table names ("table" field) listed in ACTIVE BUSINESS SOURCES; if the user's message names or describes a specific table/domain (such as catalog/products, backorders, wholesale accounts, or orders), select that matching table from ACTIVE BUSINESS SOURCES even if ACTIVE TABLE differs. Use ACTIVE TABLE only when the user says "this sheet" or does not identify a different table.
+- Use only exact table names ("table" field) listed in ACTIVE BUSINESS SOURCES; if the user's message names or describes a specific table/domain (such as catalog/products, backorders, wholesale accounts, or orders), select that matching table from ACTIVE BUSINESS SOURCES even if ACTIVE TABLE differs. Use RECENT CONVERSATION target_table when resolving implicit follow-ups ("those", "them", "that unit", "increase the discount..."); otherwise use ACTIVE TABLE only when the user says "this sheet" or does not identify a different table.
 - If the user's message explicitly instructs updating or reconciling MULTIPLE tables in ACTIVE BUSINESS SOURCES (for example, reconciling open backorders in "backorders_dataset" AND updating remaining available stock in "products"), set "entity" to the primary transactional table (e.g., "backorders_dataset") and list ALL required table names in "target_entities". Do NOT add a second table to "target_entities" unless the user's message itself asks to inspect or update that second table.
 - A request to query or mutate a table is not automatically a cross_document_operation just because documents exist.
 - For analytical questions such as "which rows need a status update?" or "what would the policy require?", use cross_source_read unless the user directly instructs you to make a state change or send a notification.
@@ -233,16 +234,17 @@ Rules:
 - Never infer permission to mutate, send email, or other external actions from a pure question. Only classify the requested intent.
 - Never invent a table, column, document, rule, or answer.
 - Nested-map keys in metadata are examples observed in sampled records, not guarantees that each record contains those keys. Apply operations on existing entries per matching record; create missing keys only when the user explicitly asks for creation.
-- Use conversation history only to resolve references such as "those", "that policy", or "do the second option"; the latest message takes precedence.
+- Use RECENT CONVERSATION (up to 5 prior turns) to resolve anaphoric/implicit follow-ups such as "those", "them", "only the ones...", "that unit", "increase the discount to 20%", or inherited target_table/scope; NEVER emit clarification_needed merely because the target table or row filter was specified in a prior turn in RECENT CONVERSATION.
 - For document_question and conversation, provide a concise answer in "answer". For other intents, "answer" should be empty.
 - Return JSON matching the requested response schema only.
 
 ACTIVE BUSINESS SOURCES:
 ${sourceContext}
 
-RECENT CONVERSATION:
-${JSON.stringify(conversation)}
+RECENT CONVERSATION (5-turn sliding window):
+${formattedHistory || '[]'}
 
+PRIOR ACTIVE TABLE FROM CONVERSATION (if any): ${activeHistoryContext.activeTargetTable || 'none'}
 ACTIVE TABLE (if any): ${entity || 'not specified'}
 
 LATEST USER MESSAGE:
@@ -276,7 +278,9 @@ ${prompt.trim()}`;
         );
       };
 
-      const rawRequested = String(parsed?.entity || entity || '').trim();
+      const rawRequested = String(
+        parsed?.entity || activeHistoryContext.activeTargetTable || entity || ''
+      ).trim();
       let resolvedEntity = resolveTableName(rawRequested);
 
       if (!resolvedEntity && tables.length === 1) {

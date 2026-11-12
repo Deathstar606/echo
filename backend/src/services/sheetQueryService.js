@@ -9,6 +9,13 @@ const {
   validateSort,
 } = require('./sheetSchemaService');
 const { resolveNameFilters } = require('./catalogNameResolver');
+const {
+  normalizeConversationHistory,
+  getLatestActiveContext,
+  hasFollowUpReference,
+  hasExplicitScopeReset,
+  resolveIdentifierFilterForIds,
+} = require('../utils/conversationHistory');
 const AppError = require('../utils/AppError');
 
 /**
@@ -439,6 +446,8 @@ async function executeSpreadsheetQuery({
   queryJson,
   schema: suppliedSchema = null,
   skipEnsure = false,
+  sourcePrompt = '',
+  conversationHistory = [],
 }) {
   if (!businessId) {
     throw new AppError('Business ID is required to execute a sheet query.', 400);
@@ -478,7 +487,39 @@ async function executeSpreadsheetQuery({
       count: 0,
     };
   }
-  const resolvedFilters = nameResolution.filters;
+  const resolvedFilters = [...nameResolution.filters];
+
+  // Read-to-Read Filter Chaining: when user narrows prior results ("those", "them", "only the ones...")
+  // intersect deterministically with prior turn's matched_row_ids on this table unless reset.
+  const normalizedHistory = normalizeConversationHistory(conversationHistory);
+  if (
+    normalizedHistory.length > 0 &&
+    filterLogic === 'AND' &&
+    hasFollowUpReference(sourcePrompt) &&
+    !hasExplicitScopeReset(sourcePrompt)
+  ) {
+    const activeCtx = getLatestActiveContext(
+      normalizedHistory,
+      schema.tableName || schema.entity
+    );
+    if (activeCtx.matchedRowIds.length > 0) {
+      const idFilter = await resolveIdentifierFilterForIds(
+        schema,
+        businessId,
+        activeCtx.matchedRowIds,
+        query,
+        quoteIdentifier
+      );
+      if (
+        idFilter &&
+        !resolvedFilters.some(
+          (f) => String(f.field || '').toLowerCase() === idFilter.field.toLowerCase()
+        )
+      ) {
+        resolvedFilters.push(validateFilter(schema, idFilter));
+      }
+    }
+  }
 
   const { sql, params: sqlParams } = buildParameterizedSelectQuery({
     entity: schema,

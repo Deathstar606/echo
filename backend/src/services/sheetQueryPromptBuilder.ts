@@ -13,6 +13,7 @@ import type {
   MutationOperation,
   MutationFilterLogic,
   ClarificationResponse,
+  ConversationHistoryTurn,
 } from '../../../shared/types/contracts';
 
 import {
@@ -34,6 +35,11 @@ const {
 } = require('./sheetSchemaService');
 const { generateAiSheetInterpretation } = require('./geminiService');
 const { loadCatalogPromptContext } = require('./catalogNameResolver');
+const {
+  normalizeConversationHistory,
+  getLatestActiveContext,
+  formatConversationHistoryForPrompt,
+} = require('../utils/conversationHistory');
 const AppError = require('../utils/AppError');
 
 const MAX_PROMPT_CATALOG_NAMES = 8;
@@ -51,6 +57,7 @@ export interface BuildPromptParams {
   isMutation?: boolean;
   currentDate?: string;
   catalog?: CatalogContext | null;
+  conversationHistory?: ConversationHistoryTurn[] | Array<Record<string, any>>;
 }
 
 export interface InterpretQueryParams {
@@ -63,6 +70,7 @@ export interface InterpretQueryParams {
   skipCatalogLoad?: boolean;
   catalog?: CatalogContext | null;
   responseSchema?: object | null;
+  conversationHistory?: ConversationHistoryTurn[] | Array<Record<string, any>>;
 }
 
 /**
@@ -106,8 +114,16 @@ export function buildSheetQueryPrompt({
   isMutation = false,
   currentDate = new Date().toISOString().slice(0, 10),
   catalog = null,
+  conversationHistory = [],
 }: BuildPromptParams): string {
   const schema: SheetSchema = explicitSchema || getSchema(entity);
+  const normalizedHistory = normalizeConversationHistory(conversationHistory);
+  const activeContext = getLatestActiveContext(normalizedHistory, schema.tableName || schema.entity);
+  const formattedHistory = formatConversationHistoryForPrompt(normalizedHistory);
+  const pkHint = schema.primaryKey || 'id';
+  const contextBlock = formattedHistory
+    ? `\nCONVERSATION CONTEXT (last ${normalizedHistory.length} turn(s); active table: ${activeContext.activeTargetTable || schema.tableName}; prior matched_row_ids on this table: ${JSON.stringify((activeContext.matchedRowIds || []).slice(0, 40))}; prior filter summary: ${JSON.stringify(activeContext.appliedFilterSummary || '')}; identifier column: ${pkHint}):\n${formattedHistory}\n`
+    : '';
 
   const columnsList = Object.entries(schema.columns)
     .filter(([, def]) => isMutation || def.queryable !== false)
@@ -176,8 +192,9 @@ RULES
 - Return JSON only:
   {"status":"ok","entity":"${schema.entity}","operation":"filter","filter_logic":"AND","filters":[{"field":"...","operator":"...","value":...}],"sort":[{"field":"...","direction":"asc|desc"}],"limit":null}
   Or {"status":"clarification_needed","message":"..."} only if the request genuinely cannot map to any column here.
+- CONVERSATION FOLLOW-UPS: If CONVERSATION CONTEXT is present and USER QUERY narrows/refines prior results (e.g. "those", "them", "only the ones...", "filter those by...", "with zero..."), chain the active prior filters on this table AND add the new condition(s) (do NOT drop prior filtering criteria unless the user explicitly asks to search all rows / reset scope).
 Reference date: ${currentDate}
-
+${contextBlock}
 USER QUERY:
 <user_message>
 ${message}
@@ -207,6 +224,7 @@ INTERPRETATION RULES
 - Use exact schema column names only; never invent fields. Map business concepts using field names, descriptions, types, nested structure, and representative values.
 - Distinguish selling price from purchase/unit cost, and percentage-valued fields (e.g. discount) from monetary fields. If target field, condition, value, or scope is missing or ambiguous, return {"status":"clarification_needed","message":"..."}.
 - Query filters and mutation target_filters use {field,operator,value}; filter_logic defaults to "AND" ("OR" only when stated). Set match_all:true only when explicitly targeting all rows.
+- CONVERSATION SCOPE INHERITANCE: If CONVERSATION CONTEXT is present with prior matched_row_ids or prior filters on this table and the user issues a follow-up update/delete without restating a WHERE clause (or says "those", "them", "that unit", "increase the discount to 20%"), scope "target_filters" to those prior rows (either re-apply the active prior filter criteria OR filter ${pkHint} with operator "in" and the prior matched_row_ids) and set match_all:false. Never emit clarification_needed merely because the target filter came from a previous turn in CONVERSATION CONTEXT. If CONVERSATION CONTEXT is empty and no filter or explicit whole-table wording is given, preserve safety and ask for clarification or match_all:true so safeguards apply.
 - Updates ("update"/"update_many"): updates array of {field,action:"set"|"add"|"subtract"|"multiply",value,unit:"absolute"|"percentage"|"percentage_points"}. Every updated field must be a modifiable schema column.
 - Nested maps: dotted field (e.g. "size.M") targets one key (key_policy:"existing_keys_only", or "create_if_missing" if requested). For all existing keys in each row, use action "add_to_existing_values"|"subtract_existing_values"|"multiply_existing_values"|"set_existing_values" with key_policy:"existing_keys_only" and no keys list.
 - Insert ("create"): include only user-specified columns in changes ({col:val}), updates, or rows ([{col:val},...] for multi-row). For nested maps use dotted fields or JSON object. If no attributes are given, return clarification_needed.
@@ -223,7 +241,7 @@ Reference date: ${currentDate}
 Request mode: ${isMutation ? 'mutation' : 'query'}
 
 ${formatCatalogContext(catalog)}
-
+${contextBlock}
 USER MESSAGE:
 <user_message>
 ${message}
@@ -401,6 +419,7 @@ export async function interpretNaturalLanguageQuery({
   skipCatalogLoad = false,
   catalog: suppliedCatalog = null,
   responseSchema = null,
+  conversationHistory = [],
 }: InterpretQueryParams): Promise<InterpretedSheetAction> {
   if (!isNonEmptyString(message)) {
     throw new AppError('Message is required and must be a non-empty string.', 400);
@@ -428,6 +447,7 @@ export async function interpretNaturalLanguageQuery({
     isMutation,
     currentDate,
     catalog,
+    conversationHistory,
   });
 
   // 4. Send to Gemini for interpretation
