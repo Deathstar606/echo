@@ -83,7 +83,7 @@ async function autoMigrateDatabase() {
     if (hasWorkspacesTable) {
       const userLookup = await pool.query(`
         SELECT id FROM users
-        ORDER BY (LOWER(email) = 'dsfardin606@gmail.com') DESC, created_at ASC
+        ORDER BY (id = '10000000-0000-4000-8000-000000000001' OR LOWER(email) = 'demo@maxitext.studio') DESC, created_at ASC
         LIMIT 1;
       `);
       const ownerUserId = userLookup.rows?.[0]?.id || null;

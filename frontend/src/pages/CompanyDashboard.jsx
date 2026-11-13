@@ -5,7 +5,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   Download,
   BarChart3,
-  Megaphone,
+  Plus,
+  History,
   Mail,
   SquarePen,
   Phone,
@@ -27,6 +28,16 @@ import {
   Calendar,
   AlertTriangle,
   Info,
+  Filter,
+  Upload,
+  Hash,
+  UserPlus,
+  Check,
+  Layers,
+  PhoneCall,
+  Building2,
+  FileSpreadsheet,
+  Trash2,
 } from 'lucide-react';
 import {
   loadCompanyConversations,
@@ -52,8 +63,16 @@ import {
   sendGmailReplyApi,
   generateGmailReplyDraftApi,
   getGoogleAuthUrlApi,
+  fetchWorkspaceContactsApi,
+  addFilteredContactOneClickApi,
+  removeWorkspaceContactApi,
+  uploadWorkspaceContactsCsvApi,
 } from '../services/api';
-import { getActiveBusinessId, getLoggedInUser } from '../config/constants';
+import {
+  getActiveBusinessId,
+  getActiveWorkspaceName,
+  getLoggedInUser,
+} from '../config/constants';
 import SheetManagementPanel from '../components/SheetManagementPanel';
 import CitationBadges from '../components/CitationBadges';
 import CitationInspectorModal from '../components/CitationInspectorModal';
@@ -83,17 +102,6 @@ function formatDateTime(isoString) {
     return String(isoString);
   }
 }
-
-const SAMPLE_ANNOUNCEMENT_PROMPTS = [
-  {
-    label: 'All Users (25% Off Seasonal Collection)',
-    text: 'Send an announcement about a 25% discount on our seasonal collection to all users.',
-  },
-  {
-    label: 'Registered After 2026-01-01',
-    text: 'Send an announcement about up to 45% off our luxury polo and shirt collection to users who registered after 2026-01-01.',
-  },
-];
 
 export default function CompanyDashboard() {
   const dispatch = useDispatch();
@@ -132,6 +140,9 @@ export default function CompanyDashboard() {
   });
   const [currentUser, setCurrentUser] = useState(() => getLoggedInUser());
   const [activeBusinessId, setActiveBusinessId] = useState(() => getActiveBusinessId());
+  const [activeWorkspaceName, setActiveWorkspaceName] = useState(
+    () => getActiveWorkspaceName() || 'Workspace Customer Base'
+  );
 
   // Inbox filter state (All vs Unread Only)
   const [filterUnreadOnly, setFilterUnreadOnly] = useState(false);
@@ -139,8 +150,88 @@ export default function CompanyDashboard() {
   // Bottom reply composer state (preserved on error)
   const [replyInput, setReplyInput] = useState('');
 
+  // Channel Tabs: 'filtered' | 'gmail' | 'slack' | 'toleto'
+  const [inboxSource, setInboxSource] = useState('filtered');
+
+  // Workspace Contacts (Filtered & Workspace CSV upload modal)
+  const [workspaceContacts, setWorkspaceContacts] = useState({
+    filtered_contacts: [],
+    filtered_count: 0,
+    workspace_csv_contacts: [],
+    workspace_csv_count: 0,
+    has_csv_panel: false,
+    panel_name: 'Workspace Customer Base',
+  });
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [activeFilteredContact, setActiveFilteredContact] = useState(null);
+  const [contactUploadError, setContactUploadError] = useState(null);
+  const [contactUploadSuccess, setContactUploadSuccess] = useState(null);
+  const [isUploadingContactCsv, setIsUploadingContactCsv] = useState(false);
+  const [showUploadContactsModal, setShowUploadContactsModal] = useState(false);
+  const [selectedContactCsvFile, setSelectedContactCsvFile] = useState(null);
+  const [oneClickFilteringStatus, setOneClickFilteringStatus] = useState({});
+
+  // Slack Demo State
+  const [slackDemoMessages, setSlackDemoMessages] = useState([
+    {
+      id: 'slack-1',
+      sender: 'sarah.jenkins@enterprise-corp.com',
+      name: 'Sarah Jenkins (Enterprise VIP)',
+      time: '10:42 AM',
+      channel: '#customer-support',
+      text: 'Hello team, what is your standard turnaround SLA for bulk orders over 500 units, and can we request custom labeling?',
+      aiReply:
+        'Per our Enterprise Fulfillment SLA policy, orders exceeding 500 units are prioritized with 48-hour dispatched fulfillment and complimentary custom brand labeling. Our operations desk can coordinate directly with packaging.',
+      citations: [
+        {
+          source_file: 'enterprise_sla_policy.pdf',
+          page_or_sheet: 'Page 2',
+          section_header: 'Bulk Order SLA',
+        },
+      ],
+    },
+    {
+      id: 'slack-2',
+      sender: 'mark.watson@globalretail.io',
+      name: 'Mark Watson',
+      time: '09:15 AM',
+      channel: '#general-help',
+      text: 'Do you offer net-30 invoicing terms for wholesale accounts registered in the EU?',
+      aiReply:
+        'Yes, verified wholesale accounts are eligible for net-30 terms upon completing commercial credit verification through the MaxiText finance portal.',
+      citations: [
+        {
+          source_file: 'wholesale_credit_terms.md',
+          section_header: 'Invoicing Terms',
+        },
+      ],
+    },
+  ]);
+  const [activeSlackMessage, setActiveSlackMessage] = useState(null);
+
+  // Toleto Demo State
+  const [toletoDemoMessages, setToletoDemoMessages] = useState([
+    {
+      id: 'toleto-1',
+      sender: '+1 (555) 349-2091',
+      name: 'Elena Rostova',
+      time: '11:05 AM',
+      channel: 'WhatsApp VIP',
+      text: 'Hi, I received tracking number #TRK-9821 but haven’t seen an update since yesterday. Can you check status?',
+      aiReply:
+        'Hello Elena, tracking #TRK-9821 is currently in transit with regional hub courier and is scheduled for end-of-day delivery by 6:00 PM.',
+      citations: [
+        {
+          source_file: 'courier_dispatch_log.csv',
+          page_or_sheet: 'Dispatches',
+          section_header: 'Row 48',
+        },
+      ],
+    },
+  ]);
+  const [activeToletoMessage, setActiveToletoMessage] = useState(null);
+
   // Primary Gmail Inbox Integration State
-  const [inboxSource, setInboxSource] = useState('workspace'); // 'workspace' | 'gmail'
   const [gmailMessages, setGmailMessages] = useState([]);
   const [activeGmailMessage, setActiveGmailMessage] = useState(null);
   const [gmailLoading, setGmailLoading] = useState(false);
@@ -152,9 +243,9 @@ export default function CompanyDashboard() {
   const [gmailAiDraftsById, setGmailAiDraftsById] = useState({});
   const [gmailDraftError, setGmailDraftError] = useState(null);
 
-  // Natural-Language Announcement Prompt State (No manual Some/All toggle)
+  // Natural-Language Bulk Send Prompt State (No manual Some/All toggle)
   const [announcementPrompt, setAnnouncementPrompt] = useState(
-    'Send an announcement about up to 45% off our luxury polo and shirt collection to users who registered after 2026-01-01.'
+    'Bulk send an exclusive update to our workspace customer base.'
   );
   const [showAnnouncementHistoryModal, setShowAnnouncementHistoryModal] =
     useState(false);
@@ -164,6 +255,111 @@ export default function CompanyDashboard() {
   const threadEndRef = useRef(null);
   const replyInputRef = useRef(null);
   const activeGmailMessageIdRef = useRef(null);
+
+  const loadWorkspaceContacts = async (targetWsId = activeBusinessId) => {
+    if (!targetWsId) return;
+    setContactsLoading(true);
+    try {
+      const data = await fetchWorkspaceContactsApi(targetWsId);
+      setWorkspaceContacts(data);
+      if (data.panel_name) {
+        setActiveWorkspaceName(data.panel_name);
+      }
+      if (data.filtered_contacts?.length > 0 && !activeFilteredContact) {
+        setActiveFilteredContact(data.filtered_contacts[0]);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setContactsLoading(false);
+    }
+  };
+
+  const handleOneClickSendToFiltered = async (msg) => {
+    if (!msg || !activeBusinessId) return;
+    const email = (msg.fromEmail || '').toLowerCase().trim();
+    setOneClickFilteringStatus((prev) => ({
+      ...prev,
+      [msg.id]: true,
+      [email]: true,
+    }));
+    try {
+      await addFilteredContactOneClickApi(activeBusinessId, {
+        email: msg.fromEmail,
+        customer_name: msg.fromName,
+        metadata: {
+          threadId: msg.threadId,
+          messageId: msg.id,
+          subject: msg.subject,
+          snippet: msg.snippet,
+          date: msg.date || msg.internalDate,
+        },
+      });
+      await loadWorkspaceContacts(activeBusinessId);
+    } catch (err) {
+      setOneClickFilteringStatus((prev) => {
+        const next = { ...prev };
+        delete next[msg.id];
+        delete next[email];
+        return next;
+      });
+      alert(err?.message || 'Failed to add contact to Filtered.');
+    }
+  };
+
+  const isFiltered = (msg) => {
+    if (!msg) return false;
+    if (oneClickFilteringStatus[msg.id]) return true;
+    const email = (msg.fromEmail || '').toLowerCase().trim();
+    if (email && oneClickFilteringStatus[email]) return true;
+    return workspaceContacts.filtered_contacts?.some(
+      (c) => (c.email || '').toLowerCase().trim() === email
+    );
+  };
+
+  const handleOpenUploadContactsModal = () => {
+    setContactUploadError(null);
+    setContactUploadSuccess(null);
+    setSelectedContactCsvFile(null);
+    setShowUploadContactsModal(true);
+  };
+
+  const handleCsvContactUpload = async (file) => {
+    if (!file || !activeBusinessId) return;
+    setIsUploadingContactCsv(true);
+    setContactUploadError(null);
+    setContactUploadSuccess(null);
+    try {
+      const res = await uploadWorkspaceContactsCsvApi(activeBusinessId, file);
+      setContactUploadSuccess(
+        `Successfully imported ${res.imported_count} contact(s) (${res.duplicates_merged} duplicate(s) merged) into ${res.panel_name || activeWorkspaceName}.`
+      );
+      setSelectedContactCsvFile(null);
+      await loadWorkspaceContacts(activeBusinessId);
+    } catch (err) {
+      setContactUploadError(
+        err?.message || "The uploaded CSV file must contain an 'email' column."
+      );
+    } finally {
+      setIsUploadingContactCsv(false);
+    }
+  };
+
+  const handleRemoveFilteredContact = async (contact) => {
+    if (!contact || !activeBusinessId) return;
+    try {
+      await removeWorkspaceContactApi(activeBusinessId, {
+        id: contact.id,
+        panel_type: 'filtered',
+      });
+      if (activeFilteredContact?.id === contact.id) {
+        setActiveFilteredContact(null);
+      }
+      await loadWorkspaceContacts(activeBusinessId);
+    } catch (err) {
+      alert(err?.message || 'Failed to remove contact from Filtered.');
+    }
+  };
 
   const loadGmailInbox = async (silent = false, targetBizId = activeBusinessId) => {
     if (!targetBizId) return;
@@ -341,6 +537,7 @@ export default function CompanyDashboard() {
     const handleWorkspaceOrAuthSync = () => {
       setCurrentUser(getLoggedInUser());
       const nextBizId = getActiveBusinessId();
+      setActiveWorkspaceName(getActiveWorkspaceName() || 'Workspace Customer Base');
       setActiveBusinessId((prev) => {
         if (prev !== nextBizId) {
           dispatch(resetCompanyWorkspaceState());
@@ -355,6 +552,11 @@ export default function CompanyDashboard() {
           setGmailSendToast(null);
           setReplyInput('');
           setActiveInquiryCitation(null);
+          setShowUploadContactsModal(false);
+          setSelectedContactCsvFile(null);
+          setContactUploadError(null);
+          setContactUploadSuccess(null);
+          loadWorkspaceContacts(nextBizId);
         }
         return nextBizId;
       });
@@ -376,6 +578,7 @@ export default function CompanyDashboard() {
 
     dispatch(loadCompanyConversations({ silent: false, businessId: activeBusinessId }));
     dispatch(loadAnnouncementHistory(activeBusinessId));
+    loadWorkspaceContacts(activeBusinessId);
 
     const interval = setInterval(() => {
       dispatch(loadCompanyConversations({ silent: true, businessId: activeBusinessId }));
@@ -548,61 +751,67 @@ export default function CompanyDashboard() {
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', width: '100%', minWidth: 0 }}>
-      {/* Top Navigation Tabs (Matches Wireframe: 1. [Active] Customer Inquiry | 2. Sheet Management) */}
+      {/* Top Navigation Tabs */}
       <div className="workspace-nav-bar">
-        <button
-          type="button"
-          className={`workspace-tab-btn ${
-            activeTab === 'inquiry' ? 'active' : ''
-          }`}
-          onClick={() => setActiveTab('inquiry')}
-        >
-          {activeTab === 'inquiry' && (
-            <motion.div
-              layoutId="active-workspace-tab-indicator"
-              className="liquid-glass-tab-slider-indigo"
-              transition={{
-                type: 'spring',
-                stiffness: 420,
-                damping: 32,
-              }}
-            />
-          )}
-          <span className="workspace-tab-label">
-            <span>
-              1. {activeTab === 'inquiry' ? '[Active] ' : ''}
+        <div className="workspace-tabs-track" role="tablist" aria-label="Workspace Views">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'inquiry'}
+            className={`workspace-tab-btn ${
+              activeTab === 'inquiry' ? 'active' : ''
+            }`}
+            onClick={() => setActiveTab('inquiry')}
+          >
+            {activeTab === 'inquiry' && (
+              <motion.div
+                layoutId="active-workspace-tab-indicator"
+                className="liquid-glass-tab-slider-indigo"
+                transition={{
+                  type: 'spring',
+                  stiffness: 420,
+                  damping: 32,
+                }}
+              />
+            )}
+            <span className="workspace-tab-label">
+              <Download
+                size={15}
+                color={activeTab === 'inquiry' ? 'var(--primary-indigo)' : 'var(--text-secondary)'}
+              />
+              <span>Customer Inquiry</span>
             </span>
-            <Download size={15} color="var(--primary-indigo)" />
-            <span>Customer Inquiry</span>
-          </span>
-        </button>
+          </button>
 
-        <button
-          type="button"
-          className={`workspace-tab-btn ${
-            activeTab === 'sheets' ? 'active' : ''
-          }`}
-          onClick={() => setActiveTab('sheets')}
-        >
-          {activeTab === 'sheets' && (
-            <motion.div
-              layoutId="active-workspace-tab-indicator"
-              className="liquid-glass-tab-slider-indigo"
-              transition={{
-                type: 'spring',
-                stiffness: 420,
-                damping: 32,
-              }}
-            />
-          )}
-          <span className="workspace-tab-label">
-            <span>
-              2. {activeTab === 'sheets' ? '[Active] ' : ''}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'sheets'}
+            className={`workspace-tab-btn ${
+              activeTab === 'sheets' ? 'active' : ''
+            }`}
+            onClick={() => setActiveTab('sheets')}
+          >
+            {activeTab === 'sheets' && (
+              <motion.div
+                layoutId="active-workspace-tab-indicator"
+                className="liquid-glass-tab-slider-indigo"
+                transition={{
+                  type: 'spring',
+                  stiffness: 420,
+                  damping: 32,
+                }}
+              />
+            )}
+            <span className="workspace-tab-label">
+              <BarChart3
+                size={15}
+                color={activeTab === 'sheets' ? '#16a34a' : 'var(--text-secondary)'}
+              />
+              <span>Operations &amp; Sheet Management</span>
             </span>
-            <BarChart3 size={15} color="#16a34a" />
-            <span>Operations &amp; Sheet Management</span>
-          </span>
-        </button>
+          </button>
+        </div>
       </div>
 
       {/* Tab Content */}
@@ -692,105 +901,102 @@ export default function CompanyDashboard() {
           {/* Left & Center Card: Customer Inquiry Panel */}
           <section className="inquiry-main-card">
             <div className="inquiry-card-header">
-              <h1 className="inquiry-card-title">Customer Inquiry Panel</h1>
-
-              <button
-                type="button"
-                className="btn-warm-outlined"
-                onClick={handleOpenAnnouncementHistory}
-              >
-                <Megaphone size={14} />
-                Announcement History
-                {announcementHistory.length > 0 && (
-                  <span
-                    style={{
-                      marginLeft: 4,
-                      padding: '1px 6px',
-                      borderRadius: '999px',
-                      backgroundColor: 'var(--accent-lavender-bg)',
-                      color: 'var(--primary-indigo-dark)',
-                      fontSize: '11px',
-                      fontWeight: 700,
-                    }}
-                  >
-                    {announcementHistory.length}
-                  </span>
-                )}
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <h1 className="inquiry-card-title">Customer Inquiry Panel</h1>
+                <button
+                  type="button"
+                  className="inquiry-add-contacts-btn"
+                  onClick={handleOpenUploadContactsModal}
+                  title="Upload workspace customer contacts CSV"
+                  aria-label="Upload workspace customer contacts CSV"
+                >
+                  <Plus size={12} strokeWidth={2.4} />
+                </button>
+              </div>
             </div>
 
             <div className="inquiry-split-body">
               {/* Left Sub-Column: Inbox */}
               <aside className="inbox-column">
-                {/* Inbox Source Tabs: Workspace vs Primary Gmail Inbox */}
+                {/* Channel Selector: Filtered, Gmail, Slack (Demo), Toleto (Demo) */}
                 <div
                   style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 1fr',
+                    display: 'flex',
+                    alignItems: 'center',
                     gap: '4px',
                     padding: '8px 10px',
                     backgroundColor: 'var(--bg-panel)',
                     borderBottom: '1px solid var(--border-warm)',
+                    overflowX: 'auto',
                   }}
                 >
+                  {/* 1. Filtered */}
                   <button
                     type="button"
-                    onClick={handleSwitchToWorkspace}
+                    onClick={() => {
+                      setInboxSource('filtered');
+                      setGmailDraftError(null);
+                    }}
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      gap: '5px',
+                      gap: '4px',
                       padding: '6px 8px',
                       borderRadius: '6px',
-                      fontSize: '11.5px',
-                      fontWeight: inboxSource === 'workspace' ? 700 : 500,
+                      fontSize: '11px',
+                      fontWeight: inboxSource === 'filtered' ? 700 : 500,
                       backgroundColor:
-                        inboxSource === 'workspace'
+                        inboxSource === 'filtered'
                           ? 'var(--primary-indigo)'
                           : 'transparent',
                       color:
-                        inboxSource === 'workspace'
+                        inboxSource === 'filtered'
                           ? '#ffffff'
                           : 'var(--text-secondary)',
                       border: 'none',
                       cursor: 'pointer',
-                      transition: 'all 0.15s ease',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
                     }}
+                    title="Exclusively for 1-click curated Gmail contacts"
                   >
-                    <MessageCircle size={13} />
-                    <span>Workspace</span>
+                    <Filter size={12} />
+                    <span>Filtered</span>
                     <span
                       style={{
                         padding: '1px 5px',
                         borderRadius: '999px',
-                        fontSize: '10px',
+                        fontSize: '9.5px',
                         fontWeight: 700,
                         backgroundColor:
-                          inboxSource === 'workspace'
+                          inboxSource === 'filtered'
                             ? 'rgba(255, 255, 255, 0.25)'
                             : 'var(--bg-subtle-warm)',
                         color:
-                          inboxSource === 'workspace'
+                          inboxSource === 'filtered'
                             ? '#ffffff'
                             : 'var(--text-secondary)',
                       }}
                     >
-                      {displayedConversations.length}
+                      {workspaceContacts.filtered_count || 0}
                     </span>
                   </button>
 
+                  {/* 2. Gmail */}
                   <button
                     type="button"
-                    onClick={handleSwitchToGmail}
+                    onClick={() => {
+                      handleSwitchToGmail();
+                    }}
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      gap: '5px',
+                      gap: '4px',
                       padding: '6px 8px',
                       borderRadius: '6px',
-                      fontSize: '11.5px',
+                      fontSize: '11px',
                       fontWeight: inboxSource === 'gmail' ? 700 : 500,
                       backgroundColor:
                         inboxSource === 'gmail' ? '#ea4335' : 'transparent',
@@ -800,17 +1006,18 @@ export default function CompanyDashboard() {
                           : 'var(--text-secondary)',
                       border: 'none',
                       cursor: 'pointer',
-                      transition: 'all 0.15s ease',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
                     }}
                   >
-                    <Mail size={13} />
+                    <Mail size={12} />
                     <span>Gmail</span>
                     {gmailMessages.length > 0 && (
                       <span
                         style={{
                           padding: '1px 5px',
                           borderRadius: '999px',
-                          fontSize: '10px',
+                          fontSize: '9.5px',
                           fontWeight: 700,
                           backgroundColor:
                             inboxSource === 'gmail'
@@ -826,68 +1033,153 @@ export default function CompanyDashboard() {
                       </span>
                     )}
                   </button>
+
+                  {/* 4. Slack (Demo) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInboxSource('slack');
+                      if (!activeSlackMessage && slackDemoMessages.length > 0) {
+                        setActiveSlackMessage(slackDemoMessages[0]);
+                      }
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px',
+                      padding: '6px 8px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      fontWeight: inboxSource === 'slack' ? 700 : 500,
+                      backgroundColor:
+                        inboxSource === 'slack' ? '#4a154b' : 'transparent',
+                      color:
+                        inboxSource === 'slack'
+                          ? '#ffffff'
+                          : 'var(--text-secondary)',
+                      border: 'none',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Hash size={12} />
+                    <span>Slack</span>
+                    <span
+                      style={{
+                        padding: '1px 4px',
+                        borderRadius: '4px',
+                        fontSize: '9px',
+                        fontWeight: 700,
+                        backgroundColor:
+                          inboxSource === 'slack'
+                            ? 'rgba(255, 255, 255, 0.25)'
+                            : '#f1f5f9',
+                        color:
+                          inboxSource === 'slack' ? '#ffffff' : '#475569',
+                      }}
+                    >
+                      Demo
+                    </span>
+                  </button>
+
+                  {/* 5. Toleto (Demo) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInboxSource('toleto');
+                      if (!activeToletoMessage && toletoDemoMessages.length > 0) {
+                        setActiveToletoMessage(toletoDemoMessages[0]);
+                      }
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px',
+                      padding: '6px 8px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      fontWeight: inboxSource === 'toleto' ? 700 : 500,
+                      backgroundColor:
+                        inboxSource === 'toleto' ? '#d97706' : 'transparent',
+                      color:
+                        inboxSource === 'toleto'
+                          ? '#ffffff'
+                          : 'var(--text-secondary)',
+                      border: 'none',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <PhoneCall size={12} />
+                    <span>Toleto</span>
+                    <span
+                      style={{
+                        padding: '1px 4px',
+                        borderRadius: '4px',
+                        fontSize: '9px',
+                        fontWeight: 700,
+                        backgroundColor:
+                          inboxSource === 'toleto'
+                            ? 'rgba(255, 255, 255, 0.25)'
+                            : '#fef3c7',
+                        color:
+                          inboxSource === 'toleto' ? '#ffffff' : '#92400e',
+                      }}
+                    >
+                      Demo
+                    </span>
+                  </button>
                 </div>
 
                 <div className="inbox-header">
-                  <span className="inbox-header-title">
-                    {inboxSource === 'gmail'
-                      ? 'Primary Gmail Inbox'
-                      : 'Workspace Inbox'}{' '}
-                    {inboxSource === 'workspace' && conversations.length > 0 && (
-                      <span
-                        style={{
-                          fontSize: '12px',
-                          fontWeight: 500,
-                          color: 'var(--text-secondary)',
-                        }}
-                      >
-                        ({displayedConversations.length})
-                      </span>
+                  <span className="inbox-header-title" style={{ fontSize: '13px' }}>
+                    {inboxSource === 'filtered' && (
+                      <>
+                        Filtered Contacts{' '}
+                        <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+                          ({workspaceContacts.filtered_count || 0})
+                        </span>
+                      </>
                     )}
-                    {inboxSource === 'gmail' && gmailMessages.length > 0 && (
-                      <span
-                        style={{
-                          fontSize: '12px',
-                          fontWeight: 500,
-                          color: 'var(--text-secondary)',
-                        }}
-                      >
-                        ({gmailMessages.length})
-                      </span>
+                    {inboxSource === 'gmail' && (
+                      <>
+                        Primary Gmail Inbox{' '}
+                        {gmailMessages.length > 0 && (
+                          <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+                            ({gmailMessages.length})
+                          </span>
+                        )}
+                      </>
                     )}
+                    {inboxSource === 'slack' && 'Slack Enterprise Sync'}
+                    {inboxSource === 'toleto' && 'Toleto Omnichannel Gateway'}
                   </span>
 
                   <div className="inbox-header-actions">
-                    {inboxSource === 'workspace' && (
-                      <button
-                        type="button"
-                        className={`icon-action-btn ${
-                          filterUnreadOnly ? 'active' : ''
-                        }`}
-                        onClick={() => setFilterUnreadOnly((prev) => !prev)}
-                        title={
-                          filterUnreadOnly
-                            ? 'Showing unread conversations only (click to show all)'
-                            : 'Filter unread inquiries'
-                        }
-                      >
-                        <Mail size={16} />
-                      </button>
-                    )}
                     <button
                       type="button"
                       className="icon-action-btn"
-                      onClick={() =>
-                        inboxSource === 'gmail'
-                          ? loadGmailInbox(false)
-                          : dispatch(loadCompanyConversations({ silent: false }))
-                      }
+                      onClick={() => {
+                        if (inboxSource === 'gmail') {
+                          loadGmailInbox(false);
+                        } else if (inboxSource === 'filtered') {
+                          loadWorkspaceContacts(activeBusinessId);
+                        } else {
+                          dispatch(loadCompanyConversations({ silent: false }));
+                        }
+                      }}
                       title="Refresh inbox"
                     >
                       <RefreshCw
                         size={15}
                         className={
-                          (inboxSource === 'gmail' ? gmailLoading : inboxStatus === 'loading')
+                          (inboxSource === 'gmail'
+                            ? gmailLoading
+                            : contactsLoading)
                             ? 'spin'
                             : ''
                         }
@@ -904,9 +1196,116 @@ export default function CompanyDashboard() {
                   </div>
                 </div>
 
-                {/* Inbox List: Either Workspace Inquiries or Gmail Messages */}
+                {/* Inbox List */}
                 <div className="inbox-list">
-                  {inboxSource === 'gmail' ? (
+                  {/* Channel 1: Filtered Contacts */}
+                  {inboxSource === 'filtered' && (
+                    contactsLoading && workspaceContacts.filtered_contacts.length === 0 ? (
+                      <div
+                        style={{
+                          padding: '32px 16px',
+                          textAlign: 'center',
+                          color: 'var(--text-secondary)',
+                          fontSize: '13px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '8px',
+                        }}
+                      >
+                        <Loader2 size={16} className="spin" />
+                        <span>Loading Filtered contacts...</span>
+                      </div>
+                    ) : workspaceContacts.filtered_contacts.length === 0 ? (
+                      <div
+                        style={{
+                          padding: '36px 18px',
+                          textAlign: 'center',
+                          color: 'var(--text-secondary)',
+                        }}
+                      >
+                        <Filter
+                          size={28}
+                          style={{ margin: '0 auto 8px auto', opacity: 0.55 }}
+                        />
+                        <div
+                          style={{
+                            fontWeight: 600,
+                            color: 'var(--text-primary)',
+                            marginBottom: 4,
+                          }}
+                        >
+                          No Curated Contacts in Filtered
+                        </div>
+                        <p style={{ fontSize: '12px', lineHeight: 1.5 }}>
+                          Click <strong>+ Add to Filtered</strong> inside an opened email in the Gmail tab to curate high-priority customer contacts here.
+                        </p>
+                      </div>
+                    ) : (
+                      workspaceContacts.filtered_contacts.map((contact) => {
+                        const isSelected = activeFilteredContact?.id === contact.id;
+                        return (
+                          <button
+                            key={contact.id}
+                            type="button"
+                            className={`inbox-item ${isSelected ? 'active' : ''}`}
+                            onClick={() => setActiveFilteredContact(contact)}
+                          >
+                            <div
+                              className="avatar-circle"
+                              style={{
+                                backgroundColor: 'var(--accent-lavender-bg)',
+                                color: 'var(--primary-indigo-dark)',
+                              }}
+                            >
+                              <Filter size={15} />
+                            </div>
+
+                            <div className="inbox-item-content">
+                              <div className="inbox-item-top">
+                                <span
+                                  className="inbox-customer-name"
+                                  style={{
+                                    maxWidth: '140px',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                  }}
+                                >
+                                  {contact.customer_name || contact.email}
+                                </span>
+                                <span className="inbox-time">
+                                  {formatInboxTime(contact.created_at)}
+                                </span>
+                              </div>
+
+                              <div
+                                style={{
+                                  fontSize: '12px',
+                                  fontWeight: 600,
+                                  color: 'var(--text-primary)',
+                                  marginBottom: 2,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {contact.metadata?.subject || contact.email}
+                              </div>
+
+                              <div className="inbox-item-bottom">
+                                <span className="inbox-snippet">
+                                  {contact.metadata?.snippet || contact.email}
+                                </span>
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })
+                    )
+                  )}
+
+                  {/* Channel 2: Gmail */}
+                  {inboxSource === 'gmail' && (
                     gmailLoading && gmailMessages.length === 0 ? (
                       <div
                         style={{
@@ -969,11 +1368,11 @@ export default function CompanyDashboard() {
                       gmailMessages.map((msg) => {
                         const isSelected = activeGmailMessage?.id === msg.id;
                         return (
-                          <button
+                          <div
                             key={msg.id}
-                            type="button"
                             className={`inbox-item ${isSelected ? 'active' : ''}`}
                             onClick={() => handleSelectGmailMessage(msg)}
+                            style={{ cursor: 'pointer', display: 'flex', position: 'relative' }}
                           >
                             <div
                               className="avatar-circle"
@@ -1010,116 +1409,102 @@ export default function CompanyDashboard() {
                               </div>
 
                               <div className="inbox-item-bottom">
-                                <span className="inbox-snippet">{msg.snippet}</span>
+                                <span className="inbox-snippet">
+                                  {msg.snippet}
+                                </span>
                               </div>
                             </div>
-                          </button>
+                          </div>
                         );
                       })
                     )
-                  ) : inboxStatus === 'loading' && conversations.length === 0 ? (
-                    <div
-                      style={{
-                        padding: '32px 16px',
-                        textAlign: 'center',
-                        color: 'var(--text-secondary)',
-                        fontSize: '13px',
-                      }}
-                    >
-                      Loading customer conversations...
-                    </div>
-                  ) : inboxError && conversations.length === 0 ? (
-                    <div style={{ padding: '16px' }}>
-                      <div className="alert-banner error">
-                        <AlertCircle size={15} style={{ flexShrink: 0 }} />
-                        <div>
-                          <div>{inboxError}</div>
-                          <button
-                            type="button"
-                            className="btn-warm-outlined"
-                            style={{ marginTop: 8, padding: '4px 10px', fontSize: 12 }}
-                            onClick={() =>
-                              dispatch(loadCompanyConversations({ silent: false }))
-                            }
-                          >
-                            Retry
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : displayedConversations.length === 0 ? (
-                    <div
-                      style={{
-                        padding: '36px 18px',
-                        textAlign: 'center',
-                        color: 'var(--text-secondary)',
-                      }}
-                    >
-                      <Inbox
-                        size={28}
-                        style={{ margin: '0 auto 8px auto', opacity: 0.55 }}
-                      />
-                      <div
-                        style={{
-                          fontWeight: 600,
-                          color: 'var(--text-primary)',
-                          marginBottom: 4,
-                        }}
-                      >
-                        {filterUnreadOnly
-                          ? 'No Unread Conversations'
-                          : 'Inbox is Empty'}
-                      </div>
-                      <p style={{ fontSize: '12px' }}>
-                        {filterUnreadOnly
-                          ? 'All customer inquiries have been answered.'
-                          : 'Customer inquiries submitted from the /customer panel will appear here automatically.'}
-                      </p>
-                    </div>
-                  ) : (
-                    displayedConversations.map((conv) => {
-                      const isSelected = conv.id === activeConversationId;
-                      const displayName =
-                        conv.customer_name ||
-                        conv.customer?.customer_name ||
-                        'Unnamed Customer';
-                      const snippet =
-                        conv.latest_message_preview ||
-                        conv.customer_email ||
-                        'No messages yet';
-                      const unread = conv.unread_count || 0;
+                  )}
 
+                  {/* Channel 4: Slack (Demo) */}
+                  {inboxSource === 'slack' && (
+                    slackDemoMessages.map((item) => {
+                      const isSelected = activeSlackMessage?.id === item.id;
                       return (
                         <button
-                          key={conv.id}
+                          key={item.id}
                           type="button"
                           className={`inbox-item ${isSelected ? 'active' : ''}`}
-                          onClick={() => handleSelectConversation(conv.id)}
+                          onClick={() => setActiveSlackMessage(item)}
                         >
-                          <div className="avatar-circle">
-                            <User size={18} />
+                          <div
+                            className="avatar-circle"
+                            style={{ backgroundColor: '#f3e8ff', color: '#6b21a8' }}
+                          >
+                            <Hash size={16} />
                           </div>
 
                           <div className="inbox-item-content">
                             <div className="inbox-item-top">
                               <span className="inbox-customer-name">
-                                {displayName}
+                                {item.name}
                               </span>
-                              <span className="inbox-time">
-                                {formatInboxTime(conv.latest_activity_at)}
-                              </span>
+                              <span className="inbox-time">{item.time}</span>
+                            </div>
+
+                            <div
+                              style={{
+                                fontSize: '11.5px',
+                                fontWeight: 700,
+                                color: '#6b21a8',
+                                marginBottom: 2,
+                              }}
+                            >
+                              {item.channel}
                             </div>
 
                             <div className="inbox-item-bottom">
-                              <span className="inbox-snippet">{snippet}</span>
-                              {unread > 0 && (
-                                <span
-                                  className="unread-badge"
-                                  title={`${unread} unanswered customer message(s)`}
-                                >
-                                  {unread}
-                                </span>
-                              )}
+                              <span className="inbox-snippet">{item.text}</span>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+
+                  {/* Channel 5: Toleto (Demo) */}
+                  {inboxSource === 'toleto' && (
+                    toletoDemoMessages.map((item) => {
+                      const isSelected = activeToletoMessage?.id === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className={`inbox-item ${isSelected ? 'active' : ''}`}
+                          onClick={() => setActiveToletoMessage(item)}
+                        >
+                          <div
+                            className="avatar-circle"
+                            style={{ backgroundColor: '#fef3c7', color: '#92400e' }}
+                          >
+                            <PhoneCall size={16} />
+                          </div>
+
+                          <div className="inbox-item-content">
+                            <div className="inbox-item-top">
+                              <span className="inbox-customer-name">
+                                {item.name}
+                              </span>
+                              <span className="inbox-time">{item.time}</span>
+                            </div>
+
+                            <div
+                              style={{
+                                fontSize: '11.5px',
+                                fontWeight: 700,
+                                color: '#92400e',
+                                marginBottom: 2,
+                              }}
+                            >
+                              {item.channel}
+                            </div>
+
+                            <div className="inbox-item-bottom">
+                              <span className="inbox-snippet">{item.text}</span>
                             </div>
                           </div>
                         </button>
@@ -1161,7 +1546,7 @@ export default function CompanyDashboard() {
                   ) : (
                     <>
                       {/* Gmail Thread Header */}
-                      <div className="thread-header">
+                      <div className="thread-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div className="thread-customer-info">
                           <div
                             className="avatar-circle"
@@ -1192,6 +1577,47 @@ export default function CompanyDashboard() {
                               From: <strong>{activeGmailMessage.fromName}</strong> &lt;{activeGmailMessage.fromEmail}&gt; · {formatDateTime(activeGmailMessage.date)}
                             </div>
                           </div>
+                        </div>
+
+                        <div>
+                          {isFiltered(activeGmailMessage) ? (
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '4px 10px',
+                                borderRadius: '999px',
+                                fontSize: '11.5px',
+                                fontWeight: 700,
+                                backgroundColor: '#e6f4ea',
+                                color: '#137333',
+                                border: '1px solid #bbf7d0',
+                              }}
+                            >
+                              <Check size={13} /> In Filtered
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn-warm-outlined"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '11.5px',
+                                padding: '4px 10px',
+                                borderRadius: '6px',
+                                fontWeight: 600,
+                                color: 'var(--primary-indigo-dark)',
+                                borderColor: 'var(--primary-indigo)',
+                              }}
+                              onClick={() => handleOneClickSendToFiltered(activeGmailMessage)}
+                              title="Add this contact to Filtered section"
+                            >
+                              <UserPlus size={13} /> + Add to Filtered
+                            </button>
+                          )}
                         </div>
                       </div>
 
@@ -1328,6 +1754,366 @@ export default function CompanyDashboard() {
                           )}
                         </button>
                       </form>
+                    </>
+                  )
+                ) : inboxSource === 'filtered' ? (
+                  !activeFilteredContact ? (
+                    <div
+                      style={{
+                        margin: 'auto',
+                        textAlign: 'center',
+                        padding: '32px',
+                        color: 'var(--text-secondary)',
+                      }}
+                    >
+                      <Filter
+                        size={32}
+                        style={{ margin: '0 auto 10px auto', opacity: 0.5 }}
+                      />
+                      <div
+                        style={{
+                          fontSize: '15px',
+                          fontWeight: 700,
+                          color: 'var(--text-primary)',
+                        }}
+                      >
+                        Select a Filtered Contact
+                      </div>
+                      <p style={{ fontSize: '13px', marginTop: 4 }}>
+                        Choose a curated contact from the left list to review their inquiry and draft replies.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Filtered Contact Header */}
+                      <div className="thread-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div className="thread-customer-info">
+                          <div
+                            className="avatar-circle"
+                            style={{
+                              backgroundColor: 'var(--accent-lavender-bg)',
+                              color: 'var(--primary-indigo-dark)',
+                            }}
+                          >
+                            <Filter size={18} />
+                          </div>
+                          <div>
+                            <div className="thread-customer-name" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span>{activeFilteredContact.customer_name || activeFilteredContact.email}</span>
+                              <span
+                                style={{
+                                  fontSize: '10px',
+                                  fontWeight: 700,
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  backgroundColor: 'var(--accent-lavender-bg)',
+                                  color: 'var(--primary-indigo-dark)',
+                                  border: '1px solid var(--accent-lavender-border)',
+                                }}
+                              >
+                                FILTERED CONTACT
+                              </span>
+                            </div>
+                            <div className="thread-customer-sub">
+                              Email: <strong>{activeFilteredContact.email}</strong> · Filtered on {formatDateTime(activeFilteredContact.created_at)}
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          className="btn-warm-outlined"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontSize: '11px',
+                            padding: '4px 8px',
+                            color: '#b91c1c',
+                            borderColor: '#fca5a5',
+                          }}
+                          onClick={() => handleRemoveFilteredContact(activeFilteredContact)}
+                          title="Remove contact from Filtered"
+                        >
+                          <Trash2 size={13} />
+                          <span>Remove</span>
+                        </button>
+                      </div>
+
+                      <div className="thread-messages-scroll" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {/* Original Inbound Inquiry Card */}
+                        <div
+                          className="liquid-glass-card"
+                          style={{
+                            padding: '14px',
+                            borderRadius: '8px',
+                            border: '1px solid var(--border-warm)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '6px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--primary-indigo)' }}>
+                              {activeFilteredContact.metadata?.subject || '(No Subject)'}
+                            </span>
+                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                              {formatDateTime(activeFilteredContact.metadata?.date || activeFilteredContact.created_at)}
+                            </span>
+                          </div>
+                          <p style={{ fontSize: '12.5px', margin: 0, lineHeight: 1.5, color: 'var(--text-primary)' }}>
+                            {activeFilteredContact.metadata?.snippet || 'Curated contact from primary Gmail inbox.'}
+                          </p>
+                        </div>
+
+                        {/* Priority notice */}
+                        <div
+                          style={{
+                            padding: '10px 14px',
+                            backgroundColor: 'var(--accent-lavender-bg)',
+                            borderRadius: '6px',
+                            border: '1px solid var(--accent-lavender-border)',
+                            fontSize: '11.5px',
+                            color: 'var(--text-secondary)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                          }}
+                        >
+                          <Sparkles size={14} color="var(--primary-indigo)" style={{ flexShrink: 0 }} />
+                          <span>
+                            This contact was 1-click curated into your workspace's high-priority review queue. Use the AI Workspace Copilot to draft a reply with verified citations.
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Filtered Reply Composer */}
+                      <form
+                        className="thread-composer-bar"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (replyInput.trim()) {
+                            setGmailSendToast(`Reply queued for ${activeFilteredContact.email}`);
+                            setReplyInput('');
+                            setTimeout(() => setGmailSendToast(null), 5000);
+                          }
+                        }}
+                      >
+                        <div className="composer-input-wrap">
+                          <Mail size={17} color="var(--text-muted)" />
+                          <input
+                            ref={replyInputRef}
+                            type="text"
+                            className="composer-input"
+                            placeholder={`Reply to ${activeFilteredContact.customer_name || activeFilteredContact.email}...`}
+                            value={replyInput}
+                            onChange={(e) => setReplyInput(e.target.value)}
+                          />
+                        </div>
+
+                        <button
+                          type="submit"
+                          className="composer-send-btn"
+                          disabled={!replyInput.trim()}
+                          title="Send reply"
+                        >
+                          <Send size={17} />
+                        </button>
+                      </form>
+                    </>
+                  )
+                ) : inboxSource === 'slack' ? (
+                  !activeSlackMessage ? (
+                    <div style={{ margin: 'auto', textAlign: 'center', padding: '32px', color: 'var(--text-secondary)' }}>
+                      <Hash size={32} style={{ margin: '0 auto 10px auto', opacity: 0.5 }} />
+                      <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                        Select a Slack Channel Thread
+                      </div>
+                      <p style={{ fontSize: '13px', marginTop: 4 }}>
+                        Interactive demo for Slack enterprise workspace integration.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="thread-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div className="thread-customer-info">
+                          <div className="avatar-circle" style={{ backgroundColor: '#f3e8ff', color: '#6b21a8' }}>
+                            <Hash size={18} />
+                          </div>
+                          <div>
+                            <div className="thread-customer-name">
+                              <span>{activeSlackMessage.channel} · {activeSlackMessage.name}</span>
+                            </div>
+                            <div className="thread-customer-sub">
+                              {activeSlackMessage.sender} · {activeSlackMessage.time}
+                            </div>
+                          </div>
+                        </div>
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            padding: '3px 8px',
+                            borderRadius: '4px',
+                            backgroundColor: '#f3e8ff',
+                            color: '#6b21a8',
+                          }}
+                        >
+                          SLACK DEMO
+                        </span>
+                      </div>
+
+                      <div className="thread-messages-scroll" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {/* Customer Question Bubble */}
+                        <div className="msg-row customer">
+                          <div className="avatar-circle small" style={{ backgroundColor: '#f3e8ff', color: '#6b21a8' }}>
+                            <Hash size={14} />
+                          </div>
+                          <div className="msg-bubble" style={{ maxWidth: '85%' }}>
+                            <div style={{ fontWeight: 600, fontSize: '12px', marginBottom: 3, color: '#6b21a8' }}>
+                              {activeSlackMessage.name}
+                            </div>
+                            <div style={{ fontSize: '12.5px', lineHeight: 1.45 }}>{activeSlackMessage.text}</div>
+                            <span className="msg-timestamp">{activeSlackMessage.time}</span>
+                          </div>
+                        </div>
+
+                        {/* MaxiText AI Copilot Answer Bubble */}
+                        <div className="msg-row agent">
+                          <div className="msg-bubble" style={{ maxWidth: '85%', backgroundColor: '#f5f3ff', borderColor: '#ddd6fe' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 700, fontSize: '12px', color: 'var(--primary-indigo-dark)', marginBottom: 4 }}>
+                              <Sparkles size={12} />
+                              <span>MaxiText AI Copilot Response</span>
+                            </div>
+                            <div style={{ fontSize: '12.5px', lineHeight: 1.45 }}>{activeSlackMessage.aiReply}</div>
+                            {activeSlackMessage.citations && activeSlackMessage.citations.length > 0 && (
+                              <div style={{ marginTop: '8px' }}>
+                                <CitationBadges
+                                  citations={activeSlackMessage.citations}
+                                  onSelectCitation={(c) => setActiveInquiryCitation(c)}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="thread-composer-bar">
+                        <input
+                          type="text"
+                          className="composer-input"
+                          disabled
+                          placeholder="Slack interactive simulation mode active..."
+                          value=""
+                        />
+                        <button
+                          type="button"
+                          className="btn-warm-outlined"
+                          style={{ fontSize: '11.5px', padding: '6px 12px' }}
+                          onClick={() => {
+                            alert('Slack Enterprise Connect is active in demo mode for this workspace.');
+                          }}
+                        >
+                          Simulate Question
+                        </button>
+                      </div>
+                    </>
+                  )
+                ) : inboxSource === 'toleto' ? (
+                  !activeToletoMessage ? (
+                    <div style={{ margin: 'auto', textAlign: 'center', padding: '32px', color: 'var(--text-secondary)' }}>
+                      <PhoneCall size={32} style={{ margin: '0 auto 10px auto', opacity: 0.5 }} />
+                      <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                        Select a Toleto Inbound Thread
+                      </div>
+                      <p style={{ fontSize: '13px', marginTop: 4 }}>
+                        Interactive demo for Toleto WhatsApp and SMS gateway.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="thread-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div className="thread-customer-info">
+                          <div className="avatar-circle" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>
+                            <PhoneCall size={18} />
+                          </div>
+                          <div>
+                            <div className="thread-customer-name">
+                              <span>{activeToletoMessage.name} ({activeToletoMessage.channel})</span>
+                            </div>
+                            <div className="thread-customer-sub">
+                              {activeToletoMessage.sender} · {activeToletoMessage.time}
+                            </div>
+                          </div>
+                        </div>
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            padding: '3px 8px',
+                            borderRadius: '4px',
+                            backgroundColor: '#fef3c7',
+                            color: '#92400e',
+                          }}
+                        >
+                          TOLETO DEMO
+                        </span>
+                      </div>
+
+                      <div className="thread-messages-scroll" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {/* Customer Question Bubble */}
+                        <div className="msg-row customer">
+                          <div className="avatar-circle small" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>
+                            <PhoneCall size={14} />
+                          </div>
+                          <div className="msg-bubble" style={{ maxWidth: '85%' }}>
+                            <div style={{ fontWeight: 600, fontSize: '12px', marginBottom: 3, color: '#92400e' }}>
+                              {activeToletoMessage.name}
+                            </div>
+                            <div style={{ fontSize: '12.5px', lineHeight: 1.45 }}>{activeToletoMessage.text}</div>
+                            <span className="msg-timestamp">{activeToletoMessage.time}</span>
+                          </div>
+                        </div>
+
+                        {/* MaxiText AI Copilot Answer Bubble */}
+                        <div className="msg-row agent">
+                          <div className="msg-bubble" style={{ maxWidth: '85%', backgroundColor: '#fffbeb', borderColor: '#fde68a' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 700, fontSize: '12px', color: '#92400e', marginBottom: 4 }}>
+                              <Sparkles size={12} />
+                              <span>MaxiText AI Copilot Auto-Response</span>
+                            </div>
+                            <div style={{ fontSize: '12.5px', lineHeight: 1.45 }}>{activeToletoMessage.aiReply}</div>
+                            {activeToletoMessage.citations && activeToletoMessage.citations.length > 0 && (
+                              <div style={{ marginTop: '8px' }}>
+                                <CitationBadges
+                                  citations={activeToletoMessage.citations}
+                                  onSelectCitation={(c) => setActiveInquiryCitation(c)}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="thread-composer-bar">
+                        <input
+                          type="text"
+                          className="composer-input"
+                          disabled
+                          placeholder="Toleto omnichannel gateway simulation mode active..."
+                          value=""
+                        />
+                        <button
+                          type="button"
+                          className="btn-warm-outlined"
+                          style={{ fontSize: '11.5px', padding: '6px 12px' }}
+                          onClick={() => {
+                            alert('Toleto Omnichannel Gateway is active in interactive demo mode.');
+                          }}
+                        >
+                          Simulate WhatsApp Inbound
+                        </button>
+                      </div>
                     </>
                   )
                 ) : !activeConversation ? (
@@ -1602,45 +2388,6 @@ export default function CompanyDashboard() {
                     {aiSuggestionMeta.category.replace(/_/g, ' ')}
                   </span>
                 )}
-                {((inboxSource === 'workspace' && activeConversation) ||
-                  (inboxSource === 'gmail' && activeGmailMessage)) && (
-                  <button
-                    type="button"
-                    className="btn-warm-outlined"
-                    style={{ padding: '5px 8px', fontSize: '11px' }}
-                    disabled={
-                      inboxSource === 'gmail'
-                        ? generatingGmailAiDraft || !activeBusinessId
-                        : !canGenerateCustomerReply || replyGenerationStatus === 'loading'
-                    }
-                    onClick={
-                      inboxSource === 'gmail'
-                        ? handleGenerateGmailReply
-                        : handleGenerateCustomerReply
-                    }
-                    title={
-                      inboxSource === 'gmail'
-                        ? 'Generate a draft response using only this workspace and email'
-                        : canGenerateCustomerReply
-                          ? 'Generate a draft response using only this workspace and conversation'
-                          : 'A new customer message is required to generate a reply'
-                    }
-                  >
-                    {(inboxSource === 'gmail'
-                      ? generatingGmailAiDraft
-                      : replyGenerationStatus === 'loading') ? (
-                      <>
-                        <Loader2 size={12} className="spin" />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles size={12} />
-                        {aiSuggestionDraft ? 'Regenerate Response' : 'Generate Response'}
-                      </>
-                    )}
-                  </button>
-                )}
               </div>
 
               {((inboxSource === 'workspace' && replyGenerationError) ||
@@ -1884,26 +2631,27 @@ export default function CompanyDashboard() {
               )}
             </div>
 
-            {/* 2. Announcement Box — Natural-Language Recipient Targeting & Live Sending */}
+            {/* 2. Bulk Send Box — Natural-Language Recipient Targeting & Live Sending */}
             <div className="announcement-section">
               <div className="announcement-title-row">
                 <div className="announcement-heading">
-                  <Megaphone size={15} color="#dc2626" />
-                  <span>Announcement Box</span>
+                  <Send size={15} color="var(--primary-indigo)" />
+                  <span>Bulk Send Box</span>
                 </div>
-                <span
-                  style={{
-                    fontSize: '10.5px',
-                    fontWeight: 700,
-                    color: 'var(--primary-indigo)',
-                    backgroundColor: 'var(--accent-lavender-bg)',
-                    padding: '2px 8px',
-                    borderRadius: '999px',
-                    border: '1px solid var(--accent-lavender-border)',
-                  }}
+                <button
+                  type="button"
+                  className="bulk-history-trigger-btn"
+                  onClick={handleOpenAnnouncementHistory}
+                  title="View Bulk Send History"
                 >
-                  NL AUDIENCE TARGETING
-                </span>
+                  <History size={13} />
+                  <span>Bulk Send History</span>
+                  {announcementHistory.length > 0 && (
+                    <span className="bulk-history-count-pill">
+                      {announcementHistory.length}
+                    </span>
+                  )}
+                </button>
               </div>
 
               <div className="form-group">
@@ -1911,8 +2659,86 @@ export default function CompanyDashboard() {
                   className="copilot-field-label"
                   htmlFor="bulk-announcement-prompt"
                 >
-                  Bulk Announcement Prompt (Natural-Language Content &amp; Audience)
+                  Bulk Send Prompt (Natural-Language Content &amp; Audience)
                 </label>
+
+                {/* Audience Quick-Targeting Chips */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginBottom: '8px' }}>
+                  <button
+                    type="button"
+                    className="btn-warm-outlined"
+                    style={{
+                      fontSize: '10.5px',
+                      padding: '3px 8px',
+                      borderRadius: '999px',
+                      fontWeight: 600,
+                      backgroundColor: announcementPrompt.toLowerCase().includes('workspace customer base')
+                        ? 'var(--accent-lavender-bg)'
+                        : 'transparent',
+                      borderColor: announcementPrompt.toLowerCase().includes('workspace customer base')
+                        ? 'var(--primary-indigo)'
+                        : 'var(--border-warm)',
+                    }}
+                    onClick={() => {
+                      setAnnouncementPrompt(
+                        `Bulk send an exclusive update to our ${activeWorkspaceName} workspace customer base.`
+                      );
+                      dispatch(clearAnnouncementDraft());
+                      dispatch(clearAnnouncementSendResult());
+                    }}
+                  >
+                    <Users size={11} style={{ marginRight: 3 }} />
+                    {activeWorkspaceName} Base ({workspaceContacts.workspace_csv_count || 0})
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn-warm-outlined"
+                    style={{
+                      fontSize: '10.5px',
+                      padding: '3px 8px',
+                      borderRadius: '999px',
+                      fontWeight: 600,
+                      backgroundColor: announcementPrompt.toLowerCase().includes('filtered contacts')
+                        ? 'var(--accent-lavender-bg)'
+                        : 'transparent',
+                      borderColor: announcementPrompt.toLowerCase().includes('filtered contacts')
+                        ? 'var(--primary-indigo)'
+                        : 'var(--border-warm)',
+                    }}
+                    onClick={() => {
+                      setAnnouncementPrompt(
+                        'Bulk send a personalized update to our filtered contacts.'
+                      );
+                      dispatch(clearAnnouncementDraft());
+                      dispatch(clearAnnouncementSendResult());
+                    }}
+                  >
+                    <Filter size={11} style={{ marginRight: 3 }} />
+                    Filtered Contacts ({workspaceContacts.filtered_count || 0})
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn-warm-outlined"
+                    style={{
+                      fontSize: '10.5px',
+                      padding: '3px 8px',
+                      borderRadius: '999px',
+                      fontWeight: 600,
+                    }}
+                    onClick={() => {
+                      setAnnouncementPrompt(
+                        'Bulk send an announcement to all users who registered after 2026-01-01.'
+                      );
+                      dispatch(clearAnnouncementDraft());
+                      dispatch(clearAnnouncementSendResult());
+                    }}
+                  >
+                    All Registered Users
+                  </button>
+                </div>
+
                 <textarea
                   id="bulk-announcement-prompt"
                   className="announcement-prompt-textarea"
@@ -1924,39 +2750,8 @@ export default function CompanyDashboard() {
                     announcementDraftStatus === 'loading' ||
                     announcementSendStatus === 'loading'
                   }
-                  placeholder='e.g. "Send an announcement about a flat 10% discount on all services to users who registered after 2026-01-01."'
+                  placeholder='e.g. "Bulk send a 20% discount offer to our workspace customer base."'
                 />
-                <div
-                  style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: '5px',
-                    marginTop: '4px',
-                  }}
-                >
-                  {SAMPLE_ANNOUNCEMENT_PROMPTS.map((item) => (
-                    <button
-                      key={item.label}
-                      type="button"
-                      className="btn-warm-outlined"
-                      style={{
-                        fontSize: '11px',
-                        padding: '3px 8px',
-                      }}
-                      disabled={
-                        announcementDraftStatus === 'loading' ||
-                        announcementSendStatus === 'loading'
-                      }
-                      onClick={() => {
-                        setAnnouncementPrompt(item.text);
-                        dispatch(clearAnnouncementDraft());
-                        dispatch(clearAnnouncementSendResult());
-                      }}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
               </div>
 
               <button
@@ -1985,7 +2780,7 @@ export default function CompanyDashboard() {
                 ) : (
                   <>
                     <Sparkles size={14} />
-                    Draft &amp; Preview Target Audience
+                    Draft &amp; Preview Bulk Send
                   </>
                 )}
               </button>
@@ -2179,12 +2974,12 @@ export default function CompanyDashboard() {
                     {announcementSendStatus === 'loading' ? (
                       <>
                         <Loader2 size={15} className="spin" />
-                        Sending to {announcementDraft.recipient_count} Recipient(s)...
+                        Executing Bulk Send to {announcementDraft.recipient_count} Recipient(s)...
                       </>
                     ) : (
                       <>
                         <Rocket size={15} />
-                        Confirm &amp; Send to {announcementDraft.recipient_count}{' '}
+                        Confirm &amp; Execute Bulk Send to {announcementDraft.recipient_count}{' '}
                         Recipient{announcementDraft.recipient_count === 1 ? '' : 's'}
                       </>
                     )}
@@ -2216,63 +3011,27 @@ export default function CompanyDashboard() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}>
                       <CheckCircle2 size={15} />
                       <span>
-                        Announcement Delivery Summary ({announcementSendResult.status})
+                        Bulk Send Execution Summary ({announcementSendResult.status})
                       </span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => dispatch(clearAnnouncementSendResult())}
-                      style={{ fontSize: '11px', fontWeight: 700 }}
-                    >
-                      ×
-                    </button>
+                    <span style={{ fontSize: '11px', opacity: 0.9 }}>
+                      {formatDateTime(announcementSendResult.sent_at)}
+                    </span>
                   </div>
 
-                  <div>
-                    <strong>Audience:</strong>{' '}
-                    {announcementSendResult.audience_description || 'Targeted recipients'}
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '12px', fontWeight: 600 }}>
+                  <div style={{ display: 'flex', gap: '12px', fontSize: '11.5px', marginTop: 2 }}>
+                    <span>
+                      Total Targeted: <strong>{announcementSendResult.total_recipients}</strong>
+                    </span>
                     <span style={{ color: 'var(--status-success)' }}>
-                      ✓ Successful Sends: {announcementSendResult.sent_count}
+                      Sent: <strong>{announcementSendResult.sent_count}</strong>
                     </span>
-                    <span
-                      style={{
-                        color:
-                          announcementSendResult.failed_count > 0
-                            ? 'var(--status-error)'
-                            : 'var(--text-secondary)',
-                      }}
-                    >
-                      ✕ Failed Sends: {announcementSendResult.failed_count}
-                    </span>
-                  </div>
-
-                  {Array.isArray(announcementSendResult.failed_recipients) &&
-                    announcementSendResult.failed_recipients.length > 0 && (
-                      <div
-                        style={{
-                          width: '100%',
-                          marginTop: '4px',
-                          padding: '6px 8px',
-                          borderRadius: '6px',
-                          backgroundColor: '#fef2f2',
-                          border: '1px solid #fecaca',
-                          color: '#991b1b',
-                        }}
-                      >
-                        <div style={{ fontWeight: 700, marginBottom: '2px' }}>
-                          Failed Recipients &amp; Reasons:
-                        </div>
-                        {announcementSendResult.failed_recipients.map((fr, idx) => (
-                          <div key={fr.id || idx} style={{ fontSize: '11.5px' }}>
-                            • <strong>{fr.customer_name}</strong> ({fr.email}):{' '}
-                            {fr.reason || fr.error_message || 'Delivery failed'}
-                          </div>
-                        ))}
-                      </div>
+                    {announcementSendResult.failed_count > 0 && (
+                      <span style={{ color: 'var(--status-error)' }}>
+                        Failed: <strong>{announcementSendResult.failed_count}</strong>
+                      </span>
                     )}
+                  </div>
                 </div>
               )}
             </div>
@@ -2314,9 +3073,9 @@ export default function CompanyDashboard() {
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Megaphone size={18} color="var(--primary-indigo)" />
+                  <Send size={18} color="var(--primary-indigo)" />
                   <h3 style={{ fontSize: '16px', fontWeight: 700 }}>
-                    Announcement History
+                    Bulk Send History
                   </h3>
                   <span
                     style={{
@@ -2333,7 +3092,7 @@ export default function CompanyDashboard() {
                     type="button"
                     className="icon-action-btn"
                     onClick={() => dispatch(loadAnnouncementHistory())}
-                    title="Refresh announcement history"
+                    title="Refresh bulk send history"
                   >
                     <RefreshCw
                       size={15}
@@ -2379,7 +3138,7 @@ export default function CompanyDashboard() {
                       fontSize: '13px',
                     }}
                   >
-                    Loading announcement history...
+                    Loading bulk send history...
                   </div>
                 ) : announcementHistory.length === 0 ? (
                   <div
@@ -2393,7 +3152,7 @@ export default function CompanyDashboard() {
                       border: '1px solid var(--border-warm)',
                     }}
                   >
-                    No announcements have been drafted or sent for this business yet.
+                    No bulk send campaigns have been drafted or sent for this workspace yet.
                   </div>
                 ) : (
                   announcementHistory.map((ann) => {
@@ -2427,7 +3186,7 @@ export default function CompanyDashboard() {
                                 color: 'var(--text-primary)',
                               }}
                             >
-                              {ann.subject || 'Untitled Announcement'}
+                              {ann.subject || 'Untitled Bulk Send'}
                             </div>
                             <div
                               style={{
@@ -2570,6 +3329,184 @@ export default function CompanyDashboard() {
                   onClick={() => setShowAnnouncementHistoryModal(false)}
                 >
                   Close
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Upload Workspace Contacts CSV Modal */}
+      <AnimatePresence>
+        {showUploadContactsModal && (
+          <motion.div
+            className="modal-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            onClick={() => !isUploadingContactCsv && setShowUploadContactsModal(false)}
+          >
+            <motion.div
+              className="modal-card liquid-glass-modal"
+              style={{
+                maxWidth: '490px',
+                gap: '14px',
+                borderRadius: '16px',
+              }}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: '10px',
+                      backgroundColor: 'var(--accent-lavender-bg)',
+                      color: 'var(--primary-indigo)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Users size={18} />
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: '16px', fontWeight: 700, margin: 0 }}>
+                      Upload Workspace Contacts CSV
+                    </h3>
+                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
+                      {activeWorkspaceName} · {workspaceContacts.workspace_csv_count || 0} contact(s) saved
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="icon-action-btn"
+                  onClick={() => setShowUploadContactsModal(false)}
+                  disabled={isUploadingContactCsv}
+                  aria-label="Close upload contacts modal"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="alert-banner info" style={{ fontSize: '12px' }}>
+                <Info size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                <div>
+                  Your CSV file must include <strong>name</strong> and{' '}
+                  <strong>email id</strong> (or <strong>email</strong>) columns. Duplicate
+                  email addresses are automatically merged for{' '}
+                  <strong>{activeWorkspaceName}</strong>.
+                </div>
+              </div>
+
+              {contactUploadError && (
+                <div className="alert-banner error" style={{ fontSize: '12px' }}>
+                  <AlertCircle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <span>{contactUploadError}</span>
+                </div>
+              )}
+
+              {contactUploadSuccess && (
+                <div className="alert-banner success" style={{ fontSize: '12px' }}>
+                  <CheckCircle2 size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <span>{contactUploadSuccess}</span>
+                </div>
+              )}
+
+              <label
+                className={`csv-upload-dropzone ${selectedContactCsvFile ? 'has-file' : ''}`}
+              >
+                <Upload size={22} color="var(--primary-indigo)" />
+                {selectedContactCsvFile ? (
+                  <>
+                    <div
+                      style={{
+                        fontSize: '13px',
+                        fontWeight: 700,
+                        color: 'var(--text-primary)',
+                        wordBreak: 'break-word',
+                      }}
+                    >
+                      {selectedContactCsvFile.name}
+                    </div>
+                    <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+                      {(selectedContactCsvFile.size / 1024).toFixed(1)} KB · Click to choose a different CSV
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div
+                      style={{
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        color: 'var(--text-primary)',
+                      }}
+                    >
+                      Click to select a CSV file
+                    </div>
+                    <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+                      Accepted format: <code>.csv</code> with <strong>name</strong> and{' '}
+                      <strong>email id</strong> columns
+                    </div>
+                  </>
+                )}
+                <input
+                  type="file"
+                  accept=".csv"
+                  style={{ display: 'none' }}
+                  disabled={isUploadingContactCsv}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null;
+                    setSelectedContactCsvFile(file);
+                    setContactUploadError(null);
+                    setContactUploadSuccess(null);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button
+                  type="button"
+                  className="btn-warm-outlined"
+                  onClick={() => setShowUploadContactsModal(false)}
+                  disabled={isUploadingContactCsv}
+                  style={{ fontSize: '12.5px', padding: '6px 14px' }}
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary-indigo"
+                  disabled={!selectedContactCsvFile || isUploadingContactCsv}
+                  onClick={() => handleCsvContactUpload(selectedContactCsvFile)}
+                  style={{ fontSize: '12.5px', padding: '6px 16px' }}
+                >
+                  {isUploadingContactCsv ? (
+                    <>
+                      <Loader2 size={14} className="spin" />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Upload size={14} />
+                      Upload Contacts CSV
+                    </>
+                  )}
                 </button>
               </div>
             </motion.div>

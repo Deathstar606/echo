@@ -58,9 +58,10 @@ function buildApiUrl(endpoint: string): string {
 async function request<T = unknown>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = buildApiUrl(endpoint);
   const currentUserId = getLoggedInUser()?.id;
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const headers: Record<string, string> = {
     Accept: 'application/json',
-    ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+    ...(options.body && !isFormData ? { 'Content-Type': 'application/json' } : {}),
     ...(currentUserId ? { 'X-User-Id': String(currentUserId) } : {}),
     ...((options.headers as Record<string, string>) || {}),
   };
@@ -592,6 +593,30 @@ export async function addSheetRow(
   );
 }
 
+/**
+ * Deletes all database rows and metadata entries for a workspace sheet/table.
+ * DELETE /api/sheets/{entity}?businessId={businessId}
+ */
+export async function deleteSheetTable(
+  entity: string,
+  businessId?: string
+): Promise<{
+  status: string;
+  message: string;
+  business_id: string;
+  entity: string;
+  table_name: string;
+  deleted_rows: number;
+  dropped_table: boolean;
+}> {
+  const targetEntity = String(entity || '').trim();
+  const targetBiz = (businessId && String(businessId).trim()) || getActiveBusinessId();
+  return request(
+    `/api/sheets/${encodeURIComponent(targetEntity)}?businessId=${encodeURIComponent(targetBiz)}`,
+    { method: 'DELETE' }
+  );
+}
+
 // =============================================================================
 // Phase 1, Phase 2, Phase 3: Cross-Document RAG & Socratic Operations APIs
 // =============================================================================
@@ -611,6 +636,29 @@ export async function fetchWorkspaceDocuments(
   return request<WorkspaceDocumentsResponse>(
     `/api/workspace/documents?business_id=${encodeURIComponent(businessId)}`,
     { method: 'GET' }
+  );
+}
+
+/**
+ * Deletes a workspace document and all of its semantic chunks.
+ * DELETE /api/workspace/documents/{docId}?business_id={businessId}
+ */
+export async function deleteWorkspaceDocument(
+  docId: string,
+  businessId: string = getActiveBusinessId()
+): Promise<{
+  status: string;
+  message: string;
+  business_id: string;
+  doc_id: string;
+  filename?: string | null;
+  deleted_chunks: number;
+}> {
+  return request(
+    `/api/workspace/documents/${encodeURIComponent(docId)}?business_id=${encodeURIComponent(
+      businessId
+    )}`,
+    { method: 'DELETE' }
   );
 }
 
@@ -1025,6 +1073,17 @@ export interface WorkspaceItem {
   created_at?: string;
 }
 
+export async function demoLoginApi(): Promise<{
+  success: boolean;
+  user: UserProfile;
+  workspaces: WorkspaceItem[];
+}> {
+  return request<{ success: boolean; user: UserProfile; workspaces: WorkspaceItem[] }>(
+    '/api/auth/demo',
+    { method: 'POST' }
+  );
+}
+
 export async function loginApi(credentials: {
   email: string;
   password: string;
@@ -1081,6 +1140,20 @@ export async function createWorkspaceApi(payload: {
   return res.workspace;
 }
 
+export async function renameWorkspaceApi(
+  workspaceId: string,
+  name: string
+): Promise<WorkspaceItem> {
+  const res = await request<{ success: boolean; workspace: WorkspaceItem }>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    }
+  );
+  return res.workspace;
+}
+
 export async function getWorkspaceApi(workspaceId: string): Promise<WorkspaceItem> {
   const currentUserId = getLoggedInUser()?.id;
   const qs = currentUserId ? `?userId=${encodeURIComponent(currentUserId)}` : '';
@@ -1089,3 +1162,112 @@ export async function getWorkspaceApi(workspaceId: string): Promise<WorkspaceIte
   );
   return res.workspace;
 }
+
+// ============================================================================
+// Workspace Contacts & Deduplicated CSV Imports
+// ============================================================================
+
+export interface WorkspaceContact {
+  id: string;
+  workspace_id: string;
+  workspace_name?: string;
+  panel_type: 'filtered' | 'workspace_csv';
+  email: string;
+  customer_name?: string | null;
+  metadata?: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceContactsResponse {
+  workspace_id: string;
+  workspace_name: string;
+  panel_name: string;
+  filtered_contacts: WorkspaceContact[];
+  filtered_count: number;
+  workspace_csv_contacts: WorkspaceContact[];
+  workspace_csv_count: number;
+  has_csv_panel: boolean;
+}
+
+export interface WorkspaceContactCsvUploadResult {
+  success: boolean;
+  workspace_id: string;
+  workspace_name: string;
+  panel_name: string;
+  panel_type: 'workspace_csv';
+  imported_count: number;
+  duplicates_merged: number;
+  total_workspace_contacts: number;
+}
+
+export async function fetchWorkspaceContactsApi(
+  workspaceId: string
+): Promise<WorkspaceContactsResponse> {
+  return request<WorkspaceContactsResponse>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/contacts`
+  );
+}
+
+export async function addFilteredContactOneClickApi(
+  workspaceId: string,
+  payload: {
+    email: string;
+    customer_name?: string | null;
+    metadata?: Record<string, any>;
+  }
+): Promise<{ success: boolean; action: string; contact: WorkspaceContact }> {
+  return request<{ success: boolean; action: string; contact: WorkspaceContact }>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/contacts/filtered-one-click`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function removeWorkspaceContactApi(
+  workspaceId: string,
+  params: {
+    email?: string;
+    panel_type?: 'filtered' | 'workspace_csv';
+    id?: string;
+  }
+): Promise<{ success: boolean; deleted: WorkspaceContact | null }> {
+  const q = new URLSearchParams();
+  if (params.email) q.set('email', params.email);
+  if (params.panel_type) q.set('panel_type', params.panel_type);
+  if (params.id) q.set('id', params.id);
+  return request<{ success: boolean; deleted: WorkspaceContact | null }>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/contacts?${q.toString()}`,
+    {
+      method: 'DELETE',
+    }
+  );
+}
+
+export async function uploadWorkspaceContactsCsvApi(
+  workspaceId: string,
+  input: File | Blob | string
+): Promise<WorkspaceContactCsvUploadResult> {
+  if (typeof input === 'string') {
+    return request<WorkspaceContactCsvUploadResult>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/contacts/upload-csv`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ csvContent: input }),
+      }
+    );
+  }
+
+  const formData = new FormData();
+  formData.append('file', input, input instanceof File ? input.name : 'contacts.csv');
+  return request<WorkspaceContactCsvUploadResult>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/contacts/upload-csv`,
+    {
+      method: 'POST',
+      body: formData,
+    }
+  );
+}
+

@@ -2,10 +2,21 @@ const express = require('express');
 const {
   loginUser,
   registerUser,
+  loginDemoUser,
   getUserWorkspaces,
 } = require('../services/authService');
 const { query } = require('../../db');
 const router = express.Router();
+
+// POST /api/auth/demo
+router.post('/demo', async (req, res, next) => {
+  try {
+    const result = await loginDemoUser();
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    return next(err);
+  }
+});
 
 // POST /api/auth/login
 router.post('/login', async (req, res, next) => {

@@ -2,6 +2,54 @@ const crypto = require('node:crypto');
 const { query } = require('../../db');
 const AppError = require('../utils/AppError');
 
+const DEMO_USER_ID = '10000000-0000-4000-8000-000000000001';
+const DEMO_USER_EMAIL = 'demo@maxitext.studio';
+const DEMO_USER_NAME = 'MaxiText Demo Account';
+
+/**
+ * Updates the display name of an existing workspace.
+ *
+ * @param {{ workspaceId: string, name: string, userId?: string | null }} param0
+ * @returns {Promise<object>}
+ */
+async function updateWorkspaceName({ workspaceId, name, userId = null }) {
+  const cleanWsId = String(workspaceId || '').trim();
+  const trimmedName = String(name || '').trim();
+
+  if (!cleanWsId) {
+    throw new AppError('A valid workspace ID is required.', 400);
+  }
+  if (!trimmedName) {
+    throw new AppError('Workspace "name" is required and cannot be empty.', 400);
+  }
+  if (trimmedName.length > 255) {
+    throw new AppError('Workspace "name" must not exceed 255 characters.', 400);
+  }
+
+  const existingRes = await query(
+    'SELECT id, user_id, name, created_at FROM workspaces WHERE id = $1 LIMIT 1;',
+    [cleanWsId]
+  );
+  if (existingRes.rowCount === 0) {
+    throw new AppError(`Workspace with ID "${cleanWsId}" was not found.`, 404);
+  }
+
+  const current = existingRes.rows[0];
+  if (userId && current.user_id && current.user_id !== String(userId).trim()) {
+    throw new AppError('Access denied: you do not have permission to modify this workspace.', 403);
+  }
+
+  const updateRes = await query(
+    `UPDATE workspaces
+     SET name = $1
+     WHERE id = $2
+     RETURNING id, user_id, name, created_at;`,
+    [trimmedName, cleanWsId]
+  );
+
+  return updateRes.rows[0];
+}
+
 /**
  * Derives a salted scrypt hash from a plaintext password.
  * Format: <salt_hex>:<hash_hex>
@@ -230,12 +278,78 @@ async function upsertGoogleUser({ email, name, picture = null }) {
   return { user, workspaces };
 }
 
+/**
+ * Ensures the shared demo user account exists and returns it.
+ *
+ * @returns {Promise<{ id: string, name: string, email: string, created_at: string }>}
+ */
+async function ensureDemoAccount() {
+  const existingRes = await query(
+    `SELECT id, name, email, created_at
+     FROM users
+     WHERE id = $1 OR LOWER(email) = $2
+     ORDER BY (id = $1) DESC
+     LIMIT 1;`,
+    [DEMO_USER_ID, DEMO_USER_EMAIL]
+  );
+
+  if (existingRes.rowCount > 0) {
+    return existingRes.rows[0];
+  }
+
+  const hashedPassword = hashPassword('DemoWorkspace2026!');
+  const insertRes = await query(
+    `INSERT INTO users (id, name, email, password, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, NOW(), NOW())
+     ON CONFLICT (id) DO NOTHING
+     RETURNING id, name, email, created_at;`,
+    [DEMO_USER_ID, DEMO_USER_NAME, DEMO_USER_EMAIL, hashedPassword]
+  );
+
+  if (insertRes.rowCount > 0) {
+    return insertRes.rows[0];
+  }
+
+  const fallbackRes = await query(
+    `SELECT id, name, email, created_at
+     FROM users
+     WHERE id = $1 OR LOWER(email) = $2
+     LIMIT 1;`,
+    [DEMO_USER_ID, DEMO_USER_EMAIL]
+  );
+  return fallbackRes.rows[0];
+}
+
+/**
+ * Signs any visitor into the shared demo account and returns all its workspaces.
+ *
+ * @returns {Promise<{ user: object, workspaces: Array<object> }>}
+ */
+async function loginDemoUser() {
+  const user = await ensureDemoAccount();
+  let workspaces = await getUserWorkspaces(user.id);
+  if (workspaces.length === 0) {
+    const defaultWs = await createWorkspaceForUser({
+      name: 'Demo Operations Workspace',
+      userId: user.id,
+    });
+    workspaces = [defaultWs];
+  }
+  return { user, workspaces };
+}
+
 module.exports = {
+  DEMO_USER_ID,
+  DEMO_USER_EMAIL,
+  DEMO_USER_NAME,
   hashPassword,
   verifyPassword,
   getUserWorkspaces,
   createWorkspaceForUser,
+  updateWorkspaceName,
   loginUser,
   registerUser,
   upsertGoogleUser,
+  ensureDemoAccount,
+  loginDemoUser,
 };

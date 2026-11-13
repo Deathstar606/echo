@@ -7,13 +7,13 @@ import {
   X,
   Copy,
   Check,
-  KeyRound,
   AlertCircle,
   Loader2,
   LogOut,
   Plus,
   ChevronDown,
   Link2,
+  Pencil,
 } from 'lucide-react';
 import {
   checkBackendHealth,
@@ -21,6 +21,7 @@ import {
   getGoogleAuthUrlApi,
   getUserWorkspacesApi,
   createWorkspaceApi,
+  renameWorkspaceApi,
 } from '../services/api';
 import {
   getActiveWorkspaceId,
@@ -30,29 +31,6 @@ import {
   getLoggedInUser,
   setLoggedInUser,
 } from '../config/constants';
-
-function GoogleGLogo({ size = 15 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        fill="#4285F4"
-        d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
-      />
-      <path
-        fill="#34A853"
-        d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.34 24 12 24z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
-      />
-      <path
-        fill="#EA4335"
-        d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.34 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
-      />
-    </svg>
-  );
-}
 
 export default function TopHeader() {
   const location = useLocation();
@@ -69,6 +47,12 @@ export default function TopHeader() {
   const [newWsName, setNewWsName] = useState('');
   const [isCreatingWs, setIsCreatingWs] = useState(false);
   const [createWsError, setCreateWsError] = useState(null);
+
+  const [showRenameWsModal, setShowRenameWsModal] = useState(false);
+  const [renameWsTarget, setRenameWsTarget] = useState(null);
+  const [renameWsInput, setRenameWsInput] = useState('');
+  const [isRenamingWs, setIsRenamingWs] = useState(false);
+  const [renameWsError, setRenameWsError] = useState(null);
 
   const [googleAuth, setGoogleAuth] = useState({ connected: false, user: null, loading: true });
   const [googleAuthErrorBanner, setGoogleAuthErrorBanner] = useState(null);
@@ -297,6 +281,39 @@ export default function TopHeader() {
     }
   };
 
+  const handleOpenRenameModal = (ws) => {
+    setRenameWsTarget(ws);
+    setRenameWsInput(ws?.name || '');
+    setRenameWsError(null);
+    setShowWsDropdown(false);
+    setShowRenameWsModal(true);
+  };
+
+  const handleRenameWorkspace = async (e) => {
+    e.preventDefault();
+    if (!renameWsTarget || !renameWsInput.trim()) return;
+    setIsRenamingWs(true);
+    setRenameWsError(null);
+    try {
+      const updated = await renameWorkspaceApi(renameWsTarget.id, renameWsInput.trim());
+      setUserWorkspaces((prev) =>
+        prev.map((w) => (w.id === renameWsTarget.id ? { ...w, name: updated.name } : w))
+      );
+      if (renameWsTarget.id === currentWsId) {
+        setCurrentWsName(updated.name);
+        setActiveWorkspace(renameWsTarget.id, updated.name);
+        window.dispatchEvent(new Event('workspaceChanged'));
+      }
+      setShowRenameWsModal(false);
+      setRenameWsTarget(null);
+      setRenameWsInput('');
+    } catch (err) {
+      setRenameWsError(err?.message || 'Failed to rename workspace.');
+    } finally {
+      setIsRenamingWs(false);
+    }
+  };
+
   const handleGoogleSignInOrLink = async (linkMode = false) => {
     try {
       const url = linkMode && currentUser?.id
@@ -460,51 +477,99 @@ export default function TopHeader() {
                         }}
                       >
                         {userWorkspaces.map((ws) => (
-                          <button
+                          <div
                             key={ws.id}
-                            type="button"
-                            onClick={() => handleSelectWorkspace(ws)}
                             style={{
-                              textAlign: 'left',
-                              padding: '8px 10px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: '4px',
                               borderRadius: '8px',
                               backgroundColor:
                                 ws.id === currentWsId
                                   ? 'var(--accent-lavender-bg)'
                                   : 'transparent',
-                              border: 'none',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              gap: '6px',
+                              padding: '2px 4px 2px 0',
                             }}
                           >
-                            <div
+                            <button
+                              type="button"
+                              onClick={() => handleSelectWorkspace(ws)}
                               style={{
+                                textAlign: 'left',
+                                padding: '6px 10px',
+                                borderRadius: '8px',
+                                backgroundColor: 'transparent',
+                                border: 'none',
+                                cursor: 'pointer',
                                 display: 'flex',
-                                flexDirection: 'column',
-                                gap: '2px',
-                                overflow: 'hidden',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '6px',
+                                flex: 1,
+                                minWidth: 0,
                               }}
                             >
-                              <span
+                              <div
                                 style={{
-                                  fontSize: '12.5px',
-                                  fontWeight: ws.id === currentWsId ? 700 : 500,
-                                  color: 'var(--text-primary)',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: '2px',
+                                  overflow: 'hidden',
                                 }}
                               >
-                                {ws.name}
-                              </span>
-                              <code style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
-                                {ws.id.slice(0, 18)}...
-                              </code>
-                            </div>
-                            {ws.id === currentWsId && (
-                              <Check size={14} color="var(--primary-indigo)" />
-                            )}
-                          </button>
+                                <span
+                                  style={{
+                                    fontSize: '12.5px',
+                                    fontWeight: ws.id === currentWsId ? 700 : 500,
+                                    color: 'var(--text-primary)',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {ws.name}
+                                </span>
+                                <code style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
+                                  {ws.id.slice(0, 18)}...
+                                </code>
+                              </div>
+                              {ws.id === currentWsId && (
+                                <Check size={14} color="var(--primary-indigo)" style={{ flexShrink: 0 }} />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenRenameModal(ws);
+                              }}
+                              title={`Rename workspace "${ws.name}"`}
+                              aria-label={`Rename workspace ${ws.name}`}
+                              style={{
+                                padding: '5px',
+                                borderRadius: '6px',
+                                color: 'var(--text-muted)',
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.color = 'var(--primary-indigo)';
+                                e.currentTarget.style.backgroundColor = '#e0e7ff';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.color = 'var(--text-muted)';
+                                e.currentTarget.style.backgroundColor = 'transparent';
+                              }}
+                            >
+                              <Pencil size={12.5} />
+                            </button>
+                          </div>
                         ))}
                       </div>
                     )}
@@ -763,32 +828,7 @@ export default function TopHeader() {
                 </div>
               )}
             </div>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Link
-                to="/"
-                className="btn-warm-outlined"
-                style={{
-                  textDecoration: 'none',
-                  padding: '6px 14px',
-                  borderRadius: '999px',
-                  fontSize: '12.5px',
-                }}
-              >
-                <KeyRound size={13} />
-                Sign In
-              </Link>
-              <button
-                type="button"
-                className="header-google-btn"
-                onClick={() => handleGoogleSignInOrLink(false)}
-                title="Sign in with Google"
-              >
-                <GoogleGLogo size={14} />
-                Sign in with Google
-              </button>
-            </div>
-          )}
+          ) : null}
         </div>
       </header>
 
@@ -953,6 +993,128 @@ export default function TopHeader() {
                       </>
                     ) : (
                       'Create Workspace'
+                    )}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Rename Workspace Modal */}
+      <AnimatePresence>
+        {showRenameWsModal && renameWsTarget && (
+          <motion.div
+            className="modal-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => {
+              if (!isRenamingWs) {
+                setShowRenameWsModal(false);
+                setRenameWsTarget(null);
+              }
+            }}
+          >
+            <motion.div
+              className="modal-card liquid-glass-modal"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              onClick={(e) => e.stopPropagation()}
+              style={{ maxWidth: '480px', gap: '14px', borderRadius: '16px' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: '10px',
+                      backgroundColor: 'var(--accent-lavender-bg)',
+                      color: 'var(--primary-indigo)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Pencil size={16} />
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: '16px', fontWeight: 700, margin: 0 }}>
+                      Rename Workspace
+                    </h3>
+                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
+                      Change the display name for this workspace
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="icon-action-btn"
+                  disabled={isRenamingWs}
+                  onClick={() => {
+                    setShowRenameWsModal(false);
+                    setRenameWsTarget(null);
+                  }}
+                  aria-label="Close rename dialog"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {renameWsError && (
+                <div className="alert-banner error" style={{ fontSize: '12px' }}>
+                  <AlertCircle size={14} style={{ flexShrink: 0 }} />
+                  <span>{renameWsError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleRenameWorkspace} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div className="form-group">
+                  <label className="form-label" htmlFor="rename-ws-name">
+                    Workspace Name <span style={{ color: '#dc2626' }}>*</span>
+                  </label>
+                  <input
+                    id="rename-ws-name"
+                    type="text"
+                    className="form-input"
+                    value={renameWsInput}
+                    onChange={(e) => setRenameWsInput(e.target.value)}
+                    placeholder="e.g., Nexus Commercial Logistics"
+                    disabled={isRenamingWs}
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                  <button
+                    type="button"
+                    className="btn-warm-outlined"
+                    onClick={() => {
+                      setShowRenameWsModal(false);
+                      setRenameWsTarget(null);
+                    }}
+                    disabled={isRenamingWs}
+                    style={{ fontSize: '12.5px', padding: '6px 14px' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn-primary-indigo"
+                    disabled={isRenamingWs || !renameWsInput.trim() || renameWsInput.trim() === renameWsTarget.name}
+                    style={{ fontSize: '12.5px', padding: '6px 16px' }}
+                  >
+                    {isRenamingWs ? (
+                      <>
+                        <Loader2 size={14} className="spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      'Save Changes'
                     )}
                   </button>
                 </div>

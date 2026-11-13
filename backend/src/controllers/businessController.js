@@ -1,6 +1,8 @@
 const crypto = require('node:crypto');
 const { query } = require('../../db');
 const AppError = require('../utils/AppError');
+const { DEMO_USER_ID } = require('../services/authService');
+const { updateWorkspaceName } = require('../services/authService');
 
 /**
  * Fetches a workspace (business) by UUID or throws a 404 AppError if not found.
@@ -63,9 +65,9 @@ async function createBusiness(req, res, next) {
 
     let targetUserId = rawUserId;
     if (!targetUserId) {
-      // Default to primary user if none provided
+      // Default to shared demo / primary user if none provided
       const firstUserRes = await query('SELECT id FROM users ORDER BY created_at ASC LIMIT 1;');
-      targetUserId = firstUserRes.rows[0]?.id || '48244777-c7a4-4e30-be4b-fe1104e443b8';
+      targetUserId = firstUserRes.rows[0]?.id || DEMO_USER_ID;
     }
 
     const id = crypto.randomUUID();
@@ -115,8 +117,43 @@ async function getBusiness(req, res, next) {
   }
 }
 
+/**
+ * PATCH /api/businesses/:businessId
+ * PUT /api/businesses/:businessId
+ * Updates/renames business workspace details.
+ */
+async function updateBusiness(req, res, next) {
+  try {
+    const businessId = req.params.businessId || req.params.workspaceId;
+    const { name } = req.body || {};
+    const requestUserId =
+      req.headers['x-user-id'] ||
+      req.query?.userId ||
+      req.query?.user_id ||
+      req.body?.userId ||
+      req.body?.user_id ||
+      null;
+    const updated = await updateWorkspaceName({
+      workspaceId: businessId,
+      name,
+      userId: requestUserId,
+    });
+    return res.status(200).json({
+      success: true,
+      id: updated.id,
+      name: updated.name,
+      user_id: updated.user_id,
+      created_at: updated.created_at,
+      workspace: updated,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   findBusinessOrThrow,
   createBusiness,
   getBusiness,
+  updateBusiness,
 };

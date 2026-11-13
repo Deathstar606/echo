@@ -256,6 +256,7 @@ async function callGeminiModelWithSchema(
     ],
     generationConfig,
   });
+  const requestStartedAt = Date.now();
   let response = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -320,7 +321,11 @@ async function callGeminiModelWithSchema(
   const promptTokenCount = data?.usageMetadata?.promptTokenCount;
   if (Number.isFinite(promptTokenCount)) {
     console.info(
-      `[Gemini] model=${normalizedModel} prompt_tokens=${promptTokenCount}`
+      `[Gemini] model=${normalizedModel} prompt_tokens=${promptTokenCount} duration_ms=${Date.now() - requestStartedAt}`
+    );
+  } else {
+    console.info(
+      `[Gemini] model=${normalizedModel} prompt_tokens=unavailable duration_ms=${Date.now() - requestStartedAt}`
     );
   }
 
@@ -360,11 +365,11 @@ async function executeGeminiWithFallback(promptText, responseSchema) {
 
   const candidateModels = Array.from(
     new Set([
-      env.geminiModel || 'gemini-3.5-flash-lite',
-      'gemini-3.5-flash-lite',
+      env.geminiModel || 'gemini-3.5-flash',
       'gemini-3.5-flash',
+      'gemini-3.5-flash-lite',
+      'gemini-3.1-flash-lite',
       'gemini-3.8-flash',
-      'gemini-2.5-flash',
     ])
   ).filter((m) => !unavailableModels.has(m));
 
@@ -383,8 +388,12 @@ async function executeGeminiWithFallback(promptText, responseSchema) {
         unavailableModels.add(modelName);
         continue;
       }
-      if (error.upstreamStatus === 503 || error.upstreamStatus === 429) {
-        throw error;
+      if (
+        error.upstreamStatus === 503 ||
+        error.upstreamStatus === 429 ||
+        error.code === 'GEMINI_TIMEOUT'
+      ) {
+        continue;
       }
       throw error;
     }

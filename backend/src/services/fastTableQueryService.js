@@ -14,6 +14,7 @@ const {
 const {
   buildTableRowCitation,
   resolveRowIdentifier,
+  resolveRowIdentifierInfo,
 } = require('./crossRagService');
 const {
   detectConversationalIntent,
@@ -30,6 +31,12 @@ const {
 
 const MUTATION_OR_ACTION_REGEX =
   /\b(?:update|set|change|modify|edit|alter|swap|replace|refund|reconcile|enforce|process|elevate|upgrade|downgrade|promote|freeze|cut|reduce|increase|decrease|adjust|add|insert|create|delete|remove|drop|allocate|deploy|assign|audit|review|email|e-mail|notify|message|alert|send|draft|dispatch|apply|mark|cancel|trigger|execute|clear|import|upload)\b/i;
+const DIRECT_MUTATION_LEAD_REGEX =
+  /^(?:please\s+)?(?:update|set|change|modify|edit|alter|swap|replace|increase|decrease|reduce|cut|adjust|add|subtract|multiply|mark|delete|remove|create)\b/i;
+const EXTERNAL_ACTION_REGEX =
+  /\b(?:email|e-mail|notify|send|alert|draft|dispatch)\b/i;
+const MULTI_SOURCE_MUTATION_REGEX =
+  /\b(?:based\s+on|cross[- ]?reference|cross[- ]?check|reconcile|compare\s+(?:with|against)|against\s+(?:the\s+)?(?:orders?|products?|inventory|backorders?|table|sheet|csv|dataset))\b/i;
 
 const B2B_OR_DOC_REGEX =
   /\b(?:policy|policies|SOP|manifest|memo|brief|recall|protocol|guideline|compliance|underwriting|SLA|voucher|claim|waiver|surveyor|quarter|Q[1-4]|section\s+\d+|clause|rules?|according\s+to|cross[- ]?check|cross[- ]?reference|combine|combined|evaluate|compute|calculate|bypass|decompression|turnaround|shortage|deficit|core[- ]?size|margin\s+lock|quarantine|FIN-POL|DIR-COM|PRM-|QA_Batch|VLR-|CLM-|Allocation\s+Priority|Credit\s+Control|Hospital\s+Bed|Clinical_Staffing|Regional_Treasury|Vendor_Defect)\b|\.(?:pdf|docx?|txt|md)\b/i;
@@ -94,6 +101,31 @@ function isBasicTableQueryCandidate(prompt, history = []) {
   if (MUTATION_OR_ACTION_REGEX.test(text)) return false;
   if (B2B_OR_DOC_REGEX.test(text) || SCOPED_POLICY_PREP_REGEX.test(text)) return false;
 
+  return true;
+}
+
+/**
+ * Identifies direct, table-local mutations that do not need document/RAG intent
+ * classification. Interpretation and preview still use the existing Gemini and
+ * validation pipeline; requests with history or external/document dependencies
+ * are deliberately left to the normal router.
+ *
+ * @param {string} prompt
+ * @param {Array<object>} [history=[]]
+ * @returns {boolean}
+ */
+function isBasicTableMutationCandidate(prompt, history = []) {
+  const text = String(prompt || '').trim();
+  if (!text || (Array.isArray(history) && history.length > 0)) return false;
+  if (!DIRECT_MUTATION_LEAD_REGEX.test(text)) return false;
+  if (
+    B2B_OR_DOC_REGEX.test(text) ||
+    SCOPED_POLICY_PREP_REGEX.test(text) ||
+    EXTERNAL_ACTION_REGEX.test(text) ||
+    MULTI_SOURCE_MUTATION_REGEX.test(text)
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -352,63 +384,92 @@ function buildHighlightedRows(tableName, rows) {
 }
 
 /**
- * Generates an Option-A compact Gemini natural-language answer summarizing verified SQL rows.
+ * Fast, deterministic query summarizer that synthesizes an accurate,
+ * human-readable summary of matched SQL rows in 0ms without extra LLM hops.
  */
-async function summarizeQueryRowsWithAi({
+function buildDeterministicQuerySummary({
   prompt,
   tableName,
-  interpreted,
-  rows,
-  schema,
-  emailColumn,
+  interpreted = {},
+  rows = [],
+  schema = {},
 }) {
-  const count = rows.length;
-  const compactRows = rows
-    .slice(0, 20)
-    .map((row) => redactRowForSummary(row, schema, emailColumn));
+  const count = Array.isArray(rows) ? rows.length : 0;
+  const displayTable = tableName || 'table';
 
-  const filterSummary = JSON.stringify({
-    filter_logic: interpreted.filter_logic || 'AND',
-    filters: interpreted.filters || [],
-    sort: interpreted.sort || [],
-    limit: interpreted.limit ?? null,
+  if (count === 0) {
+    const filters = Array.isArray(interpreted?.filters) ? interpreted.filters : [];
+    if (filters.length > 0) {
+      const criteria = filters
+        .map((f) => `${f.column || f.field || 'field'} ${f.operator || '='} "${f.value}"`)
+        .join(', ');
+      return `Found 0 matching record(s) in ${displayTable} for criteria: ${criteria}.`;
+    }
+    return `Found 0 matching record(s) in ${displayTable} matching the specified query.`;
+  }
+
+  const descriptors = rows.slice(0, 5).map((row, idx) => {
+    const idInfo = resolveRowIdentifierInfo(row, idx + 1);
+    const id = idInfo.identifier;
+
+    // Search for a secondary human-readable name or title if id is an alphanumeric code
+    let descriptor = '';
+    const nameCols = [
+      'customer_name',
+      'name',
+      'product_name',
+      'item_name',
+      'title',
+      'company_name',
+      'full_name',
+    ];
+    for (const col of nameCols) {
+      if (
+        row[col] &&
+        typeof row[col] === 'string' &&
+        row[col].trim() &&
+        row[col].trim() !== id
+      ) {
+        descriptor = row[col].trim();
+        break;
+      }
+    }
+
+    if (!descriptor) {
+      for (const [k, v] of Object.entries(row)) {
+        const lower = k.toLowerCase();
+        if (
+          k !== idInfo.column &&
+          /(?:name|title)$/i.test(lower) &&
+          v &&
+          typeof v === 'string' &&
+          v.trim() &&
+          v.trim() !== id
+        ) {
+          descriptor = v.trim();
+          break;
+        }
+      }
+    }
+
+    if (descriptor) {
+      return `${id} (${descriptor})`;
+    }
+    return id;
   });
 
-  const summaryPrompt = `Write a concise, helpful 1-2 sentence natural-language answer to the user's table query using ONLY the verified SQL result below.
-- State the exact matched count (${count}) from table "${tableName}".
-- Mention matching record names/IDs and key matching field values concisely.
-- If count is 0, clearly state that 0 records in "${tableName}" matched the criteria and briefly name the filters applied.
-- Never invent values or rows. Return JSON only: {"answer":"..."}.
+  const moreSuffix = count > 5 ? `, and ${count - 5} more` : '';
+  const recordList = descriptors.join(', ') + moreSuffix;
 
-USER QUERY: ${prompt}
-APPLIED FILTERS: ${filterSummary}
-MATCHED COUNT: ${count}
-MATCHED ROWS (up to 20 shown): ${JSON.stringify(compactRows)}`;
+  return `Found ${count} matching record(s) in ${displayTable}: ${recordList}.`;
+}
 
-  try {
-    const res = await generateStructuredJsonWithRetry(
-      summaryPrompt,
-      (parsed) => {
-        const answer = String(parsed?.answer || '').trim();
-        if (!answer) throw new Error('Empty summary answer');
-        return answer;
-      },
-      {
-        maxRetries: 1,
-        responseSchema: READ_SUMMARY_SCHEMA,
-        stage: 'fast_table_read_summary',
-      }
-    );
-    return res;
-  } catch {
-    if (count === 0) {
-      return `Found 0 matching record(s) in ${tableName} for the specified criteria.`;
-    }
-    const labels = rows
-      .slice(0, 5)
-      .map((row, idx) => resolveRowIdentifier(row, idx + 1));
-    return `Found ${count} matching record(s) in ${tableName}: ${labels.join(', ')}${count > 5 ? ', ...' : ''}.`;
-  }
+/**
+ * Summarizes verified SQL rows deterministically in 0ms (Option-A format),
+ * eliminating redundant sequential LLM calls while maintaining full understandability.
+ */
+async function summarizeQueryRowsWithAi(params) {
+  return buildDeterministicQuerySummary(params);
 }
 
 /**
@@ -453,13 +514,16 @@ async function tryExecuteFastTableQuery({
 
   const meta = targetMatch.meta;
   const tableName = meta.table_name;
+  const hasCategoricalProfiles =
+    Array.isArray(meta?.columns_profile) &&
+    meta.columns_profile.some((c) => Array.isArray(c.categorical_values) && c.categorical_values.length > 0);
+
   const schema = await discoverTableSchema(tableName, businessId, {
     useCache: true,
     prefetchedMetadata: meta,
-    skipSampleQuery: true,
+    skipSampleQuery: hasCategoricalProfiles,
   });
 
-  // Skip catalog DB load when prompt does not mention a free-text item name or metadata already profiles categoricals
   const interpreted = await interpretNaturalLanguageQuery({
     entity: schema.entity,
     schema,
@@ -467,6 +531,7 @@ async function tryExecuteFastTableQuery({
     isMutation: false,
     businessId,
     skipCatalogLoad: true,
+    compactPrompt: true,
     conversationHistory: normalizedHistory,
   });
 
@@ -550,10 +615,53 @@ async function tryExecuteFastTableQuery({
   };
 }
 
+/**
+ * Returns a table-local mutation route before the workspace RAG intent model.
+ * The caller still sends the request to the ordinary sheet mutation endpoint,
+ * where Gemini interpretation, validation, preview, and user confirmation apply.
+ */
+async function tryRouteBasicTableMutation({
+  businessId,
+  prompt,
+  entity = null,
+  history = [],
+}) {
+  if (
+    hasCustomWorkspaceGeminiGenerator() ||
+    !isBasicTableMutationCandidate(prompt, history)
+  ) {
+    return null;
+  }
+
+  const metadataRows = await listWorkspaceTableMetadataCached(businessId);
+  if (!Array.isArray(metadataRows) || metadataRows.length === 0) return null;
+
+  const targetMatch = resolveSingleTableTarget(
+    prompt,
+    entity,
+    metadataRows,
+    []
+  );
+  if (!targetMatch?.meta) return null;
+
+  return {
+    status: 'SHEET_MUTATION',
+    intent: 'sheet_mutation',
+    entity: targetMatch.meta.table_name,
+    prompt,
+    message: 'Preparing a validated spreadsheet mutation preview.',
+    fast_path: true,
+    citations: [],
+  };
+}
+
 module.exports = {
   isBasicTableQueryCandidate,
+  isBasicTableMutationCandidate,
   resolveSingleTableTarget,
+  buildDeterministicQuerySummary,
   summarizeQueryRowsWithAi,
   buildHighlightedRows,
   tryExecuteFastTableQuery,
+  tryRouteBasicTableMutation,
 };

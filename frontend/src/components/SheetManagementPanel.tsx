@@ -43,6 +43,7 @@ import {
   importSheetCsvFile,
   appendSheetCsvFile,
   insertSingleSheetRow,
+  removeSheetTable,
   setSheetNlPrompt,
   applySheetQueryPayload,
   clearSheetFiltersAndFeedback,
@@ -57,6 +58,7 @@ import { getActiveBusinessId, getLoggedInUser } from '../config/constants';
 import {
   fetchWorkspaceDocuments,
   uploadWorkspaceDocument,
+  deleteWorkspaceDocument,
   seedWorkspaceDemo,
   listGoogleSpreadsheetsApi,
   importGoogleSheetApi,
@@ -68,7 +70,10 @@ import {
 
 import KnowledgeSourceBar from './KnowledgeSourceBar';
 import SocraticOperationsWorkbench from './SocraticOperationsWorkbench';
+import B2BActionStagePanel from './B2BActionStagePanel';
+import CitationBadges from './CitationBadges';
 import CitationInspectorModal from './CitationInspectorModal';
+import { useB2BOperationsWorkflow } from '../hooks/useB2BOperationsWorkflow';
 
 interface SamplePrompt {
   type: 'query' | 'mutation';
@@ -132,6 +137,8 @@ interface SheetSliceState {
   rowInsertStatus: 'idle' | 'loading' | 'succeeded' | 'failed';
   rowInsertMessage: string | null;
   rowInsertError: string | null;
+  sheetDeleteStatus?: 'idle' | 'loading' | 'succeeded' | 'failed';
+  sheetDeleteError?: string | null;
 }
 
 const PRODUCT_COLUMNS: string[] = [
@@ -396,6 +403,7 @@ export default function SheetManagementPanel(): React.ReactElement {
     rowInsertStatus,
     rowInsertMessage,
     rowInsertError,
+    sheetDeleteStatus,
   } = useSelector((state: { sheets: SheetSliceState }) => state.sheets);
 
   const [isAddRowModalOpen, setIsAddRowModalOpen] = useState<boolean>(false);
@@ -624,6 +632,9 @@ export default function SheetManagementPanel(): React.ReactElement {
       );
       setTimeout(() => setAddRowSuccessToast(null), 5000);
     } catch (err: any) {
+      if (err?.status === 401 || /no google workspace account/i.test(err?.message || '')) {
+        setIsSheetGoogleConnected(false);
+      }
       setImportSheetError(err?.message || 'Failed to import Google Sheet.');
     } finally {
       setImportingSheet(false);
@@ -803,6 +814,46 @@ export default function SheetManagementPanel(): React.ReactElement {
     } finally {
       setIsUploadingDoc(false);
     }
+  };
+
+  // Remove a sheet/table and its workspace database entries
+  const handleRemoveTable = async (entity: string) => {
+    if (!activeBusinessId) {
+      throw new Error('Please select a workspace first.');
+    }
+    setClientAppendError(null);
+    const res = await dispatch(
+      removeSheetTable({ entity, businessId: activeBusinessId })
+    ).unwrap();
+    await loadSyncedSheets(activeBusinessId);
+    if (
+      activeCitation &&
+      activeCitation.source_type === 'table' &&
+      String(activeCitation.source_name || '').toLowerCase() === entity.toLowerCase()
+    ) {
+      setActiveCitation(null);
+    }
+    setAddRowSuccessToast(
+      res?.message || `Removed sheet "${entity}" from workspace.`
+    );
+    setTimeout(() => setAddRowSuccessToast(null), 4000);
+  };
+
+  // Remove an unstructured policy/notice document and all of its chunks
+  const handleRemoveDocument = async (doc: WorkspaceDocument) => {
+    if (!activeBusinessId || !doc?.doc_id) {
+      throw new Error('Document ID and workspace ID are required.');
+    }
+    setClientAppendError(null);
+    const res = await deleteWorkspaceDocument(doc.doc_id, activeBusinessId);
+    await loadDocuments(activeBusinessId);
+    if (activeCitation && activeCitation.source_id === doc.doc_id) {
+      setActiveCitation(null);
+    }
+    setAddRowSuccessToast(
+      res?.message || `Removed "${doc.filename}" and its indexed chunks.`
+    );
+    setTimeout(() => setAddRowSuccessToast(null), 4000);
   };
 
   // Dynamic sample prompts according to active entity and workspace sources
@@ -1185,7 +1236,8 @@ export default function SheetManagementPanel(): React.ReactElement {
     mutationApplyStatus === 'loading' ||
     csvUploadStatus === 'loading' ||
     csvAppendStatus === 'loading' ||
-    rowInsertStatus === 'loading';
+    rowInsertStatus === 'loading' ||
+    sheetDeleteStatus === 'loading';
 
   const pendingMutationMap = useMemo(() => {
     const map = new Map<string, WorkspaceMutationDiff>();
@@ -1209,6 +1261,32 @@ export default function SheetManagementPanel(): React.ReactElement {
     return map;
   }, [pendingMutations]);
 
+  const b2bWorkflow = useB2BOperationsWorkflow({
+    activeBusinessId,
+    activeEntity,
+    isBusy,
+    nlPrompt,
+    onPromptChange: (prompt) => dispatch(setSheetNlPrompt(prompt)),
+    onRefreshTable: () =>
+      activeEntity
+        ? dispatch(loadSheetRows(activeEntity))
+        : dispatch(loadBusinessSheets({ businessId: activeBusinessId })),
+    onMutationsPreviewChange: (mutations) => setPendingMutations(mutations),
+    onRunSheetInstruction: handleRoutedSheetInstruction,
+    onApplySheetQueryResult: (payload) => dispatch(applySheetQueryPayload(payload)),
+    onResetWorkspace: () => {
+      dispatch(clearSheetFiltersAndFeedback());
+      dispatch(discardMutationPreview());
+      setPendingMutations([]);
+    },
+  });
+
+  const aiResponseSummary =
+    b2bWorkflow.conversationalData?.answer ||
+    b2bWorkflow.conversationalData?.message ||
+    '';
+  const aiResponseCitations = b2bWorkflow.conversationalData?.citations || [];
+
   return (
     <motion.div
       className="sheet-management-workspace"
@@ -1228,6 +1306,7 @@ export default function SheetManagementPanel(): React.ReactElement {
             dispatch(setActiveSheetEntity(entity));
             dispatch(loadSheetRows(entity));
           }}
+          onRemoveTable={handleRemoveTable}
           onUploadCsv={(file) => {
             setClientAppendError(null);
             dispatch(importSheetCsvFile({ entity: '', file }));
@@ -1244,6 +1323,7 @@ export default function SheetManagementPanel(): React.ReactElement {
           }}
           documents={documents}
           onUploadDocument={handleUploadDocument}
+          onRemoveDocument={handleRemoveDocument}
           onSelectDocument={(doc) => {
             setActiveCitation({
               source_type: 'document',
@@ -1255,8 +1335,6 @@ export default function SheetManagementPanel(): React.ReactElement {
                 `Document ${doc.filename} indexed (${doc.chunk_count || doc.total_chunks || 1} chunk(s)).`,
             });
           }}
-          onLoadDemoScenario={handleLoadDemoScenario}
-          isSeedingDemo={isSeedingDemo}
           isUploadingDoc={isUploadingDoc}
           isBusy={isBusy}
           onRefreshDocuments={() => loadDocuments(activeBusinessId)}
@@ -1567,6 +1645,23 @@ export default function SheetManagementPanel(): React.ReactElement {
             </section>
           )}
 
+          {/* Stage 1 & Socratic B2B Action Panels (clarification / preview / executed) */}
+          <B2BActionStagePanel
+            workflowStatus={b2bWorkflow.workflowStatus}
+            activeEntity={activeEntity}
+            isBusy={isBusy || b2bWorkflow.workflowStatus === 'executing'}
+            clarificationData={b2bWorkflow.clarificationData}
+            selectedOptionsMap={b2bWorkflow.selectedOptionsMap}
+            previewData={b2bWorkflow.previewData}
+            executedData={b2bWorkflow.executedData}
+            onSelectSocraticOption={b2bWorkflow.handleSelectSocraticOption}
+            onResolveSocratic={b2bWorkflow.handleResolveSocratic}
+            onConfirmOperation={b2bWorkflow.handleConfirmOperation}
+            onBackToClarification={b2bWorkflow.handleBackToClarification}
+            onResetWorkflow={b2bWorkflow.handleResetWorkflow}
+            onSelectCitation={(citation) => setActiveCitation(citation)}
+          />
+
           {/* Query / Match Status Bar */}
           <div
             style={{
@@ -1741,7 +1836,7 @@ export default function SheetManagementPanel(): React.ReactElement {
                   No CSV or Table in This Workspace Yet
                 </div>
                 <div>
-                  Import a <strong>Google Sheet</strong>, click <strong>Upload CSV</strong> in the Structured Tables section above, or click <strong>Load Demo Scenario</strong> to seed demo data.
+                  Import a <strong>Google Sheet</strong> or click <strong>Upload CSV</strong> in the Structured Tables section above to add data.
                 </div>
               </div>
             ) : displayedRows.length === 0 ? (
@@ -1967,34 +2062,57 @@ export default function SheetManagementPanel(): React.ReactElement {
               </table>
             )}
           </div>
+
+          {/* AI Response Summary & Provenance below larger matched rows table */}
+          {aiResponseSummary && (
+            <section
+              aria-label="AI response summary and citations"
+              className="sheet-ai-summary-card"
+            >
+              <div className="sheet-ai-summary-header">
+                <span className="ai-badge">
+                  <Sparkles size={12} />
+                  AI Response Summary
+                </span>
+                {b2bWorkflow.conversationalData?.intent && (
+                  <span className="sheet-ai-intent-pill">
+                    {String(b2bWorkflow.conversationalData.intent)
+                      .replace(/_/g, ' ')
+                      .toUpperCase()}
+                  </span>
+                )}
+              </div>
+
+              <div className="sheet-ai-summary-text">{aiResponseSummary}</div>
+
+              {aiResponseCitations.length > 0 && (
+                <div className="sheet-ai-summary-citations">
+                  <CitationBadges
+                    citations={aiResponseCitations}
+                    onSelectCitation={(citation) => setActiveCitation(citation)}
+                  />
+                </div>
+              )}
+            </section>
+          )}
         </div>
       </div>
 
-      {/* Right Column: Socratic Operations Workbench */}
+      {/* Right Column: ChatGPT / Gemini-Style B2B Copilot Conversation */}
       <SocraticOperationsWorkbench
-        activeBusinessId={activeBusinessId}
         activeEntity={activeEntity}
         activeDisplayName={activeDisplayName}
-        onRefreshTable={() =>
-          activeEntity
-            ? dispatch(loadSheetRows(activeEntity))
-            : dispatch(loadBusinessSheets({ businessId: activeBusinessId }))
-        }
-        onMutationsPreviewChange={(mutations) => setPendingMutations(mutations)}
-        onSelectCitation={(citation) => setActiveCitation(citation)}
+        workflowStatus={b2bWorkflow.workflowStatus}
+        executingStep={b2bWorkflow.executingStep}
+        workflowError={b2bWorkflow.workflowError}
+        conversationHistory={b2bWorkflow.conversationHistory}
         isBusy={isBusy}
         nlPrompt={nlPrompt}
         onPromptChange={(prompt) => dispatch(setSheetNlPrompt(prompt))}
         samplePrompts={samplePrompts}
-        onRunSheetInstruction={handleRoutedSheetInstruction}
-        onApplySheetQueryResult={(payload) =>
-          dispatch(applySheetQueryPayload(payload))
-        }
-        onResetWorkspace={() => {
-          dispatch(clearSheetFiltersAndFeedback());
-          dispatch(discardMutationPreview());
-          setPendingMutations([]);
-        }}
+        onExecuteOperation={b2bWorkflow.handleExecuteOperation}
+        onDismissError={b2bWorkflow.handleDismissError}
+        onResetWorkflow={b2bWorkflow.handleResetWorkflow}
       />
 
       {/* Citation Inspector Modal */}

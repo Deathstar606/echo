@@ -28,6 +28,7 @@ const {
 } = require('./workspaceReadService');
 const {
   tryExecuteFastTableQuery,
+  tryRouteBasicTableMutation,
 } = require('./fastTableQueryService');
 const {
   invalidateWorkspaceMetadataCache,
@@ -1821,6 +1822,14 @@ async function executeWorkspaceOperation({
   if (fastQueryResult) {
     return fastQueryResult;
   }
+
+  const fastMutationRoute = await tryRouteBasicTableMutation({
+    businessId,
+    prompt,
+    entity,
+    history: normalizedHistory,
+  });
+  if (fastMutationRoute) return fastMutationRoute;
 
   const routed = await routeWorkspaceIntent({
     businessId,

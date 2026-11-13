@@ -1592,7 +1592,7 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': '48244777-c7a4-4e30-be4b-fe1104e443b8',
+          'X-User-Id': '10000000-0000-4000-8000-000000000001',
         },
         body: JSON.stringify({}),
       }
@@ -1841,7 +1841,7 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': '48244777-c7a4-4e30-be4b-fe1104e443b8',
+          'X-User-Id': '10000000-0000-4000-8000-000000000001',
         },
         body: JSON.stringify({}),
       }
@@ -1933,7 +1933,7 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': '48244777-c7a4-4e30-be4b-fe1104e443b8',
+          'X-User-Id': '10000000-0000-4000-8000-000000000001',
         },
         body: JSON.stringify({}),
       }
@@ -1972,7 +1972,7 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': '48244777-c7a4-4e30-be4b-fe1104e443b8',
+          'X-User-Id': '10000000-0000-4000-8000-000000000001',
         },
         body: JSON.stringify({}),
       }
@@ -1993,7 +1993,7 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': '48244777-c7a4-4e30-be4b-fe1104e443b8',
+          'X-User-Id': '10000000-0000-4000-8000-000000000001',
         },
         body: JSON.stringify({}),
       }
@@ -2065,7 +2065,7 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': '48244777-c7a4-4e30-be4b-fe1104e443b8',
+          'X-User-Id': '10000000-0000-4000-8000-000000000001',
         },
         body: JSON.stringify({}),
       }
@@ -2576,7 +2576,7 @@ describe('Echo Customer-Support Assistant — Phase 1, Phase 2 & Phase 3 Workflo
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': '48244777-c7a4-4e30-be4b-fe1104e443b8',
+          'X-User-Id': '10000000-0000-4000-8000-000000000001',
         },
         body: JSON.stringify({}),
       }

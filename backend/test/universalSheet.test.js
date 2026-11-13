@@ -1973,10 +1973,10 @@ describe('Universal Business Inventory Editor — Dynamic Discovery & Multi-Sche
     const catalogQueries = previewQueries.filter(({ sql }) =>
       /^\s*SELECT DISTINCT/i.test(sql)
     );
-    assert.equal(catalogQueries.length, 2);
-    assert.ok(
-      catalogQueries.every(({ sql }) => /LIMIT \$2/i.test(sql)),
-      'prompt catalog reads should be bounded'
+    assert.equal(
+      catalogQueries.length,
+      0,
+      'compact table-local mutation prompt should rely on the active schema profile, not catalog scans'
     );
     assert.deepEqual(preview.approved_mutation.target_filters, [
       { field: 'category', operator: 'equals', value: 'full shirt' },

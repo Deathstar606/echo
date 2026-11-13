@@ -9,10 +9,12 @@ const {
   normalizeEntityName,
   isEntitySupported,
   ensureTableExists,
+  REGISTERED_SCHEMAS,
 } = require('./sheetSchemaService');
 const AppError = require('../utils/AppError');
 const {
   refreshWorkspaceTableMetadata,
+  invalidateWorkspaceMetadataCache,
 } = require('./workspaceTableMetadataService');
 
 /**
@@ -1223,6 +1225,178 @@ async function importSheetRecordsToDatabase(businessId, schema, validRecords, op
   });
 }
 
+const PROTECTED_SYSTEM_TABLES = new Set([
+  'businesses',
+  'workspaces',
+  'users',
+  'context_entries',
+  'customers',
+  'conversations',
+  'messages',
+  'announcements',
+  'announcement_deliveries',
+  'announcement_recipients',
+  'schema_migrations',
+  'sheet_pending_modifications',
+  'workspace_documents',
+  'workspace_document_chunks',
+  'workspace_table_metadata',
+  'socratic_workflows',
+  'google_auth_tokens',
+  'google_sheet_sync_metadata',
+  'sheet_active_metadata',
+  'workspace_contacts',
+]);
+
+const BUILT_IN_SHARED_TABLES = new Set([
+  'products',
+  'orders',
+  'electronics_inventory',
+  'grocery_inventory',
+]);
+
+/**
+ * Deletes all workspace-scoped rows and database catalog entries for a sheet/table.
+ * If the sheet is a dynamically created CSV/Google Sheet table and no rows remain for any
+ * workspace afterward, drops the orphan physical table cleanly.
+ *
+ * @param {string} businessId
+ * @param {string} rawEntity
+ * @returns {Promise<{ entity: string, table_name: string, deleted_rows: number, dropped_table: boolean }>}
+ */
+async function deleteSheetForWorkspace(businessId, rawEntity) {
+  const cleanBizId = String(businessId || '').trim();
+  const normalizedEntity = normalizeEntityName(rawEntity || '');
+  const tableName = String(normalizedEntity || rawEntity || '')
+    .trim()
+    .toLowerCase();
+
+  if (!cleanBizId || !tableName || !/^[a-z_][a-z0-9_]*$/.test(tableName)) {
+    throw new AppError('A valid workspace ID and sheet entity name are required.', 400);
+  }
+  if (PROTECTED_SYSTEM_TABLES.has(tableName)) {
+    throw new AppError(`System table "${tableName}" cannot be removed.`, 400);
+  }
+
+  const result = await withTransaction(async (client) => {
+    const tableCheck = await client.query(
+      `SELECT EXISTS (
+         SELECT 1 FROM information_schema.tables
+         WHERE table_schema = 'public' AND table_name = $1
+       ) AS table_exists;`,
+      [tableName]
+    );
+    const tableExists = Boolean(tableCheck.rows?.[0]?.table_exists);
+
+    let deletedRows = 0;
+    if (tableExists) {
+      const colRes = await client.query(
+        `SELECT column_name
+         FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = $1
+           AND column_name IN ('business_id', 'workspace_id');`,
+        [tableName]
+      );
+      const colNames = new Set((colRes.rows || []).map((r) => String(r.column_name).toLowerCase()));
+      if (!colNames.has('business_id') && !colNames.has('workspace_id')) {
+        throw new AppError(
+          `Table "${tableName}" is not workspace-scoped and cannot be deleted.`,
+          400
+        );
+      }
+
+      const whereClause =
+        colNames.has('workspace_id') && colNames.has('business_id')
+          ? 'WHERE workspace_id = $1 OR business_id = $1'
+          : colNames.has('workspace_id')
+          ? 'WHERE workspace_id = $1'
+          : 'WHERE business_id = $1';
+
+      const delRowsRes = await client.query(
+        `DELETE FROM "${tableName}" ${whereClause};`,
+        [cleanBizId]
+      );
+      deletedRows = Number(delRowsRes?.rowCount || 0);
+    }
+
+    const metaDelRes = await client.query(
+      `DELETE FROM workspace_table_metadata
+       WHERE workspace_id = $1 AND LOWER(table_name) = LOWER($2)
+       RETURNING table_name, source_filename;`,
+      [cleanBizId, tableName]
+    );
+    const sourceFilename = metaDelRes.rows?.[0]?.source_filename || null;
+
+    const syncDelRes = await client.query(
+      `DELETE FROM google_sheet_sync_metadata
+       WHERE (business_id = $1 OR workspace_id = $1) AND LOWER(table_name) = LOWER($2);`,
+      [cleanBizId, tableName]
+    );
+
+    // Also remove any legacy structured-sheet placeholder entry in workspace_documents
+    await client.query(
+      `DELETE FROM workspace_documents
+       WHERE workspace_id = $1
+         AND (
+           COALESCE(full_text, '') ILIKE $2
+           OR COALESCE(full_text, '') ILIKE $3
+           OR (
+             $4::text IS NOT NULL
+             AND LOWER(filename) = LOWER($4::text)
+             AND (
+               LOWER(COALESCE(mime_type, '')) IN (
+                 'application/vnd.google-apps.spreadsheet',
+                 'text/csv',
+                 'application/csv',
+                 'application/vnd.ms-excel',
+                 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+               )
+               OR LOWER(filename) LIKE '%.csv'
+             )
+           )
+         );`,
+      [
+        cleanBizId,
+        `Google Sheet for table ${tableName}%`,
+        `CSV sheet for table ${tableName}%`,
+        sourceFilename,
+      ]
+    );
+
+    const metaDeleted = Number(metaDelRes?.rowCount || 0);
+    const syncDeleted = Number(syncDelRes?.rowCount || 0);
+    if (deletedRows === 0 && metaDeleted === 0 && syncDeleted === 0) {
+      throw new AppError(`Sheet "${tableName}" was not found in this workspace.`, 404);
+    }
+
+    let droppedTable = false;
+    if (tableExists && !BUILT_IN_SHARED_TABLES.has(tableName)) {
+      const remRes = await client.query(`SELECT COUNT(*)::int AS cnt FROM "${tableName}";`);
+      const remainingTotal = Number(remRes.rows?.[0]?.cnt || 0);
+      if (remainingTotal === 0) {
+        await client.query(`DROP TABLE IF EXISTS "${tableName}";`);
+        droppedTable = true;
+      }
+    }
+
+    return {
+      entity: normalizedEntity || tableName,
+      table_name: tableName,
+      deleted_rows: deletedRows,
+      dropped_table: droppedTable,
+    };
+  });
+
+  if (result.dropped_table && REGISTERED_SCHEMAS) {
+    REGISTERED_SCHEMAS.delete(result.table_name);
+    REGISTERED_SCHEMAS.delete(result.entity);
+  }
+  invalidateWorkspaceMetadataCache(cleanBizId, result.entity);
+
+  return result;
+}
+
 module.exports = {
   normalizeSpreadsheetBuffer,
   detectEntityFromCsv,
@@ -1231,5 +1405,6 @@ module.exports = {
   importProductsToDatabase,
   parseAndValidateSheetCsv,
   importSheetRecordsToDatabase,
+  deleteSheetForWorkspace,
   parseCsvBoolean,
 };

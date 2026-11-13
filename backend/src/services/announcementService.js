@@ -388,6 +388,18 @@ async function sendAnnouncementCampaign({
     }
 
     // Record each recipient's result immediately so partial failures never lose successful send records
+    let validUserId = null;
+    if (customer.id) {
+      try {
+        const uCheck = await query('SELECT id FROM users WHERE id = $1 LIMIT 1;', [customer.id]);
+        if (uCheck.rowCount > 0) {
+          validUserId = customer.id;
+        }
+      } catch {
+        validUserId = null;
+      }
+    }
+
     const recResult = await query(
       `
         INSERT INTO announcement_recipients (
@@ -417,7 +429,7 @@ async function sendAnnouncementCampaign({
       `,
       [
         announcementId,
-        customer.id,
+        validUserId,
         customer.customer_name,
         customer.email,
         deliveryStatus,

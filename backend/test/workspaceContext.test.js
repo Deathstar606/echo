@@ -4,6 +4,9 @@ const assert = require('node:assert/strict');
 const {
   chunkDocumentPages,
   extractChunkEntities,
+  isStructuredSheetDocument,
+  listDocumentsForBusiness,
+  clearDocumentsForBusiness,
 } = require('../src/services/documentIngestionService');
 const {
   inferSemanticRole,
@@ -25,11 +28,16 @@ const {
 } = require('../src/services/promptBuilderService');
 const { setPool } = require('../db');
 const { callGeminiModelWithSchema } = require('../src/services/geminiService');
-const { explicitlyRequestsNotifications } = require('../src/services/socraticOperationsService');
+const {
+  explicitlyRequestsNotifications,
+  executeWorkspaceOperation,
+} = require('../src/services/socraticOperationsService');
 const {
   isBasicTableQueryCandidate,
+  isBasicTableMutationCandidate,
   resolveSingleTableTarget,
 } = require('../src/services/fastTableQueryService');
+const { buildSheetQueryPrompt } = require('../src/services/sheetQueryPromptBuilder');
 
 test('document chunks retain source wording and add dynamic retrieval breadcrumbs', () => {
   const body =
@@ -542,6 +550,132 @@ test('fast table query classifier admits single-table read queries and rejects B
   }
 });
 
+test('basic mutation classifier accepts direct table changes but preserves RAG and conversation routes', () => {
+  for (const prompt of [
+    'Increase discount by 5% for all luxury shirts.',
+    'Set best to true for products ordered at least twice.',
+    'Reduce price by 200 for items with a discount of 25% or more.',
+  ]) {
+    assert.equal(isBasicTableMutationCandidate(prompt), true, prompt);
+  }
+
+  for (const prompt of [
+    'According to the Allocation Priority Policy, update backorder allocations.',
+    'Update orders based on the supplier delay notice and email customers.',
+    'Update products based on orders in the backorders dataset.',
+    'Reconcile backorders against products and update remaining stock.',
+    'Show products with discount above 25%.',
+  ]) {
+    assert.equal(isBasicTableMutationCandidate(prompt), false, prompt);
+  }
+  assert.equal(
+    isBasicTableMutationCandidate('Increase the discount to 10% for those.', [
+      { role: 'user', content: 'Show luxury shirts.' },
+    ]),
+    false
+  );
+});
+
+test('workspace operation routes a table-local mutation before RAG', async () => {
+  const calls = [];
+  setPool({
+    async query(sql, values) {
+      calls.push({ sql, values });
+      return {
+        rows: [
+          {
+            table_name: 'products',
+            columns_profile: [
+              { column_name: 'category', categorical_values: ['luxury shirt', 'polo'] },
+              { column_name: 'discount', categorical_values: [] },
+            ],
+          },
+        ],
+      };
+    },
+  });
+  try {
+    const result = await executeWorkspaceOperation({
+      businessId: 'workspace-1',
+      entity: 'products',
+      prompt: 'Increase discount by 5% for all luxury shirts.',
+    });
+    assert.equal(result.status, 'SHEET_MUTATION');
+    assert.equal(result.entity, 'products');
+    assert.equal(result.fast_path, true);
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].sql, /FROM workspace_table_metadata/i);
+  } finally {
+    setPool(null);
+  }
+});
+
+test('compact sheet interpretation prompt preserves dynamic schema while reducing static prompt size', () => {
+  const schema = {
+    entity: 'patients',
+    tableName: 'patients',
+    primaryKey: 'Patient_ID',
+    columns: {
+      patient_id: { exactName: 'Patient_ID', type: 'string', queryable: true, modifiable: false },
+      bmi: { exactName: 'BMI', type: 'number', queryable: true, modifiable: true },
+      status: { exactName: 'Care_Status', type: 'string', queryable: true, modifiable: true },
+      notes: { exactName: 'Clinical_Notes', type: 'string', queryable: true, modifiable: true },
+    },
+    representativeValues: {
+      Care_Status: ['Active', 'Monitoring'],
+    },
+  };
+  const args = {
+    entity: schema.entity,
+    schema,
+    message: 'Find patients with BMI higher than 40.',
+    isMutation: false,
+  };
+  const compact = buildSheetQueryPrompt({ ...args, compactPrompt: true });
+  const full = buildSheetQueryPrompt(args);
+  assert.ok(compact.length < full.length);
+  assert.match(compact, /Patient_ID \(string\)/);
+  assert.match(compact, /BMI \(number\)/);
+  assert.match(compact, /Care_Status \(string\)/);
+  assert.match(compact, /greater_than_or_equal/);
+  assert.match(compact, /clarification_needed/);
+});
+
+test('compact mutation prompt preserves existing-key and confirmation-scope safeguards', () => {
+  const schema = {
+    entity: 'inventory',
+    tableName: 'inventory',
+    primaryKey: 'Product_ID',
+    columns: {
+      product_id: { exactName: 'Product_ID', type: 'string', queryable: true, modifiable: false },
+      stock: { exactName: 'Stock', type: 'integer', queryable: true, modifiable: true },
+      size: {
+        exactName: 'Size',
+        type: 'json',
+        queryable: true,
+        modifiable: true,
+        nestedMap: true,
+        nestedStructure: { M: 'integer', L: 'integer' },
+      },
+    },
+    representativeValues: { Stock: [3, 5, 8] },
+  };
+  const args = {
+    entity: schema.entity,
+    schema,
+    message: 'Add 10 to all existing size values for luxury shirts.',
+    isMutation: true,
+  };
+  const compact = buildSheetQueryPrompt({ ...args, compactPrompt: true });
+  const full = buildSheetQueryPrompt(args);
+  assert.ok(compact.length < full.length);
+  assert.match(compact, /Size \(json\)/);
+  assert.match(compact, /existing_keys_only/);
+  assert.match(compact, /never create missing keys/i);
+  assert.match(compact, /match_all:true only on an explicit request/i);
+  assert.match(compact, /clarification_needed/);
+});
+
 test('resolveSingleTableTarget selects the matching workspace table using adjacent metadata even when activeEntity differs', () => {
   const velouraMetadata = [
     {
@@ -626,4 +760,100 @@ test('resolveSingleTableTarget selects the matching workspace table using adjace
     )?.meta.table_name,
     'warehouse_inventory_batches'
   );
+});
+
+test('listDocumentsForBusiness excludes Google Sheets and CSV metadata entries from policy docs', async () => {
+  const wsId = '00000000-0000-4000-8000-000000000768';
+  await clearDocumentsForBusiness(wsId);
+
+  assert.equal(
+    isStructuredSheetDocument({
+      filename: 'diabetes',
+      mime_type: 'application/vnd.google-apps.spreadsheet',
+      chunk_count: 768,
+      full_text: 'Google Sheet for table diabetes',
+    }),
+    true
+  );
+  assert.equal(
+    isStructuredSheetDocument({
+      filename: 'orders.csv',
+      mime_type: 'text/csv',
+      chunk_count: 32,
+      full_text: 'CSV sheet for table orders',
+    }),
+    true
+  );
+  assert.equal(
+    isStructuredSheetDocument({
+      filename: 'Hospital Bed Allocation Policy.pdf',
+      mime_type: 'application/pdf',
+      chunk_count: 11,
+      full_text: 'Policy content...',
+    }),
+    false
+  );
+  assert.equal(
+    isStructuredSheetDocument({
+      filename: 'Ops_Notice.gdoc',
+      mime_type: 'application/vnd.google-apps.document',
+      chunk_count: 4,
+      full_text: 'Google Doc notice...',
+    }),
+    false
+  );
+
+  const mockQueries = [];
+  setPool({
+    async query(sql, params) {
+      mockQueries.push({ sql, params });
+      if (/DELETE FROM workspace_documents/i.test(sql)) {
+        return { rowCount: 1, rows: [] };
+      }
+      if (/SELECT[\s\S]*FROM workspace_documents/i.test(sql)) {
+        return {
+          rowCount: 3,
+          rows: [
+            {
+              doc_id: 'sheet-doc-768',
+              filename: 'diabetes',
+              mime_type: 'application/vnd.google-apps.spreadsheet',
+              chunk_count: 768,
+              full_text: 'Google Sheet for table diabetes',
+            },
+            {
+              doc_id: 'policy-1',
+              filename: 'Hospital Bed Allocation Policy.pdf',
+              mime_type: 'application/pdf',
+              chunk_count: 11,
+              full_text: 'Allocation rules',
+            },
+            {
+              doc_id: 'gdoc-1',
+              filename: 'Shift_Brief.gdoc',
+              mime_type: 'application/vnd.google-apps.document',
+              chunk_count: 5,
+              full_text: 'Shift brief',
+            },
+          ],
+        };
+      }
+      return { rowCount: 0, rows: [] };
+    },
+  });
+
+  try {
+    const docs = await listDocumentsForBusiness(wsId);
+    assert.deepEqual(
+      docs.map((d) => d.filename),
+      ['Hospital Bed Allocation Policy.pdf', 'Shift_Brief.gdoc']
+    );
+    assert.ok(
+      mockQueries.some((q) => /DELETE FROM workspace_documents/i.test(q.sql)),
+      'Expected cleanup query for legacy structured sheet rows in workspace_documents'
+    );
+  } finally {
+    await clearDocumentsForBusiness(wsId);
+    setPool(null);
+  }
 });

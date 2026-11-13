@@ -71,9 +71,9 @@ function mapGoogleSheetsError(err, spreadsheetId) {
     'Failed to access Google Spreadsheet.';
   const rawStatus = Number(err?.status ?? err?.response?.status ?? gError?.code ?? err?.code);
 
-  if (/invalid_grant/i.test(rawMsg) || rawStatus === 401) {
+  if (/invalid_grant/i.test(rawMsg) || /no access|refresh token|api key/i.test(rawMsg) || rawStatus === 401) {
     return new AppError(
-      'Google authentication has expired or was revoked. Please sign in with Google again.',
+      'No Google Workspace account is currently connected for this user. Please sign in with Google first.',
       401
     );
   }
@@ -348,33 +348,31 @@ async function importGoogleSheetToPostgres(businessId, options = {}) {
     sourceFilename: `${rawSpreadsheetTitle}.csv`,
   });
 
-  // Register in workspace_documents
-  const sheetDocId = crypto.randomUUID();
-  let persistedDocId = null;
+  // Google Sheets belong strictly in Structured Tables (`sheet_schemas` + dynamic table),
+  // never in `workspace_documents` (which powers unstructured Policy & Notice Docs).
+  // Clean up any legacy spreadsheet row left behind in `workspace_documents`.
   try {
-    const wsOwner = await query('SELECT user_id FROM workspaces WHERE id = $1;', [businessId]);
-    if (wsOwner.rowCount > 0) {
-      const userId = wsOwner.rows[0].user_id || null;
-      await query(
-        `INSERT INTO workspace_documents (doc_id, workspace_id, user_id, filename, mime_type, page_count, chunk_count, full_text)
-         VALUES ($1, $2, $3, $4, 'application/vnd.google-apps.spreadsheet', 1, $5, $6)
-         ON CONFLICT (doc_id) DO NOTHING;`,
-        [sheetDocId, businessId, userId, rawSpreadsheetTitle, importedCount, `Google Sheet for table ${schema.tableName}`]
-      );
-      persistedDocId = sheetDocId;
-    }
-  } catch (docErr) {
-    console.warn('[GoogleSheetsSync] Could not register workspace_documents row:', docErr.message);
+    await query(
+      `DELETE FROM workspace_documents
+       WHERE workspace_id = $1
+         AND (
+           LOWER(COALESCE(mime_type, '')) = 'application/vnd.google-apps.spreadsheet'
+           OR COALESCE(full_text, '') = $2
+         );`,
+      [businessId, `Google Sheet for table ${schema.tableName}`]
+    );
+  } catch (cleanupErr) {
+    console.warn('[GoogleSheetsSync] Could not clean up legacy workspace_documents row:', cleanupErr.message);
   }
 
   // 6. Persist Google Sync Metadata in PostgreSQL
   await query(
     `INSERT INTO google_sheet_sync_metadata (
       business_id, workspace_id, workspace_document_id, table_name, google_spreadsheet_id, google_sheet_tab_name, column_letter_map, row_count, last_synced_at
-    ) VALUES ($1, $1, $2, $3, $4, $5, $6, $7, NOW())
+    ) VALUES ($1, $1, NULL, $2, $3, $4, $5, $6, NOW())
     ON CONFLICT (business_id, table_name) DO UPDATE SET
       workspace_id = EXCLUDED.workspace_id,
-      workspace_document_id = EXCLUDED.workspace_document_id,
+      workspace_document_id = NULL,
       google_spreadsheet_id = EXCLUDED.google_spreadsheet_id,
       google_sheet_tab_name = EXCLUDED.google_sheet_tab_name,
       column_letter_map = EXCLUDED.column_letter_map,
@@ -382,7 +380,6 @@ async function importGoogleSheetToPostgres(businessId, options = {}) {
       last_synced_at = NOW();`,
     [
       businessId,
-      persistedDocId,
       schema.tableName,
       spreadsheetId,
       resolvedTabName,
@@ -393,8 +390,8 @@ async function importGoogleSheetToPostgres(businessId, options = {}) {
 
   return {
     success: true,
-    workspace_document_id: persistedDocId || sheetDocId,
-    doc_id: persistedDocId || sheetDocId,
+    workspace_document_id: null,
+    doc_id: null,
     entity: schema.entity,
     tableName: schema.tableName,
     displayName: schema.displayName,

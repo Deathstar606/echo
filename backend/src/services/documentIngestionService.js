@@ -2,8 +2,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
-const { query } = require('../../db');
+const { query, withTransaction } = require('../../db');
 const AppError = require('../utils/AppError');
+
+const DOC_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * In-memory business-scoped document & chunk store (synchronized with PostgreSQL when available)
@@ -844,8 +846,27 @@ async function ingestDocumentFromPath(businessId, filePath) {
   return ingestDocument({ businessId, filename, buffer, filePath: absPath });
 }
 
+const STRUCTURED_SHEET_MIME_TYPES = new Set([
+  'application/vnd.google-apps.spreadsheet',
+  'text/csv',
+  'application/csv',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+]);
+
+function isStructuredSheetDocument(doc) {
+  if (!doc) return false;
+  const mime = String(doc.mime_type || '').trim().toLowerCase();
+  if (STRUCTURED_SHEET_MIME_TYPES.has(mime)) return true;
+  const fullText = String(doc.full_text || '').trim();
+  if (/^(Google Sheet|CSV sheet) for table /i.test(fullText)) return true;
+  const fname = String(doc.filename || '').trim().toLowerCase();
+  return fname.endsWith('.csv');
+}
+
 /**
- * Lists all ingested documents for a business (merging in-memory and DB records if needed).
+ * Lists all ingested unstructured policy/notice documents for a business
+ * (excluding structured spreadsheets and CSV table metadata rows).
  *
  * @param {string} businessId
  * @returns {Promise<Array<object>>}
@@ -853,20 +874,56 @@ async function ingestDocumentFromPath(businessId, filePath) {
 async function listDocumentsForBusiness(businessId) {
   const memDocs = DOCUMENTS_BY_BUSINESS.get(businessId) || [];
   if (memDocs.length > 0) {
-    return memDocs;
+    const filteredMem = memDocs.filter((doc) => !isStructuredSheetDocument(doc));
+    if (filteredMem.length !== memDocs.length) {
+      DOCUMENTS_BY_BUSINESS.set(businessId, filteredMem);
+    }
+    if (filteredMem.length > 0) {
+      return filteredMem;
+    }
   }
 
   try {
+    // Clean up any legacy spreadsheet/CSV rows that were previously inserted for lineage
+    await query(
+      `DELETE FROM workspace_documents
+       WHERE workspace_id = $1
+         AND (
+           LOWER(COALESCE(mime_type, '')) IN (
+             'application/vnd.google-apps.spreadsheet',
+             'text/csv',
+             'application/csv',
+             'application/vnd.ms-excel',
+             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+           )
+           OR COALESCE(full_text, '') ILIKE 'Google Sheet for table %'
+           OR COALESCE(full_text, '') ILIKE 'CSV sheet for table %'
+           OR LOWER(COALESCE(filename, '')) LIKE '%.csv'
+         );`,
+      [businessId]
+    ).catch(() => {});
+
     const res = await query(
       `SELECT doc_id, doc_id AS id, workspace_id, workspace_id AS business_id, user_id, filename, mime_type, page_count, chunk_count, full_text, created_at
        FROM workspace_documents
        WHERE workspace_id = $1
+         AND LOWER(COALESCE(mime_type, '')) NOT IN (
+           'application/vnd.google-apps.spreadsheet',
+           'text/csv',
+           'application/csv',
+           'application/vnd.ms-excel',
+           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+         )
+         AND COALESCE(full_text, '') NOT ILIKE 'Google Sheet for table %'
+         AND COALESCE(full_text, '') NOT ILIKE 'CSV sheet for table %'
+         AND LOWER(COALESCE(filename, '')) NOT LIKE '%.csv'
        ORDER BY created_at ASC;`,
       [businessId]
     );
     if (res && Array.isArray(res.rows) && res.rows.length > 0) {
-      DOCUMENTS_BY_BUSINESS.set(businessId, res.rows);
-      return res.rows;
+      const filteredRows = res.rows.filter((doc) => !isStructuredSheetDocument(doc));
+      DOCUMENTS_BY_BUSINESS.set(businessId, filteredRows);
+      return filteredRows;
     }
   } catch {
     // Fallback to empty
@@ -909,6 +966,118 @@ async function getChunksForBusiness(businessId) {
     // Fallback to empty
   }
   return [];
+}
+
+/**
+ * Deletes a single workspace document and all of its indexed chunks
+ * from both PostgreSQL and the in-memory caches.
+ *
+ * @param {{ businessId: string, docId: string }} param0
+ * @returns {Promise<{ doc_id: string, filename: string | null, deleted_chunks: number }>}
+ */
+async function deleteDocumentById({ businessId, docId }) {
+  const cleanBizId = String(businessId || '').trim();
+  const cleanDocId = String(docId || '').trim();
+  if (!cleanBizId || !cleanDocId) {
+    throw new AppError('Both workspace_id and doc_id are required to delete a document.', 400);
+  }
+
+  let memDocRemoved = false;
+  let memFilename = null;
+  let memChunksRemoved = 0;
+
+  const currentDocs = DOCUMENTS_BY_BUSINESS.get(cleanBizId);
+  if (Array.isArray(currentDocs)) {
+    const remainingDocs = [];
+    for (const d of currentDocs) {
+      if (String(d.doc_id || d.id || '') === cleanDocId) {
+        memDocRemoved = true;
+        memFilename = d.filename || memFilename;
+      } else {
+        remainingDocs.push(d);
+      }
+    }
+    if (remainingDocs.length > 0) {
+      DOCUMENTS_BY_BUSINESS.set(cleanBizId, remainingDocs);
+    } else {
+      DOCUMENTS_BY_BUSINESS.delete(cleanBizId);
+    }
+  }
+
+  const currentChunks = CHUNKS_BY_BUSINESS.get(cleanBizId);
+  if (Array.isArray(currentChunks)) {
+    const remainingChunks = [];
+    for (const c of currentChunks) {
+      if (
+        String(c.doc_id || '') === cleanDocId ||
+        String(c.workspace_document_id || '') === cleanDocId
+      ) {
+        memChunksRemoved += 1;
+      } else {
+        remainingChunks.push(c);
+      }
+    }
+    if (remainingChunks.length > 0) {
+      CHUNKS_BY_BUSINESS.set(cleanBizId, remainingChunks);
+    } else {
+      CHUNKS_BY_BUSINESS.delete(cleanBizId);
+    }
+  }
+
+  if (!DOC_UUID_RE.test(cleanDocId)) {
+    if (memDocRemoved) {
+      return {
+        doc_id: cleanDocId,
+        filename: memFilename,
+        deleted_chunks: memChunksRemoved,
+      };
+    }
+    throw new AppError('Valid document ID (UUID) is required.', 400);
+  }
+
+  const runDeleteQueries = async (execQuery) => {
+    const chunksDel = await execQuery(
+      `DELETE FROM workspace_document_chunks
+       WHERE workspace_id = $1 AND (doc_id = $2 OR workspace_document_id = $2);`,
+      [cleanBizId, cleanDocId]
+    );
+    const docsDel = await execQuery(
+      `DELETE FROM workspace_documents
+       WHERE workspace_id = $1 AND doc_id = $2
+       RETURNING doc_id, filename;`,
+      [cleanBizId, cleanDocId]
+    );
+    return {
+      deletedChunks: Number(chunksDel?.rowCount || 0),
+      deletedDocs: Array.isArray(docsDel?.rows) ? docsDel.rows : [],
+    };
+  };
+
+  let dbResult = { deletedChunks: 0, deletedDocs: [] };
+  if (typeof withTransaction === 'function') {
+    try {
+      dbResult = await withTransaction((client) =>
+        runDeleteQueries((sql, params) => client.query(sql, params))
+      );
+    } catch (err) {
+      if (!/DATABASE_URL is not set|connect is not a function/i.test(String(err?.message || ''))) {
+        throw err;
+      }
+      dbResult = await runDeleteQueries(query);
+    }
+  } else {
+    dbResult = await runDeleteQueries(query);
+  }
+
+  if (dbResult.deletedDocs.length === 0 && !memDocRemoved) {
+    throw new AppError(`Document "${cleanDocId}" was not found in this workspace.`, 404);
+  }
+
+  return {
+    doc_id: cleanDocId,
+    filename: dbResult.deletedDocs[0]?.filename || memFilename || null,
+    deleted_chunks: Math.max(dbResult.deletedChunks, memChunksRemoved),
+  };
 }
 
 /**
@@ -966,9 +1135,11 @@ module.exports = {
   chunkDocumentPages,
   ingestDocument,
   ingestDocumentFromPath,
+  isStructuredSheetDocument,
   listDocumentsForBusiness,
   getChunksForBusiness,
   getInMemoryChunksForBusiness,
+  deleteDocumentById,
   clearDocumentsForBusiness,
   clearAllDocumentsGlobal,
 };

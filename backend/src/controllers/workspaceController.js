@@ -7,6 +7,7 @@ const {
   ingestDocument,
   listDocumentsForBusiness,
   getChunksForBusiness,
+  deleteDocumentById,
   clearDocumentsForBusiness,
 } = require('../services/documentIngestionService');
 const { normalizeEntityName } = require('../services/sheetSchemaService');
@@ -225,23 +226,7 @@ async function uploadDocuments(req, res, next) {
           validRecords,
           { mode: 'replace', sourceFilename: file.originalname }
         );
-        const csvDocId = crypto.randomUUID();
-        try {
-          const { query } = require('../../db');
-          const wsOwner = await query('SELECT user_id FROM workspaces WHERE id = $1;', [businessId]);
-          const userId = wsOwner.rows?.[0]?.user_id || null;
-          await query(
-            `INSERT INTO workspace_documents (doc_id, workspace_id, user_id, filename, mime_type, page_count, chunk_count, full_text)
-             VALUES ($1, $2, $3, $4, 'text/csv', 1, $5, $6)
-             ON CONFLICT (doc_id) DO NOTHING;`,
-            [csvDocId, businessId, userId, file.originalname, importedCount, `CSV sheet for table ${schema.tableName}`]
-          );
-        } catch {
-          // Graceful ignore
-        }
         importedTables.push({
-          workspace_document_id: csvDocId,
-          doc_id: csvDocId,
           table_name: schema.tableName,
           filename: file.originalname,
           total_rows: totalRows,
@@ -410,6 +395,28 @@ async function confirmOperation(req, res, next) {
 }
 
 /**
+ * DELETE /api/workspace/documents/:docId
+ * Deletes a single indexed unstructured document and all of its chunks for the active workspace.
+ */
+async function deleteDocument(req, res, next) {
+  try {
+    const businessId = await requireBusinessId(req);
+    const { docId } = req.params;
+    const deleted = await deleteDocumentById({ businessId, docId });
+    return res.status(200).json({
+      status: 'success',
+      message: `Removed document "${deleted.filename || deleted.doc_id}" and ${deleted.deleted_chunks} chunk(s).`,
+      business_id: businessId,
+      doc_id: deleted.doc_id,
+      filename: deleted.filename,
+      deleted_chunks: deleted.deleted_chunks,
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+/**
  * DELETE /api/workspace/documents
  * Clears all indexed unstructured documents for the active business workspace.
  */
@@ -430,6 +437,7 @@ async function clearDocuments(req, res, next) {
 module.exports = {
   uploadDocuments,
   getDocuments,
+  deleteDocument,
   clearDocuments,
   seedDemoWorkspace,
   executeOperation,

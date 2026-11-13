@@ -18,6 +18,8 @@ const {
 } = require('../utils/conversationHistory');
 const AppError = require('../utils/AppError');
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Computes the total stock across all sizes from a JSON size string.
  *
@@ -271,6 +273,16 @@ function buildParameterizedSelectQuery({
       } else if (colDef.type === 'date') {
         sqlParams.push(value);
         filterClauses.push(`${colSql} = $${sqlParams.length}::date`);
+      } else if (colDef.type === 'uuid') {
+        const strVal = String(value ?? '').trim();
+        if (UUID_REGEX.test(strVal)) {
+          sqlParams.push(strVal);
+          filterClauses.push(`${colSql} = $${sqlParams.length}::uuid`);
+        } else {
+          // Fallback to text cast so PostgreSQL does not abort with 22P02
+          sqlParams.push(strVal);
+          filterClauses.push(`CAST(${colSql} AS TEXT) = $${sqlParams.length}`);
+        }
       } else {
         sqlParams.push(value);
         filterClauses.push(`${colSql} = $${sqlParams.length}`);
@@ -282,6 +294,16 @@ function buildParameterizedSelectQuery({
       } else if (colDef.type === 'date') {
         sqlParams.push(value);
         filterClauses.push(`${colSql} <> $${sqlParams.length}::date`);
+      } else if (colDef.type === 'uuid') {
+        const strVal = String(value ?? '').trim();
+        if (UUID_REGEX.test(strVal)) {
+          sqlParams.push(strVal);
+          filterClauses.push(`${colSql} <> $${sqlParams.length}::uuid`);
+        } else {
+          // Fallback to text cast so PostgreSQL does not abort with 22P02
+          sqlParams.push(strVal);
+          filterClauses.push(`CAST(${colSql} AS TEXT) <> $${sqlParams.length}`);
+        }
       } else {
         sqlParams.push(value);
         filterClauses.push(`${colSql} <> $${sqlParams.length}`);
@@ -331,9 +353,19 @@ function buildParameterizedSelectQuery({
       sqlParams.push(`%${value}`);
       filterClauses.push(`${colSql} ILIKE $${sqlParams.length}`);
     } else if (operator === 'in') {
-      sqlParams.push(value);
-      const arrayType = colDef.type === 'uuid' ? 'uuid[]' : 'text[]';
-      filterClauses.push(`${colSql} = ANY($${sqlParams.length}::${arrayType})`);
+      const arr = Array.isArray(value) ? value : [value];
+      const areAllUuids =
+        colDef.type === 'uuid' &&
+        arr.length > 0 &&
+        arr.every((v) => typeof v === 'string' && UUID_REGEX.test(v.trim()));
+      sqlParams.push(arr);
+      if (areAllUuids) {
+        filterClauses.push(`${colSql} = ANY($${sqlParams.length}::uuid[])`);
+      } else if (colDef.type === 'uuid') {
+        filterClauses.push(`CAST(${colSql} AS TEXT) = ANY($${sqlParams.length}::text[])`);
+      } else {
+        filterClauses.push(`${colSql} = ANY($${sqlParams.length}::text[])`);
+      }
     } else if (operator === 'relative_days_ago') {
       sqlParams.push(value);
       filterClauses.push(

@@ -6,6 +6,7 @@ import {
   mutateSheet,
   uploadSheetCsv,
   addSheetRow,
+  deleteSheetTable,
 } from '../services/api';
 import { getActiveBusinessId } from '../config/constants';
 
@@ -285,6 +286,35 @@ export const insertSingleSheetRow = createAsyncThunk(
   }
 );
 
+/**
+ * Thunk: Remove a sheet/table and its database entries for the active workspace.
+ * @type {any}
+ */
+export const removeSheetTable = createAsyncThunk(
+  'sheets/removeSheetTable',
+  async ({ entity, businessId } = {}, { getState, dispatch, rejectWithValue }) => {
+    try {
+      const targetEntity = String(
+        entity || getState().sheets?.activeEntity || ''
+      ).trim();
+      const targetBiz = String(businessId || getActiveBusinessId() || '').trim();
+      if (!targetEntity || !targetBiz) {
+        throw new Error('Sheet entity and workspace ID are required.');
+      }
+      const data = await deleteSheetTable(targetEntity, targetBiz);
+      await dispatch(loadBusinessSheets({ businessId: targetBiz }));
+      return {
+        ...data,
+        entity: data.entity || targetEntity,
+      };
+    } catch (err) {
+      return rejectWithValue({
+        message: err.message || 'Failed to remove sheet.',
+      });
+    }
+  }
+);
+
 const initialState = {
   businessId: null,
   activeEntity: '',
@@ -324,6 +354,10 @@ const initialState = {
   rowInsertStatus: 'idle',
   rowInsertMessage: null,
   rowInsertError: null,
+
+  // Sheet Delete state
+  sheetDeleteStatus: 'idle',
+  sheetDeleteError: null,
 };
 
 const sheetSlice = createSlice({
@@ -841,6 +875,31 @@ const sheetSlice = createSlice({
         state.rowInsertStatus = 'failed';
         state.rowInsertError =
           action.payload?.message || 'Failed to add row to sheet.';
+      })
+
+      // Remove Sheet Table
+      .addCase(removeSheetTable.pending, (state) => {
+        state.sheetDeleteStatus = 'loading';
+        state.sheetDeleteError = null;
+      })
+      .addCase(removeSheetTable.fulfilled, (state, action) => {
+        state.sheetDeleteStatus = 'succeeded';
+        const removedEntity = String(action.payload?.entity || '').trim().toLowerCase();
+        if (removedEntity) {
+          delete state.rowsByEntity[removedEntity];
+          if (String(state.activeEntity || '').toLowerCase() === removedEntity) {
+            state.queryResult = null;
+            state.queryError = null;
+            state.mutationPreview = null;
+            state.mutationPreviewError = null;
+            state.mutationApplySuccessMessage = null;
+          }
+        }
+      })
+      .addCase(removeSheetTable.rejected, (state, action) => {
+        state.sheetDeleteStatus = 'failed';
+        state.sheetDeleteError =
+          action.payload?.message || 'Failed to remove sheet.';
       });
   },
 });

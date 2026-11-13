@@ -26,6 +26,8 @@ const {
   refreshWorkspaceTableMetadata,
 } = require('./workspaceTableMetadataService');
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Resolves product/item name target filters of a validated mutation against the business's
  * live catalog.
@@ -631,7 +633,8 @@ function buildParameterizedUpdateStatement({
         const idParam = `$${updateParams.length}`;
         updateParams.push(d.after[col] ?? d.after[exactCol]);
         const valParam = `$${updateParams.length}`;
-        caseParts.push(`WHEN ${idParam}::uuid THEN ${valParam}`);
+        const isUuid = typeof d.id === 'string' && UUID_REGEX.test(d.id.trim());
+        caseParts.push(`WHEN ${idParam}${isUuid ? '::uuid' : ''} THEN ${valParam}`);
       }
       setClauses.push(`${quoteIdentifier(exactCol)} = CASE id ${caseParts.join(' ')} END`);
     }
@@ -654,8 +657,9 @@ function buildParameterizedUpdateStatement({
         ['json', 'jsonb'].includes(
           String(mapMatch.colDef.storageType || '').toLowerCase()
         );
+      const isUuid = typeof d.id === 'string' && UUID_REGEX.test(d.id.trim());
       caseParts.push(
-        `WHEN ${idParam}::uuid THEN ${isJsonStorage ? `${valueParam}::jsonb` : valueParam}`
+        `WHEN ${idParam}${isUuid ? '::uuid' : ''} THEN ${isJsonStorage ? `${valueParam}::jsonb` : valueParam}`
       );
     }
     setClauses.push(
@@ -674,10 +678,17 @@ function buildParameterizedUpdateStatement({
     ? '(business_id = $1 OR workspace_id = $1)'
     : 'business_id = $1';
 
+  const allTargetUuids =
+    Array.isArray(targetIds) &&
+    targetIds.length > 0 &&
+    targetIds.every((id) => typeof id === 'string' && UUID_REGEX.test(id.trim()));
+  const targetIdType = allTargetUuids ? 'uuid[]' : 'text[]';
+  const idColExpr = allTargetUuids ? 'id' : 'CAST(id AS TEXT)';
+
   const updateSql = `
     UPDATE ${safeTableName}
     SET ${setClauses.join(', ')}
-    WHERE ${whereBizSql} AND id = ANY($2::uuid[])
+    WHERE ${whereBizSql} AND ${idColExpr} = ANY($2::${targetIdType})
     RETURNING *;
   `;
 
@@ -1245,9 +1256,15 @@ async function executeMutation({
       const delWhereBizSql = schema.columns?.workspace_id
         ? '(business_id = $1 OR workspace_id = $1)'
         : 'business_id = $1';
+      const allDelUuids =
+        Array.isArray(targetIds) &&
+        targetIds.length > 0 &&
+        targetIds.every((id) => typeof id === 'string' && UUID_REGEX.test(id.trim()));
+      const delIdType = allDelUuids ? 'uuid[]' : 'text[]';
+      const delIdColExpr = allDelUuids ? 'id' : 'CAST(id AS TEXT)';
       const deleteSql = `
         DELETE FROM ${safeTableName}
-        WHERE ${delWhereBizSql} AND id = ANY($2::uuid[])
+        WHERE ${delWhereBizSql} AND ${delIdColExpr} = ANY($2::${delIdType})
         RETURNING *;
       `;
       const deleteRes = await client.query(deleteSql, [businessId, targetIds]);

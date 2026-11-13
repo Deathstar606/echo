@@ -105,9 +105,9 @@ function mapGoogleDocsError(err, documentId) {
     'Failed to access Google Doc.';
   const rawStatus = Number(err?.status ?? err?.response?.status ?? gError?.code ?? err?.code);
 
-  if (/invalid_grant/i.test(rawMsg) || rawStatus === 401) {
+  if (/invalid_grant/i.test(rawMsg) || /no access|refresh token|api key/i.test(rawMsg) || rawStatus === 401) {
     return new AppError(
-      'Google authentication has expired or was revoked. Please sign in with Google again.',
+      'No Google Workspace account is currently connected for this user. Please sign in with Google first.',
       401
     );
   }

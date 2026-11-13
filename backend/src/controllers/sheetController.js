@@ -7,6 +7,7 @@ const {
   importProductsToDatabase,
   parseAndValidateSheetCsv,
   importSheetRecordsToDatabase,
+  deleteSheetForWorkspace,
   parseCsvBoolean,
 } = require('../services/sheetCsvImportService');
 const {
@@ -32,6 +33,8 @@ const {
 const {
   summarizeQueryRowsWithAi,
   buildHighlightedRows,
+  isBasicTableQueryCandidate,
+  isBasicTableMutationCandidate,
 } = require('../services/fastTableQueryService');
 const {
   hasCustomSheetGeminiGenerator,
@@ -442,8 +445,9 @@ async function querySpreadsheet(req, res, next) {
       message: rawMessage.trim(),
       isMutation: false,
       businessId: business.id,
-      skipCatalogLoad: Boolean(matchedMeta),
+      skipCatalogLoad: false,
       conversationHistory,
+      compactPrompt: isBasicTableQueryCandidate(rawMessage.trim(), conversationHistory),
     });
 
     // 2. Dynamically route to mutation preview if the user's request is a mutation (update, update_many, create, delete)
@@ -483,7 +487,9 @@ async function querySpreadsheet(req, res, next) {
     if (result.status === 'ok') {
       const rows = Array.isArray(result.rows) ? result.rows : [];
       highlightedRows = buildHighlightedRows(schema.tableName, rows);
-      if (env.geminiApiKey && !hasCustomSheetGeminiGenerator()) {
+      if (hasCustomSheetGeminiGenerator()) {
+        answer = `Found ${rows.length} matching row(s) in ${schema.tableName}.`;
+      } else {
         answer = await summarizeQueryRowsWithAi({
           prompt: rawMessage.trim(),
           tableName: schema.tableName,
@@ -492,8 +498,6 @@ async function querySpreadsheet(req, res, next) {
           schema,
           emailColumn: matchedMeta?.email_column || null,
         });
-      } else {
-        answer = `Found ${rows.length} matching row(s) in ${schema.tableName}.`;
       }
     }
 
@@ -549,6 +553,10 @@ async function mutateSpreadsheet(req, res, next) {
 
     // If natural language message provided, interpret via LLM
     if (!mutationJson && typeof body.message === 'string' && body.message.trim()) {
+      const compactPrompt = isBasicTableMutationCandidate(
+        body.message.trim(),
+        conversationHistory
+      );
       mutationJson = await interpretNaturalLanguageQuery({
         entity,
         schema,
@@ -556,6 +564,8 @@ async function mutateSpreadsheet(req, res, next) {
         isMutation: true,
         businessId: business.id,
         conversationHistory,
+        compactPrompt,
+        skipCatalogLoad: compactPrompt,
       });
     }
 
@@ -785,6 +795,36 @@ async function insertSheetRow(req, res, next) {
   }
 }
 
+/**
+ * DELETE /api/sheets/products
+ * DELETE /api/sheets/:entity
+ * DELETE /api/businesses/:businessId/sheets/:entity
+ */
+async function deleteSheetTable(req, res, next) {
+  try {
+    const business = await resolveBusiness(req);
+    const rawEntity =
+      req.params.entity ||
+      req.query.entity ||
+      (String(req.path || '').endsWith('/products') ? 'products' : '');
+
+    if (!rawEntity || !String(rawEntity).trim()) {
+      throw new AppError('Sheet entity name is required for deletion.', 400);
+    }
+
+    const result = await deleteSheetForWorkspace(business.id, rawEntity);
+
+    return res.status(200).json({
+      status: 'success',
+      message: `Removed sheet "${result.entity}" (${result.deleted_rows} row(s) deleted).`,
+      business_id: business.id,
+      ...result,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   uploadProducts,
   getBusinessTablesList,
@@ -792,4 +832,5 @@ module.exports = {
   querySpreadsheet,
   mutateSpreadsheet,
   insertSheetRow,
+  deleteSheetTable,
 };

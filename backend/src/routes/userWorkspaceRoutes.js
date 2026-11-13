@@ -3,6 +3,7 @@ const { query } = require('../../db');
 const {
   getUserWorkspaces,
   createWorkspaceForUser,
+  updateWorkspaceName,
 } = require('../services/authService');
 const AppError = require('../utils/AppError');
 const router = express.Router();
@@ -64,6 +65,53 @@ router.get('/:workspaceId', async (req, res, next) => {
     ) {
       throw new AppError('Access denied: you do not have permission to access this workspace.', 403);
     }
+    return res.json({ success: true, workspace });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// PATCH /api/workspaces/:workspaceId
+// Renames an existing workspace
+router.patch('/:workspaceId', async (req, res, next) => {
+  try {
+    const { workspaceId } = req.params;
+    const { name } = req.body || {};
+    const requestUserId =
+      req.headers['x-user-id'] ||
+      req.query?.userId ||
+      req.query?.user_id ||
+      req.body?.userId ||
+      req.body?.user_id ||
+      null;
+    const workspace = await updateWorkspaceName({
+      workspaceId,
+      name,
+      userId: requestUserId,
+    });
+    return res.json({ success: true, workspace });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// PUT /api/workspaces/:workspaceId (alias)
+router.put('/:workspaceId', async (req, res, next) => {
+  try {
+    const { workspaceId } = req.params;
+    const { name } = req.body || {};
+    const requestUserId =
+      req.headers['x-user-id'] ||
+      req.query?.userId ||
+      req.query?.user_id ||
+      req.body?.userId ||
+      req.body?.user_id ||
+      null;
+    const workspace = await updateWorkspaceName({
+      workspaceId,
+      name,
+      userId: requestUserId,
+    });
     return res.json({ success: true, workspace });
   } catch (err) {
     return next(err);

@@ -4,7 +4,6 @@ import {
   FileText,
   Upload,
   PlusCircle,
-  Sparkles,
   Layers,
   Database,
   CheckCircle2,
@@ -15,6 +14,7 @@ import {
   X,
   FileCheck,
   Link2,
+  Trash2,
 } from 'lucide-react';
 import type { WorkspaceDocument } from '../../../shared/types/contracts';
 import {
@@ -33,6 +33,7 @@ interface KnowledgeSourceBarProps {
   activeFileName: string;
   tableList: Array<{ entity: string; displayName: string; rowCount: number }>;
   onSelectTable: (entity: string) => void;
+  onRemoveTable?: (entity: string) => Promise<void> | void;
   onUploadCsv: (file: File) => void;
   onOpenAddRow: () => void;
   onOpenImportGoogleSheet: () => void;
@@ -40,8 +41,9 @@ interface KnowledgeSourceBarProps {
   documents: WorkspaceDocument[];
   onUploadDocument: (file: File) => void;
   onSelectDocument?: (doc: WorkspaceDocument) => void;
-  onLoadDemoScenario: () => void;
-  isSeedingDemo: boolean;
+  onRemoveDocument?: (doc: WorkspaceDocument) => Promise<void> | void;
+  onLoadDemoScenario?: () => void;
+  isSeedingDemo?: boolean;
   isUploadingDoc: boolean;
   isBusy: boolean;
   onRefreshDocuments?: () => void;
@@ -59,14 +61,14 @@ export default function KnowledgeSourceBar({
   activeEntity,
   tableList,
   onSelectTable,
+  onRemoveTable,
   onUploadCsv,
   onOpenAddRow,
   onOpenImportGoogleSheet,
   documents,
   onUploadDocument,
   onSelectDocument,
-  onLoadDemoScenario,
-  isSeedingDemo,
+  onRemoveDocument,
   isUploadingDoc,
   isBusy,
   onRefreshDocuments,
@@ -89,7 +91,15 @@ export default function KnowledgeSourceBar({
   const [docImportError, setDocImportError] = useState<string | null>(null);
   const [docImportSuccess, setDocImportSuccess] = useState<string | null>(null);
 
-  // Reset Google Doc modal state cleanly whenever active workspace changes
+  const [pendingRemoval, setPendingRemoval] = useState<
+    | { kind: 'table'; entity: string; label: string; rowCount: number }
+    | { kind: 'doc'; doc: WorkspaceDocument; label: string; chunkCount: number }
+    | null
+  >(null);
+  const [isRemovingSource, setIsRemovingSource] = useState(false);
+  const [removeSourceError, setRemoveSourceError] = useState<string | null>(null);
+
+  // Reset modals cleanly whenever active workspace changes
   useEffect(() => {
     setShowGoogleDocModal(false);
     setGoogleDocsList([]);
@@ -97,6 +107,8 @@ export default function KnowledgeSourceBar({
     setCustomDocInput('');
     setDocImportError(null);
     setDocImportSuccess(null);
+    setPendingRemoval(null);
+    setRemoveSourceError(null);
   }, [resolvedBusinessId]);
 
   const syncedTableMap = React.useMemo(() => {
@@ -108,6 +120,22 @@ export default function KnowledgeSourceBar({
     }
     return map;
   }, [syncedTables]);
+
+  const policyDocuments = React.useMemo(() => {
+    const sheetMimes = new Set([
+      'application/vnd.google-apps.spreadsheet',
+      'text/csv',
+      'application/csv',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ]);
+    return documents.filter((doc) => {
+      const mime = String((doc as any).mime_type || '').trim().toLowerCase();
+      if (sheetMimes.has(mime)) return false;
+      const fname = String(doc.filename || '').trim().toLowerCase();
+      return !fname.endsWith('.csv');
+    });
+  }, [documents]);
 
   const handleOpenGoogleDocModal = async () => {
     setShowGoogleDocModal(true);
@@ -190,6 +218,9 @@ export default function KnowledgeSourceBar({
         setDocImportSuccess(null);
       }, 1500);
     } catch (err: any) {
+      if (err?.status === 401 || /no google workspace account/i.test(err?.message || '')) {
+        setIsDocGoogleConnected(false);
+      }
       setDocImportError(err?.message || 'Failed to import and index Google Doc.');
     } finally {
       setImportingDoc(false);
@@ -213,150 +244,47 @@ export default function KnowledgeSourceBar({
   };
 
   return (
-    <div
-      className="knowledge-source-bar-wrapper"
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '12px',
-        padding: '16px 20px',
-        backgroundColor: 'var(--bg-panel)',
-        border: '1px solid var(--border-warm)',
-        borderRadius: '14px',
-        boxShadow: 'var(--shadow-card)',
-      }}
-    >
-      {/* Top Row: Workspace Status & 1-Click Demo Loader */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: '10px',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '7px',
-              fontSize: '13.5px',
-              fontWeight: 800,
-              color: 'var(--text-primary)',
-            }}
-          >
-            <Layers size={16} color="var(--primary-indigo)" />
-            <span>Workspace Knowledge Sources</span>
+    <div className="knowledge-source-bar-wrapper ksb-shell">
+      {/* Top Bar: Title, Resource Summary & Demo Scenario Loader */}
+      <div className="ksb-topbar">
+        <div className="ksb-title-group">
+          <div className="ksb-icon-badge" aria-hidden="true">
+            <Layers size={15} />
           </div>
-
-          <span
-            style={{
-              padding: '3px 10px',
-              borderRadius: '999px',
-              fontSize: '11px',
-              fontWeight: 700,
-              backgroundColor: 'var(--bg-subtle-warm)',
-              color: 'var(--text-secondary)',
-              border: '1px solid var(--border-warm)',
-            }}
-          >
-            {tableList.length} Table{tableList.length === 1 ? '' : 's'} · {documents.length} Policy Doc{documents.length === 1 ? '' : 's'}
-          </span>
-        </div>
-
-        {/* 1-Click Demo Workspace Loader Button */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button
-            type="button"
-            className="btn-warm-outlined"
-            style={{
-              fontSize: '12px',
-              fontWeight: 700,
-              padding: '6px 13px',
-              borderRadius: '10px',
-              backgroundColor: '#fffbeb',
-              borderColor: '#f59e0b',
-              color: '#92400e',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              boxShadow: '0 1px 3px rgba(245, 158, 11, 0.15)',
-            }}
-            disabled={isSeedingDemo || isBusy}
-            onClick={onLoadDemoScenario}
-            title="Load the 60-second B2B demo scenario (Commercial Orders + SLA Policy + Supplier Notice)"
-          >
-            <Sparkles size={14} color="#d97706" className={isSeedingDemo ? 'spin' : ''} />
-            <span>{isSeedingDemo ? 'Loading Demo Scenario...' : 'Load Demo Scenario'}</span>
-          </button>
+          <div className="ksb-title-meta">
+            <span className="ksb-title-text">Workspace Knowledge Sources</span>
+            <span className="ksb-summary-pill">
+              {tableList.length} Table{tableList.length === 1 ? '' : 's'} · {policyDocuments.length} Policy Doc{policyDocuments.length === 1 ? '' : 's'}
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* Second Row: Structured Tables Section & Unstructured Documents Section */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
-          gap: '14px',
-          alignItems: 'stretch',
-        }}
-      >
-        {/* Section 1: Structured Relational Tables (CSV/DB) */}
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '8px',
-            padding: '12px 14px',
-            backgroundColor: '#ffffff',
-            borderRadius: '12px',
-            border: '1px solid var(--border-warm)',
-            boxShadow: '0 1px 4px rgba(45, 38, 28, 0.04)',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: '8px',
-              fontSize: '11.5px',
-              fontWeight: 700,
-              color: 'var(--text-secondary)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.03em',
-            }}
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <Database size={13} color="var(--primary-indigo)" />
-              Structured Tables (CSV/DB)
-            </span>
+      {/* Unified Split Panes: Structured Tables & Policy Documents */}
+      <div className="ksb-split-grid">
+        {/* Pane 1: Structured Relational Tables (CSV/DB) */}
+        <section className="ksb-pane" aria-label="Structured tables">
+          <div className="ksb-pane-header">
+            <div className="ksb-pane-title">
+              <span className="ksb-pane-dot is-indigo" aria-hidden="true">
+                <Database size={12} />
+              </span>
+              <span>Structured Tables</span>
+              <span className="ksb-pane-subtag">CSV / DB</span>
+            </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-              {/* Import Google Sheet Button */}
+            <div className="ksb-actions-group">
               <button
                 type="button"
-                className="btn-warm-outlined"
-                style={{
-                  fontSize: '11px',
-                  padding: '3px 9px',
-                  borderRadius: '8px',
-                  borderColor: '#10b981',
-                  color: '#047857',
-                  backgroundColor: '#ecfdf5',
-                }}
+                className="ksb-action-btn is-emerald"
                 onClick={onOpenImportGoogleSheet}
                 disabled={isBusy}
                 title="Import and 2-way sync a Google Sheet into this workspace"
               >
-                <ExternalLink size={11} />
-                Import Google Sheet
+                <ExternalLink size={11.5} />
+                <span>Import Sheet</span>
               </button>
 
-              {/* Upload CSV hidden input */}
               <input
                 ref={csvInputRef}
                 type="file"
@@ -366,26 +294,18 @@ export default function KnowledgeSourceBar({
               />
               <button
                 type="button"
-                className="btn-warm-outlined"
-                style={{ fontSize: '11px', padding: '3px 9px', borderRadius: '8px' }}
+                className="ksb-action-btn"
                 onClick={() => csvInputRef.current?.click()}
                 disabled={isBusy}
                 title="Upload CSV to replace or create table"
               >
-                <Upload size={11} />
-                Upload CSV
+                <Upload size={11.5} />
+                <span>Upload CSV</span>
               </button>
 
               <button
                 type="button"
-                className="btn-warm-outlined"
-                style={{
-                  fontSize: '11px',
-                  padding: '3px 9px',
-                  borderRadius: '8px',
-                  borderColor: 'var(--primary-indigo)',
-                  color: 'var(--primary-indigo)',
-                }}
+                className="ksb-action-btn is-indigo"
                 onClick={onOpenAddRow}
                 disabled={isBusy || !activeEntity}
                 title={
@@ -394,23 +314,16 @@ export default function KnowledgeSourceBar({
                     : 'Upload or select a CSV table first'
                 }
               >
-                <PlusCircle size={11} />
-                Add Row
+                <PlusCircle size={11.5} />
+                <span>Add Row</span>
               </button>
             </div>
           </div>
 
-          {/* Table Pills */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+          <div className="ksb-pills-row">
             {tableList.length === 0 ? (
-              <span
-                style={{
-                  fontSize: '11.5px',
-                  color: 'var(--text-secondary)',
-                  fontStyle: 'italic',
-                }}
-              >
-                No tables in this workspace yet. Import a Google Sheet, upload a CSV, or click &ldquo;Load Demo Scenario&rdquo;.
+              <span className="ksb-empty-hint">
+                No tables in this workspace yet. Import a Google Sheet, upload a CSV, or load the demo scenario.
               </span>
             ) : (
               tableList.map((t) => {
@@ -419,122 +332,80 @@ export default function KnowledgeSourceBar({
                   t.entity.toLowerCase() === activeEntity.toLowerCase();
                 const isSynced = syncedTableMap.has(t.entity.toLowerCase());
                 return (
-                  <button
+                  <div
                     key={t.entity}
-                    type="button"
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      padding: '4px 10px',
-                      borderRadius: '999px',
-                      fontSize: '12px',
-                      fontWeight: isActive ? 700 : 500,
-                      backgroundColor: isActive ? 'var(--primary-indigo)' : 'var(--bg-panel)',
-                      color: isActive ? '#ffffff' : 'var(--text-primary)',
-                      border: `1px solid ${isActive ? 'var(--primary-indigo-dark)' : 'var(--border-warm)'}`,
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                    }}
-                    onClick={() => onSelectTable(t.entity)}
-                    title={`Switch to table "${t.displayName}" (${t.rowCount} rows)${isSynced ? ' [Synced with Google Sheets]' : ''}`}
+                    className={`ksb-source-pill ksb-table-pill ${isActive ? 'is-active' : ''}`}
                   >
-                    <FileSpreadsheet size={13} />
-                    <span>{t.displayName}</span>
-                    {isSynced && (
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '2px',
-                          padding: '1px 5px',
-                          borderRadius: '999px',
-                          fontSize: '9.5px',
-                          fontWeight: 700,
-                          backgroundColor: isActive ? '#064e3b' : '#ecfdf5',
-                          color: isActive ? '#a7f3d0' : '#059669',
-                          border: '1px solid #10b981',
-                        }}
-                        title="2-Way Synced with Google Sheets"
-                      >
-                        Sheets
-                      </span>
-                    )}
-                    <span
-                      style={{
-                        padding: '1px 5px',
-                        borderRadius: '999px',
-                        fontSize: '10.5px',
-                        fontWeight: 700,
-                        backgroundColor: isActive
-                          ? 'rgba(255,255,255,0.25)'
-                          : 'var(--bg-subtle-warm)',
-                        color: isActive ? '#ffffff' : 'var(--text-secondary)',
-                      }}
+                    <button
+                      type="button"
+                      className="ksb-pill-main-btn"
+                      onClick={() => onSelectTable(t.entity)}
+                      title={`Switch to table "${t.displayName}" (${t.rowCount} rows)${isSynced ? ' [Synced with Google Sheets]' : ''}`}
                     >
-                      {t.rowCount}
-                    </span>
-                  </button>
+                      <FileSpreadsheet size={13} className="ksb-pill-icon" />
+                      <span className="ksb-pill-label">{t.displayName}</span>
+                      {isSynced && (
+                        <span
+                          className={`ksb-pill-subbadge ${isActive ? 'is-active' : 'is-synced'}`}
+                          title="2-Way Synced with Google Sheets"
+                        >
+                          Sheets
+                        </span>
+                      )}
+                      <span className={`ksb-pill-count ${isActive ? 'is-active' : ''}`}>
+                        {t.rowCount}
+                      </span>
+                    </button>
+                    {onRemoveTable && (
+                      <button
+                        type="button"
+                        className={`ksb-pill-remove-btn ${isActive ? 'is-active' : ''}`}
+                        disabled={isBusy || isRemovingSource}
+                        onClick={() => {
+                          setRemoveSourceError(null);
+                          setPendingRemoval({
+                            kind: 'table',
+                            entity: t.entity,
+                            label: t.displayName || t.entity,
+                            rowCount: t.rowCount,
+                          });
+                        }}
+                        title={`Remove "${t.displayName}" from workspace database`}
+                        aria-label={`Remove sheet ${t.displayName}`}
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    )}
+                  </div>
                 );
               })
             )}
           </div>
-        </div>
+        </section>
 
-        {/* Section 2: Unstructured Knowledge Documents (PDF/TXT/MD/GDOC) */}
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '8px',
-            padding: '12px 14px',
-            backgroundColor: '#ffffff',
-            borderRadius: '12px',
-            border: '1px solid var(--border-warm)',
-            boxShadow: '0 1px 4px rgba(45, 38, 28, 0.04)',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: '8px',
-              fontSize: '11.5px',
-              fontWeight: 700,
-              color: 'var(--text-secondary)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.03em',
-            }}
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <FileText size={13} color="#2563eb" />
-              Policy &amp; Notice Documents (PDF/MD/GDOC)
-            </span>
+        {/* Pane 2: Unstructured Knowledge Documents (PDF/TXT/MD/GDOC) */}
+        <section className="ksb-pane" aria-label="Policy and notice documents">
+          <div className="ksb-pane-header">
+            <div className="ksb-pane-title">
+              <span className="ksb-pane-dot is-blue" aria-hidden="true">
+                <FileText size={12} />
+              </span>
+              <span>Policy &amp; Notice Docs</span>
+              <span className="ksb-pane-subtag">PDF / MD / GDOC</span>
+            </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {/* Google Docs Import Button */}
+            <div className="ksb-actions-group">
               <button
                 type="button"
-                className="btn-warm-outlined"
-                style={{
-                  fontSize: '11px',
-                  padding: '3px 9px',
-                  borderRadius: '8px',
-                  borderColor: '#2563eb',
-                  color: '#1d4ed8',
-                  backgroundColor: '#eff6ff',
-                }}
+                className="ksb-action-btn is-blue"
                 onClick={handleOpenGoogleDocModal}
                 disabled={isBusy}
                 title="Import and index a document from Google Docs"
               >
-                <ExternalLink size={11} />
-                Import Google Doc
+                <ExternalLink size={11.5} />
+                <span>Import Doc</span>
               </button>
 
-              {/* Upload Document input */}
               <input
                 ref={docInputRef}
                 type="file"
@@ -544,92 +415,69 @@ export default function KnowledgeSourceBar({
               />
               <button
                 type="button"
-                className="btn-warm-outlined"
-                style={{
-                  fontSize: '11px',
-                  padding: '3px 9px',
-                  borderRadius: '8px',
-                  borderColor: '#2563eb',
-                  color: '#1d4ed8',
-                }}
+                className="ksb-action-btn"
                 onClick={() => docInputRef.current?.click()}
                 disabled={isUploadingDoc || isBusy}
                 title="Upload an unstructured business document (.pdf, .md, .txt)"
               >
-                <FileUp size={11} />
-                {isUploadingDoc ? 'Ingesting...' : 'Upload Doc'}
+                <FileUp size={11.5} />
+                <span>{isUploadingDoc ? 'Ingesting...' : 'Upload Doc'}</span>
               </button>
             </div>
           </div>
 
-          {/* Document Pills */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-            {documents.length === 0 ? (
-              <span style={{ fontSize: '11.5px', color: 'var(--text-secondary)', fontStyle: 'italic' }}>
-                No policy docs loaded yet. Click &ldquo;Load Demo Scenario&rdquo;, upload a PDF, or import a Google Doc.
+          <div className="ksb-pills-row">
+            {policyDocuments.length === 0 ? (
+              <span className="ksb-empty-hint">
+                No policy docs loaded yet. Upload a PDF/MD, import a Google Doc, or load the demo scenario.
               </span>
             ) : (
-              documents.map((doc) => {
+              policyDocuments.map((doc) => {
                 const isGDoc =
                   doc.filename.endsWith('.gdoc') ||
                   (doc as any).mime_type === 'application/vnd.google-apps.document';
                 return (
-                  <button
+                  <div
                     key={doc.doc_id || doc.filename}
-                    type="button"
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      padding: '4px 10px',
-                      borderRadius: '999px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      backgroundColor: isGDoc ? '#e0e7ff' : '#eff6ff',
-                      color: isGDoc ? '#3730a3' : '#1e40af',
-                      border: `1px solid ${isGDoc ? '#818cf8' : '#bfdbfe'}`,
-                      cursor: onSelectDocument ? 'pointer' : 'default',
-                      transition: 'all 0.15s ease',
-                    }}
-                    onClick={() => onSelectDocument?.(doc)}
-                    title={`Indexed document "${doc.filename}" (${doc.page_count} page(s), ${doc.chunk_count} chunk(s))${isGDoc ? ' [Google Docs RAG Ingested]' : ''}`}
+                    className={`ksb-source-pill ksb-doc-pill ${isGDoc ? 'is-gdoc' : ''} ${onSelectDocument ? 'is-clickable' : ''}`}
                   >
-                    <FileText size={13} color={isGDoc ? '#4f46e5' : '#2563eb'} />
-                    <span style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {doc.filename}
-                    </span>
-                    {isGDoc && (
-                      <span
-                        style={{
-                          padding: '1px 4px',
-                          borderRadius: '4px',
-                          fontSize: '9px',
-                          fontWeight: 700,
-                          backgroundColor: '#4338ca',
-                          color: '#ffffff',
-                        }}
-                      >
-                        GDOC
-                      </span>
-                    )}
-                    <span
-                      style={{
-                        padding: '1px 5px',
-                        borderRadius: '999px',
-                        fontSize: '10px',
-                        fontWeight: 700,
-                        backgroundColor: isGDoc ? '#c7d2fe' : '#dbeafe',
-                        color: isGDoc ? '#3730a3' : '#1e40af',
-                      }}
+                    <button
+                      type="button"
+                      className="ksb-pill-main-btn"
+                      onClick={() => onSelectDocument?.(doc)}
+                      title={`Indexed document "${doc.filename}" (${doc.page_count} page(s), ${doc.chunk_count} chunk(s))${isGDoc ? ' [Google Docs RAG Ingested]' : ''}`}
                     >
-                      {doc.chunk_count} chunks
-                    </span>
-                  </button>
+                      <FileText size={13} className="ksb-pill-icon" />
+                      <span className="ksb-pill-label ksb-doc-name">{doc.filename}</span>
+                      {isGDoc && <span className="ksb-pill-gdoc-tag">GDOC</span>}
+                      <span className="ksb-pill-count is-doc">{doc.chunk_count} chunks</span>
+                    </button>
+                    {onRemoveDocument && doc.doc_id && (
+                      <button
+                        type="button"
+                        className="ksb-pill-remove-btn is-doc"
+                        disabled={isBusy || isRemovingSource}
+                        onClick={() => {
+                          setRemoveSourceError(null);
+                          setPendingRemoval({
+                            kind: 'doc',
+                            doc,
+                            label: doc.filename,
+                            chunkCount: Number(doc.chunk_count || 0),
+                          });
+                        }}
+                        title={`Remove "${doc.filename}" and all indexed chunks`}
+                        aria-label={`Remove document ${doc.filename}`}
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    )}
+                  </div>
                 );
               })
             )}
           </div>
-        </div>
+        </section>
       </div>
 
       {/* Google Docs Import Modal */}
@@ -940,6 +788,154 @@ export default function KnowledgeSourceBar({
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Remove Knowledge Source Confirmation Modal */}
+      {pendingRemoval && (
+        <div
+          className="modal-backdrop"
+          style={{ zIndex: 9999 }}
+          onClick={() => {
+            if (!isRemovingSource) setPendingRemoval(null);
+          }}
+        >
+          <div
+            className="modal-card liquid-glass-modal"
+            style={{ maxWidth: '450px', gap: '14px', borderRadius: '16px' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: '10px',
+                    backgroundColor: '#fef2f2',
+                    color: '#dc2626',
+                    border: '1px solid #fecaca',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Trash2 size={16} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '15.5px', fontWeight: 700, color: '#0f172a' }}>
+                    {pendingRemoval.kind === 'table'
+                      ? 'Remove Sheet From Workspace'
+                      : 'Remove Document & Chunks'}
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    Permanent cleanup for this workspace context
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="icon-action-btn"
+                disabled={isRemovingSource}
+                onClick={() => setPendingRemoval(null)}
+                aria-label="Close removal dialog"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div
+              style={{
+                padding: '11px 13px',
+                borderRadius: '10px',
+                backgroundColor: '#faf7f2',
+                border: '1px solid var(--border-warm)',
+                fontSize: '12.5px',
+                lineHeight: 1.5,
+                color: '#334155',
+              }}
+            >
+              {pendingRemoval.kind === 'table' ? (
+                <>
+                  This will remove sheet <strong>{pendingRemoval.label}</strong> (
+                  <strong>{pendingRemoval.rowCount}</strong> database row(s)), its workspace table
+                  metadata, and any Google Sheet sync entry for this workspace.
+                </>
+              ) : (
+                <>
+                  This will remove <strong>{pendingRemoval.label}</strong> from workspace documents
+                  and delete all <strong>{pendingRemoval.chunkCount}</strong> indexed document
+                  chunk(s) belonging to it.
+                </>
+              )}
+            </div>
+
+            {removeSourceError && (
+              <div className="alert-banner error" style={{ fontSize: '12px' }}>
+                <AlertCircle size={14} style={{ flexShrink: 0 }} />
+                <span>{removeSourceError}</span>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button
+                type="button"
+                className="btn-warm-outlined"
+                style={{ fontSize: '12.5px', padding: '6px 14px' }}
+                disabled={isRemovingSource}
+                onClick={() => setPendingRemoval(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                style={{
+                  fontSize: '12.5px',
+                  padding: '6px 16px',
+                  borderRadius: '10px',
+                  border: '1px solid #dc2626',
+                  backgroundColor: '#dc2626',
+                  color: '#ffffff',
+                  fontWeight: 600,
+                  cursor: isRemovingSource ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  opacity: isRemovingSource ? 0.7 : 1,
+                }}
+                disabled={isRemovingSource}
+                onClick={async () => {
+                  setIsRemovingSource(true);
+                  setRemoveSourceError(null);
+                  try {
+                    if (pendingRemoval.kind === 'table' && onRemoveTable) {
+                      await onRemoveTable(pendingRemoval.entity);
+                    } else if (pendingRemoval.kind === 'doc' && onRemoveDocument) {
+                      await onRemoveDocument(pendingRemoval.doc);
+                    }
+                    setPendingRemoval(null);
+                  } catch (err: any) {
+                    setRemoveSourceError(err?.message || 'Failed to remove context source.');
+                  } finally {
+                    setIsRemovingSource(false);
+                  }
+                }}
+              >
+                {isRemovingSource ? (
+                  <>
+                    <Loader2 size={13.5} className="spin" />
+                    <span>Removing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={13.5} />
+                    <span>Remove</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -1,0 +1,192 @@
+{
+  "started_at": "2026-11-13T20:14:09.790Z",
+  "owner_user_id": "10000000-0000-4000-8000-000000000001",
+  "test_cases_total": 12,
+  "results": [
+    {
+      "case_id": "WS1-CASE-1",
+      "title": "Executive Leather Recliner 78-Hour Delay & Promo Stack Policy",
+      "workspace_name": "Echo Demo Operations Workspace",
+      "workspace_id": "11111111-2222-3333-4444-555555555555",
+      "customer_text": "Hi, I'm checking on order ORD-2026-1026 for the Executive Leather Recliner. It's been delayed for over 3 days now. Since I already had a 10% promotional discount applied, am I eligible for the 100% white-glove freight rebate and delay voucher, or does the promo prevent that?",
+      "http_status": 200,
+      "elapsed_ms": 5826,
+      "retries_count": 0,
+      "category": "Order Inquiry / Freight Rebate",
+      "missing_information": [],
+      "returned_response": "Hello Sharmeen, regarding your order ORD-2026-1026 for the Executive Leather Recliner, our policy grants a 100% White-Glove Freight Fee Rebate for solid timber and office furniture orders with subtotals >= 30,000 BDT experiencing carrier delays exceeding 72 hours. Since your delay is 78 hours and subtotal is 34,000 BDT, you qualify for the freight rebate, while additional SLA compensation is under review.",
+      "success": true
+    },
+    {
+      "case_id": "WS1-CASE-2",
+      "title": "KVM Switch Batch Recall, Dhaka Express Transfer & bKash Cap",
+      "workspace_name": "Echo Demo Operations Workspace",
+      "workspace_id": "11111111-2222-3333-4444-555555555555",
+      "customer_text": "Hello, my order ORD-2026-1022 for two Echo Pro KVM switches still says Processing in Chittagong. I heard there's a hardware recall on older batches. If I want to cancel for a full 18,400 BDT refund to my bKash instead of waiting for replacement units from Dhaka, how does that work?",
+      "http_status": 200,
+      "elapsed_ms": 5462,
+      "retries_count": 0,
+      "category": "Order Cancellation and Refund",
+      "missing_information": [
+        "Customer's preferred payout method between split cap settlement (bKash + Store Credit) and manual Corporate Bank EFT payout verification"
+      ],
+      "returned_response": "Hello Maliha, regarding your order ORD-2026-1022, because your bKash payment exceeds the 10,000 BDT single-transaction gateway limit, cancellations or refunds can be settled either via a split cap settlement (10,000 BDT to bKash and the remaining balance as store credit) or via manual Corporate Bank EFT payout verification.",
+      "success": true
+    },
+    {
+      "case_id": "WS1-CASE-3",
+      "title": "Perishable Praline Tart 28-Hour Delay Freshness Cutoff",
+      "workspace_name": "Echo Demo Operations Workspace",
+      "workspace_id": "11111111-2222-3333-4444-555555555555",
+      "customer_text": "Hi, I ordered a Hazelnut Praline Tart (ORD-2026-1028) that is now 28 hours late. Since this is perishable bakery food, do I have to wait 48 hours for an SLA voucher like your electronics orders, or can I get an immediate re-bake or refund?",
+      "http_status": 200,
+      "elapsed_ms": 5453,
+      "retries_count": 0,
+      "category": "Perishable Cold-Bakery SLA Inquiry",
+      "missing_information": [
+        "Customer preference between 100% store credit or zero-cost morning re-bake dispatch"
+      ],
+      "returned_response": "Hello Lamia, as your order ORD-2026-1028 for the Hazelnut Praline Tart is delayed by 28 hours (exceeding the 24-hour limit for perishable items), you qualify for a Perishable SLA Credit without requiring a physical return. We can process a 100% store credit or a zero-cost morning re-bake dispatch for you. Please let us know which option you prefer.",
+      "success": true
+    },
+    {
+      "case_id": "WS2-CASE-1",
+      "title": "Polo Backorder Allocation & 5% Unfulfilled Balance Credit",
+      "workspace_name": "Veloura Apparel",
+      "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+      "customer_text": "Hi, Daniel from Pacific Rim Clothiers here regarding our backorder BO-2013 for 8 units of the Classic Short-Sleeve Polo. If our order only gets a partial allocation of 2 units due to your 10-unit storefront buffer reserve, will we receive a 5% credit on the remaining 6 unfulfilled units?",
+      "http_status": 200,
+      "elapsed_ms": 5412,
+      "retries_count": 0,
+      "category": "Order Inquiry / Partial Fulfillment & Credit Policy",
+      "missing_information": [],
+      "returned_response": "Hello Daniel, yes, per our allocation policy for backorder BO-2013, if your order receives a partial allocation of 2 out of 8 units due to the storefront buffer reserve, you will receive a 5% credit on the unfulfilled balance of 6 units.",
+      "success": true
+    },
+    {
+      "case_id": "WS2-CASE-2",
+      "title": "Pima Cotton Henley Customs Hold Free-Time Demurrage Deadline",
+      "workspace_name": "Veloura Apparel",
+      "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+      "customer_text": "Hello, we are inquiring about backorder BO-2019 for the Pima Cotton Henley. Since the manifest shows container PRM-2026-1104-CTG has a customs hold, what is the port free-time demurrage deadline, and can we cancel penalty-free if clearance exceeds 10 calendar days?",
+      "http_status": 200,
+      "elapsed_ms": 5150,
+      "retries_count": 0,
+      "category": "Inquiry",
+      "missing_information": [
+        "Specific cancellation penalty policy terms for customs clearance delays exceeding 10 calendar days"
+      ],
+      "returned_response": "Hello Oliver, regarding backorder BO-2019 for the Pima Cotton Henley, the container detention free-time for the port shipment (under container MSCU-849201-4 / Surveyor Claim CLM-CTG-882) expires on November 13, 2026 at 17:00 BST. Regarding your request to cancel penalty-free if clearance exceeds 10 calendar days, our workspace policies do not currently specify cancellation penalty terms for delayed customs clearance, so I have flagged this for our team to review.",
+      "success": true
+    },
+    {
+      "case_id": "WS2-CASE-3",
+      "title": "Structured Linen Blazer Boutique Order & 35% Margin Restriction",
+      "workspace_name": "Veloura Apparel",
+      "workspace_id": "684a8863-5094-4c8b-9b15-c50c06335b7f",
+      "customer_text": "Good day, our boutique wants to purchase 10 units of the Structured Linen Blazer from your online catalog in sizes M and L. Can we negotiate an additional 15% wholesale discount off your listed sale price of 4,490 BDT, or is there a minimum gross margin restriction?",
+      "http_status": 200,
+      "elapsed_ms": 5665,
+      "retries_count": 0,
+      "category": "Wholesale Pricing / Discount Inquiry",
+      "missing_information": [
+        "CFO or VP signoff for any additional discount below the current markdown and supplier purchase order unit cost"
+      ],
+      "returned_response": "Thank you for your interest in Veloura Apparel. Per our supply chain and inventory control policy (SOP-OPS-019), the Structured Linen Blazer is already marked down at a 40% wholesale promotional discount and cannot be discounted further below our supplier purchase order unit cost without CFO or VP signoff. We would be delighted to process your order of 10 units at the current listed price.",
+      "success": true
+    },
+    {
+      "case_id": "WS3-CASE-1",
+      "title": "Vanguard Garment Overdue Balance, SWIFT Wire Grace & Credit Hold",
+      "workspace_name": "Veloura Wholesale B2B Accounts Workspace",
+      "workspace_id": "d47544a4-6e80-41bb-9ddf-e694c714b4fe",
+      "customer_text": "Hi, David Chen from Vanguard Garment Distributors (ACC-1004). Our annual spend reached $16,200 which qualifies for Gold tier under your Q4 VIP Expansion Brief, but we have an overdue balance of $1,850. If we submit proof of wire transfer SWIFT-HK-90412 today, can we avoid the mandatory 25% credit limit reduction and Credit Hold?",
+      "http_status": 200,
+      "elapsed_ms": 6184,
+      "retries_count": 0,
+      "category": "Credit Control / VIP Retention Inquiry",
+      "missing_information": [
+        "Confirmation of final clearing and settlement of wire transfer reference SWIFT-HK-90412 by corporate treasury."
+      ],
+      "returned_response": "Hello David, thank you for reaching out regarding Vanguard Garment Distributors (ACC-1004). Under Finance Credit Control policies and the Q4 VIP Retention Protection Clause, your account qualifies for the 14-day retention grace period due to your annual spend exceeding $15,000, and your active SWIFT-HK-90412 pending clearing wire reference provides safe harbor against the 90+ day statutory collections trigger. We are verifying the wire transfer clearance to ensure your credit limit remains preserved without a 25% reduction or Credit Hold.",
+      "success": true
+    },
+    {
+      "case_id": "WS3-CASE-2",
+      "title": "Crestview Short-Shipment Dispute on INV-2026-8804 & Credit Protection",
+      "workspace_name": "Veloura Wholesale B2B Accounts Workspace",
+      "workspace_id": "d47544a4-6e80-41bb-9ddf-e694c714b4fe",
+      "customer_text": "Hello, this is Priya Nair from Crestview Department Stores (ACC-1009). We received a notification regarding an overdue balance of $920 on invoice INV-2026-8804. We filed a formal Short-Shipment Dispute on that invoice—does the disputed status protect our $7,200 credit limit from being slashed by 25% while under audit?",
+      "http_status": 200,
+      "elapsed_ms": 5496,
+      "retries_count": 0,
+      "category": "Invoice Dispute and Credit Limit Inquiry",
+      "missing_information": [
+        "Documentation or ticket reference number confirming the formal Short-Shipment Dispute filing date"
+      ],
+      "returned_response": "Hello Priya, thank you for reaching out. Per our finance policy, your active invoice dispute on INV-2026-8804 requires an Invoice Dispute Deferral review before collection fees or credit limit actions are finalized. Our team is currently reviewing your file under the 61-90 Days bucket guidelines, and we will update you as soon as the review is complete.",
+      "success": true
+    },
+    {
+      "case_id": "WS3-CASE-3",
+      "title": "Kensington Bespoke Platinum Fast-Track Terms & Benefits",
+      "workspace_name": "Veloura Wholesale B2B Accounts Workspace",
+      "workspace_id": "d47544a4-6e80-41bb-9ddf-e694c714b4fe",
+      "customer_text": "Hello, Arthur Pendelton here from Kensington Bespoke Clothiers (ACC-1017). Our annual spend is currently $42,500 at Gold tier with zero overdue balance. What are the qualification requirements and credit line benefits if we fast-track to Platinum under the Q4 VIP Brief?",
+      "http_status": 200,
+      "elapsed_ms": 5491,
+      "retries_count": 0,
+      "category": "VIP Tier Elevation Inquiry",
+      "missing_information": [],
+      "returned_response": "Hello Arthur, thank you for reaching out on behalf of Kensington Bespoke Clothiers (ACC-1017). According to our Q4 VIP Expansion Brief, Gold partners qualify for elevation to Platinum when their annual spend exceeds USD 50,000 and overdue balance is 0. With your current annual spend at $64,000 and zero overdue balance, you qualify for the Platinum tier, which includes a +30% revolving credit expansion to $58,500, Net-60 invoice terms, and a $2,500 Q4 Co-Op Marketing Development Fund grant.",
+      "success": true
+    },
+    {
+      "case_id": "WS4-CASE-1",
+      "title": "Critical Respiratory Patients & Adult ICU North Staffing Gap",
+      "workspace_name": "Hospital Management Demo Workspace",
+      "workspace_id": "52e50e84-197e-41f0-ba30-4bdeeabafa5e",
+      "customer_text": "Bed Control, Emergency Department charge nurse here. We have 3 critical adult respiratory patients waiting in ED. Can Adult ICU North (HICU-01) accept them right now, or are they blocked by staffing gaps and clean bed turnaround rules?",
+      "http_status": 200,
+      "elapsed_ms": 5805,
+      "retries_count": 0,
+      "category": "Bed Capacity & Staffing Inquiry",
+      "missing_information": [
+        "Confirmation whether to deploy available CCRN float nurse RN-301 Dr. Maya Lin with overtime authorization to resolve the HICU-01 staffing gap."
+      ],
+      "returned_response": "Adult ICU North (HICU-01) currently meets bed criteria with 2 open staffed beds and 4 clean beds, but exhibits a staffing gap of 2. To accept patients, we must either deploy available CCRN float nurse RN-301 Dr. Maya Lin with overtime authorization or hold HICU-01 while utilizing zero-gap units like Surgical Trauma ICU (HICU-04). Please confirm if you would like to invoke float-roster compliance for RN-301.",
+      "success": true
+    },
+    {
+      "case_id": "WS4-CASE-2",
+      "title": "Cardiac Step-Down PCU Overtime Cap for Float Nurse RN-306",
+      "workspace_name": "Hospital Management Demo Workspace",
+      "workspace_id": "52e50e84-197e-41f0-ba30-4bdeeabafa5e",
+      "customer_text": "Nursing Supervisor inquiry: Our Cardiac Step-Down PCU (HPCU-01) is experiencing an acute surge with a staffing gap. Can we authorize float nurse Claire Dubois (RN-306) to work a 12-hour overtime shift on PCU to cover the gap?",
+      "http_status": 200,
+      "elapsed_ms": 5488,
+      "retries_count": 0,
+      "category": "Staffing and Overtime Authorization",
+      "missing_information": [
+        "Explicit sign-off from Nursing Operations (nursing.ops@example.test) authorizing overtime for RN-306"
+      ],
+      "returned_response": "Float nurse Claire Dubois (RN-306) has overtime_eligible = False and cannot cover extended surge overlaps without explicit Nursing Operations sign-off at nursing.ops@example.test and Charge Nurse confirmation.",
+      "success": true
+    },
+    {
+      "case_id": "WS4-CASE-3",
+      "title": "Infectious Isolation 45-Min HEPA Purge & ICU Ambulance Bypass Trigger",
+      "workspace_name": "Hospital Management Demo Workspace",
+      "workspace_id": "52e50e84-197e-41f0-ba30-4bdeeabafa5e",
+      "customer_text": "EVS and Clinical Command: A patient in Infectious Disease Isolation (HWARD-02) was just discharged. What is the mandatory HEPA air purge duration before EVS can mark the bed clean, and if our total Adult ICU clean beds drop below 5 while ED Observation is at 100%, does that trigger an immediate Ambulance Bypass?",
+      "http_status": 200,
+      "elapsed_ms": 5231,
+      "retries_count": 0,
+      "category": "Clinical Operations Inquiry",
+      "missing_information": [],
+      "returned_response": "Environmental Services must execute a 45-minute HEPA negative-pressure air purge and surface sporicidal disinfection before incrementing clean beds for HWARD-02. Additionally, if combined Adult ICU clean beds fall below 5 while HED-01 is at 100% capacity, Command must initiate Temporary Ambulance Bypass pending Step-Down offload.",
+      "success": true
+    }
+  ],
+  "finished_at": "2026-11-13T20:15:41.987Z"
+}

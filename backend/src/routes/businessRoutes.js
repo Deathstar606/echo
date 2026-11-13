@@ -1,5 +1,5 @@
 const express = require('express');
-const { createBusiness, getBusiness } = require('../controllers/businessController');
+const { createBusiness, getBusiness, updateBusiness } = require('../controllers/businessController');
 const { createBusinessCustomer } = require('../controllers/customerController');
 const {
   listBusinessConversations,
@@ -32,6 +32,12 @@ router.post('/', createBusiness);
 // Business Lookup Endpoint
 // GET /api/businesses/:businessId
 router.get('/:businessId', validateBusinessIdParam, getBusiness);
+
+// Business Rename / Update Endpoint
+// PATCH /api/businesses/:businessId
+// PUT /api/businesses/:businessId
+router.patch('/:businessId', validateBusinessIdParam, updateBusiness);
+router.put('/:businessId', validateBusinessIdParam, updateBusiness);
 
 // Individual Customer Creation Endpoint
 // POST /api/businesses/:businessId/customers

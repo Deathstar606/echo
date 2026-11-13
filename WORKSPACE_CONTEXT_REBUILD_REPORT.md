@@ -194,3 +194,44 @@ The connected workspace-RAG, intent, reply, and UI integration files in this imp
 - The fix makes analytical read rows obey extracted policy arithmetic; it does **not** make the separate Socratic mutation compiler deterministically validate every eligibility rule. The Hospital `surge_status` mutation preview remains untrusted until that write path validates the same policy predicates against actual rows.
 - The Stage-1 execution blueprint is not yet a validated artifact carried into Socratic Turn 2. Multi-table completion and row-level email-recipient integrity therefore remain limitations; this run did not test or execute a multi-table mutation or send email.
 - Deterministic document-derived eligibility extraction currently recognizes direct subtraction inequalities whose operands map to numeric columns in the active schema. Other prose formulas must be emitted as valid `calculation_filters` by Gemini or the request fails closed; formulas over nested JSON are not inferred.
+
+## Latest simple sheet query and mutation latency investigation
+
+### Root cause
+
+- Basic single-table reads were already eligible for `tryExecuteFastTableQuery` before the workspace RAG intent router, so a recognized simple read was not paying for cross-document retrieval or a separate RAG classification call. It still required a Gemini interpretation call, and the schema/profile prompt plus Gemini service/network latency remained on the critical path.
+- Basic table-local mutations had no equivalent pre-RAG route. They could invoke workspace source discovery and Gemini intent classification, then invoke Gemini again to interpret the sheet mutation. This duplicated model work for requests that could be safely handled by the existing sheet mutation workflow.
+- End-to-end read latency was not stable across repeated identical requests, indicating Gemini service/network latency variability; prompt compaction reduced the input but cannot guarantee a lower wall-clock time for a one-call read.
+
+### Changes made
+
+- Added a conservative pre-RAG route for imperative, single-table mutations with no conversation history, document/policy dependence, notification/email request, or cross-source cue. It uses cached workspace table metadata and existing single-table resolution. The route only chooses the existing sheet-mutation workflow; it does not generate SQL, bypass validation, preview, confirmation, or execution safeguards.
+- Added compact schema-grounded query/mutation prompt variants. They retain exact active-table columns and types, relevant nested-map metadata, clarification rules, and existing-key-only safeguards while limiting representative values and omitting redundant catalog scans for eligible table-local requests.
+- Added Gemini request-duration logging alongside existing input-token logging.
+- Kept a stable `Table: <table_name>` prompt heading for downstream compatibility.
+
+### Live measurements
+
+Measurements were taken against the Veloura Apparel workspace (`684a8863-5094-4c8b-9b15-c50c06335b7f`). These are observed application runs, not controlled latency guarantees.
+
+| Request | Before | After | Notes |
+|---|---:|---:|---|
+| Read: “Find all black shirts and show whether each is marked best.” | 1,541 input tokens; 11,029 ms | 900 input tokens; 3,519 ms in one run and about 15,338 ms in another | The result still returned the 7 matching black-shirt rows and their `Best` values. Prompt input fell about 42%; the variable latency shows the single Gemini call remains a source of jitter. |
+| Mutation: “Increase the discount by 5% for all luxury shirts.” | 15,949 combined input tokens across routing and sheet interpretation; 33,812 ms | 924 input tokens; 2,415 ms | Both runs correctly requested clarification because “luxury” was not an available schema value. The bypass removed the extra intent/RAG model call and cut observed input by about 94%. |
+| Mutation preview: “Increase discount by 5% for all shirts.” | Not measured as an equivalent baseline | 908 input tokens; 3,422 ms | Produced a preview for 4 rows (sample discount diff: 25 to 30). No confirmation was submitted and no records were changed. |
+
+### Verification
+
+- Backend `npm test`: **87 passed, 0 failed**.
+- Focused `test/universalSheet.test.js`: **30 passed, 0 failed**, including dynamic schemas, clarification for unsupported fields, nested-map preview/confirmation, and missing-key protection.
+- Focused `test/workspaceContext.test.js`: **19 passed, 0 failed**, including table-local mutation routing and compact-prompt safeguards.
+- Backend `npm run typecheck`: **passed**.
+- Frontend `npm run typecheck`: **passed**.
+- Scoped `git diff --check` for this investigation's files: **passed**. A whole-worktree check reports one unrelated existing trailing blank line in `frontend/src/services/api.ts`; it was left unchanged.
+- Live mutation checks stopped at clarification or preview; no mutation was confirmed or applied.
+
+### Remaining limitations
+
+- A simple read still needs one Gemini interpretation call; compact prompts reduce tokens but do not remove model/network latency. Repeated read timings varied substantially.
+- The latency comparison is based on live samples rather than a statistically controlled benchmark. Token counts are Gemini-reported input-token values.
+- The conservative mutation shortcut intentionally falls back to the full workspace RAG route whenever it cannot establish a single-table, table-local operation with confidence.

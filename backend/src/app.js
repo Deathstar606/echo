@@ -12,6 +12,7 @@ const googleAuthRoutes = require('./routes/googleAuthRoutes');
 const gmailRoutes = require('./routes/gmailRoutes');
 const googleSheetsRoutes = require('./routes/googleSheetsRoutes');
 const googleDocsRoutes = require('./routes/googleDocsRoutes');
+const workspaceContactsRoutes = require('./routes/workspaceContactsRoutes');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -67,8 +68,10 @@ app.use('/', healthRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/auth/google', googleAuthRoutes);
 app.use('/api/workspaces', userWorkspaceRoutes);
+app.use('/api/workspaces/:workspaceId/contacts', workspaceContactsRoutes);
 app.use('/api/workspaces/:workspaceId/workspace', workspaceRoutes);
 app.use('/api/businesses', businessRoutes);
+app.use('/api/businesses/:businessId/contacts', workspaceContactsRoutes);
 app.use('/api/businesses/:businessId/workspace', workspaceRoutes);
 app.use('/api/sheets', sheetRoutes);
 app.use('/api/workspace', workspaceRoutes);

@@ -76,7 +76,7 @@ const env = {
     : '',
   geminiModel: process.env.GEMINI_MODEL
     ? process.env.GEMINI_MODEL.trim()
-    : 'gemini-3.5-flash-lite',
+    : 'gemini-3.5-flash',
   smtpHost: process.env.SMTP_HOST
     ? process.env.SMTP_HOST.trim()
     : 'smtp.gmail.com',

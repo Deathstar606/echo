@@ -212,6 +212,7 @@ const initialState = {
   aiSuggestionDraft: '',
   aiSuggestionMeta: null,
   isSuggestionEdited: false,
+  suggestionSource: null, // 'conversation' | 'external' | null
 
   // Loading & Error states for Inbox & Replies
   inboxStatus: 'idle',
@@ -256,6 +257,7 @@ const companySlice = createSlice({
         state.aiSuggestionDraft = draftText;
         state.aiSuggestionMeta = meta;
         state.isSuggestionEdited = false;
+        state.suggestionSource = 'conversation';
       }
     },
     updateAiSuggestionDraft(state, action) {
@@ -280,6 +282,7 @@ const companySlice = createSlice({
       state.aiSuggestionDraft = draftText || '';
       state.aiSuggestionMeta = meta || null;
       state.isSuggestionEdited = false;
+      state.suggestionSource = 'external';
     },
     updateAnnouncementDraftFields(state, action) {
       if (state.announcementDraft) {
@@ -331,26 +334,37 @@ const companySlice = createSlice({
           const first = list[0];
           state.activeConversationId = first.id;
           state.activeConversation = first;
-          const { draftText, meta } = extractAiSuggestionState(first);
-          state.aiSuggestionDraft = draftText;
-          state.aiSuggestionMeta = meta;
-          state.isSuggestionEdited = false;
+          if (state.suggestionSource !== 'external') {
+            const { draftText, meta } = extractAiSuggestionState(first);
+            state.aiSuggestionDraft = draftText;
+            state.aiSuggestionMeta = meta;
+            state.isSuggestionEdited = false;
+            state.suggestionSource = 'conversation';
+          }
         } else if (state.activeConversationId) {
           // Keep activeConversation synchronized with latest messages/AI suggestions
           const updatedActive = list.find(
             (c) => c.id === state.activeConversationId
           );
           if (updatedActive) {
-            const prevDraftOrig =
-              state.aiSuggestionMeta?.originalSuggestion || '';
             state.activeConversation = updatedActive;
-            const { draftText, meta } = extractAiSuggestionState(updatedActive);
-            state.aiSuggestionMeta = meta;
-            // Only overwrite the user's editable Copilot draft if a new AI suggestion arrived
-            // or if the user hasn't manually edited the current draft
-            if (!state.isSuggestionEdited || draftText !== prevDraftOrig) {
-              state.aiSuggestionDraft = draftText;
-              state.isSuggestionEdited = false;
+            if (state.suggestionSource !== 'external') {
+              const prevDraftOrig =
+                state.aiSuggestionMeta?.originalSuggestion || '';
+              const { draftText, meta } = extractAiSuggestionState(updatedActive);
+              const isStaleEmptySilentPoll =
+                Boolean(action.meta.arg?.silent) &&
+                Boolean(prevDraftOrig) &&
+                !draftText;
+              if (!isStaleEmptySilentPoll) {
+                state.aiSuggestionMeta = meta;
+                // Only overwrite the user's editable Copilot draft if a new AI suggestion arrived
+                // or if the user hasn't manually edited the current draft
+                if (!state.isSuggestionEdited || draftText !== prevDraftOrig) {
+                  state.aiSuggestionDraft = draftText;
+                  state.isSuggestionEdited = false;
+                }
+              }
             }
           }
         }
@@ -387,6 +401,7 @@ const companySlice = createSlice({
         state.aiSuggestionDraft = draftText;
         state.aiSuggestionMeta = meta;
         state.isSuggestionEdited = false;
+        state.suggestionSource = 'conversation';
       })
       .addCase(selectAndLoadConversation.rejected, (state, action) => {
         state.threadStatus = 'failed';
@@ -428,6 +443,7 @@ const companySlice = createSlice({
             updatedAt: draft.updated_at || null,
           };
           state.isSuggestionEdited = false;
+          state.suggestionSource = 'conversation';
         }
       })
       .addCase(generateConversationReplyDraft.rejected, (state, action) => {
@@ -486,6 +502,7 @@ const companySlice = createSlice({
         state.aiSuggestionDraft = '';
         state.aiSuggestionMeta = null;
         state.isSuggestionEdited = false;
+        state.suggestionSource = null;
       })
       .addCase(submitCompanyReply.rejected, (state, action) => {
         state.sendReplyStatus = 'failed';

@@ -47,8 +47,12 @@ function errorHandler(err, req, res, next) {
   // Handle intentional operational errors
   if (err instanceof AppError || err.isOperational) {
     const payload = {
-      error: err.message,
+      error: err.code || err.message,
+      message: err.message,
     };
+    if (err.code) {
+      payload.code = err.code;
+    }
     if (err.details !== undefined) {
       payload.details = err.details;
     }

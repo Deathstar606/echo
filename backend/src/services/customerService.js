@@ -164,6 +164,21 @@ async function getFilteredCustomersForBusiness(businessId, targetCriteria = {}) 
  * @returns {Promise<Array<object>>}
  */
 async function getCustomersMatchingAnnouncementCriteria(businessId, targeting = {}) {
+  // Check for workspace_contacts source (Filtered vs Workspace CSV panel)
+  if (targeting?.source === 'workspace_contacts' || targeting?.panel_type) {
+    const panelType =
+      targeting.panel_type ||
+      (targeting.scope === 'filtered_contacts' ? 'filtered' : 'workspace_csv');
+    const res = await query(
+      `SELECT id, customer_name, customer_name AS name, email, created_at, updated_at
+       FROM workspace_contacts
+       WHERE workspace_id = $1 AND panel_type = $2
+       ORDER BY updated_at DESC, created_at DESC;`,
+      [businessId, panelType]
+    );
+    return res.rows;
+  }
+
   const filters = Array.isArray(targeting?.filters) ? targeting.filters : [];
   if (!targeting || targeting.scope === 'all' || filters.length === 0) {
     return getEligibleCustomersForBusiness(businessId);

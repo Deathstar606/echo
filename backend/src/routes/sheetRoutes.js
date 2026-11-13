@@ -7,6 +7,7 @@ const {
   querySpreadsheet,
   mutateSpreadsheet,
   insertSheetRow,
+  deleteSheetTable,
 } = require('../controllers/sheetController');
 
 const router = express.Router({ mergeParams: true });
@@ -22,6 +23,7 @@ router.post('/products/append', uploadSingleCsv, (req, res, next) => {
 });
 router.post('/products/row', insertSheetRow);
 router.get('/products', getProductsList);
+router.delete('/products', deleteSheetTable);
 
 // Default endpoints
 router.post('/upload', uploadSingleCsv, uploadProducts);
@@ -47,6 +49,7 @@ router.post('/:entity/append', uploadSingleCsv, (req, res, next) => {
 });
 router.post('/:entity/row', insertSheetRow);
 router.get('/:entity', getProductsList);
+router.delete('/:entity', deleteSheetTable);
 router.post('/:entity/query', querySpreadsheet);
 router.post('/:entity/mutate', mutateSpreadsheet);
 router.post('/:entity/mutation', mutateSpreadsheet);

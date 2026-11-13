@@ -87,6 +87,36 @@ function isValidIsoDateString(val) {
 function extractAndValidateAudienceTargeting(announcementText, llmTargeting = null) {
   const text = String(announcementText || '').trim();
 
+  // 0. Explicit channel panel targeting (Filtered Contacts vs Workspace Customer Base)
+  const filteredContactsPattern =
+    /\b(?:filtered\s+contacts?|filtered\s+users?|contacts?\s+in\s+filtered|filtered\s+inbox|curated\s+contacts?)\b/i;
+  const workspaceCsvPattern =
+    /\b(?:workspace\s+(?:customer\s+base|customers?|contacts?)|imported\s+(?:customer\s+base|customers?|contacts?|csv)|customer\s+base|csv\s+contacts?|workspace\s+base)\b/i;
+
+  if (filteredContactsPattern.test(text)) {
+    return {
+      status: 'ok',
+      scope: 'filtered_contacts',
+      source: 'workspace_contacts',
+      panel_type: 'filtered',
+      audience_description: 'Filtered Contacts',
+      clarification_message: null,
+      filters: [],
+    };
+  }
+
+  if (workspaceCsvPattern.test(text)) {
+    return {
+      status: 'ok',
+      scope: 'workspace_contacts',
+      source: 'workspace_contacts',
+      panel_type: 'workspace_csv',
+      audience_description: 'Workspace Customer Base',
+      clarification_message: null,
+      filters: [],
+    };
+  }
+
   // 1. Check for explicit ambiguity or unsupported customer attributes in the instruction text
   const missingDatePattern =
     /\b(?:registered|signed\s+up|joined|created)\s+(?:after|before|since|on|between)\s+(?:a\s+)?(?:certain|specified|specific|some|particular|given|recent)?\s*(?:date|time|month|year)?\s*(?:[.!?]|$)/i;

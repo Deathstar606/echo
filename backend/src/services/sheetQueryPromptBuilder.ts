@@ -58,6 +58,7 @@ export interface BuildPromptParams {
   currentDate?: string;
   catalog?: CatalogContext | null;
   conversationHistory?: ConversationHistoryTurn[] | Array<Record<string, any>>;
+  compactPrompt?: boolean;
 }
 
 export interface InterpretQueryParams {
@@ -71,6 +72,7 @@ export interface InterpretQueryParams {
   catalog?: CatalogContext | null;
   responseSchema?: object | null;
   conversationHistory?: ConversationHistoryTurn[] | Array<Record<string, any>>;
+  compactPrompt?: boolean;
 }
 
 /**
@@ -115,6 +117,7 @@ export function buildSheetQueryPrompt({
   currentDate = new Date().toISOString().slice(0, 10),
   catalog = null,
   conversationHistory = [],
+  compactPrompt = false,
 }: BuildPromptParams): string {
   const schema: SheetSchema = explicitSchema || getSchema(entity);
   const normalizedHistory = normalizeConversationHistory(conversationHistory);
@@ -136,7 +139,9 @@ export function buildSheetQueryPrompt({
       if (isMutation && def.storageType) {
         desc += ` [PostgreSQL: ${def.storageType}]`;
       }
-      if (def.description) {
+      if (colName.toLowerCase() === 'id' && def.type === 'uuid') {
+        desc += ` (internal system record UUID; do NOT filter with domain codes like Order ID, SKU, or name; use ${pkHint !== 'id' ? pkHint : 'the business identifier column'} instead)`;
+      } else if (def.description) {
         desc += `: ${def.description}`;
       }
       if (def.nestedMap) {
@@ -156,7 +161,7 @@ export function buildSheetQueryPrompt({
 
   const repLines: string[] = [];
   if (schema.representativeValues && Object.keys(schema.representativeValues).length > 0) {
-    const cap = isMutation ? 3 : 8;
+    const cap = isMutation ? 6 : 8;
     for (const [col, vals] of Object.entries(schema.representativeValues)) {
       if (Array.isArray(vals) && vals.length > 0) {
         repLines.push(
@@ -173,11 +178,33 @@ export function buildSheetQueryPrompt({
       ? `Representative values:\n${repLines.join('\n')}`
       : '';
 
+  const catalogBlock =
+    catalog && ((catalog.names && catalog.names.length > 0) || (catalog.categories && catalog.categories.length > 0))
+      ? `\n${formatCatalogContext(catalog)}\n`
+      : '';
+
   if (!isMutation) {
-    const catalogBlock =
-      catalog && ((catalog.names && catalog.names.length > 0) || (catalog.categories && catalog.categories.length > 0))
-        ? `\n${formatCatalogContext(catalog)}\n`
-        : '';
+    if (compactPrompt) {
+      return `Convert this request into a read-only JSON filter plan for the active table. Use only its exact columns; never mutate data or invent fields.
+
+TABLE
+Table: ${schema.tableName} (${schema.entity})
+${columnsList}
+${representativeValuesBlock}
+${catalogBlock}
+RULES
+- Map business terms using column names, types, descriptions, and representative values.
+- Use exact field names and supported operators: equals, not_equals, contains, not_contains, starts_with, ends_with, in, greater_than, greater_than_or_equal, less_than, less_than_or_equal, between, relative_days_ago, this_month.
+- Multiple conditions use AND unless the user explicitly requests OR. Clarify only if the requested table/filter cannot be safely mapped.
+- CONVERSATION FOLLOW-UPS: If CONVERSATION CONTEXT is present and user query narrows/refines prior results (e.g. "those", "from khulna", "delayed ones", "only those"), chain prior active filters on this table unless user explicitly asks to reset scope.
+- Return only JSON shaped as {"status":"ok","entity":"${schema.entity}","operation":"filter","filter_logic":"AND","filters":[{"field":"...","operator":"equals","value":"..."}],"sort":[],"limit":null} or {"status":"clarification_needed","message":"..."}.
+Reference date: ${currentDate}
+${contextBlock}
+USER REQUEST
+<user_message>
+${message}
+</user_message>`;
+    }
 
     return `You are translating a BASIC SINGLE-TABLE READ INQUIRY into a SQL filter JSON object.
 Do NOT treat this as a mutation, email action, or B2B document/policy workflow. Never output update/create/delete. Use ONLY this active table's columns and metadata below.
@@ -209,6 +236,31 @@ ${message}
     ? `\nNested map columns: ${nestedMapColumns.join(', ')}. A dotted field targets one explicit key. For an operation over every key already in each matching row, use action "add_to_existing_values", "subtract_existing_values", "multiply_existing_values", or "set_existing_values" with key_policy "existing_keys_only". Iterate each row's own keys; never infer/union keys from other records or samples.`
     : '';
 
+  if (compactPrompt) {
+    return `Convert this table-local request into a validated spreadsheet JSON plan. Use exact columns and schema metadata only; clarify unsupported or ambiguous intent. Never return SQL.
+
+TABLE
+Table: ${schema.tableName} (${schema.entity})
+${columnsList}
+${representativeValuesBlock}
+${catalogBlock}
+${nestedMapInstructions}
+
+RULES
+- Read: operation "filter". Updates: "update" or "update_many" with target_filters and updates [{field,action,value,unit}]; action is set, add, subtract, or multiply, and unit is absolute, percentage, or percentage_points.
+- Default filter logic to AND; use OR only when explicitly requested. Use only modifiable columns for updates.
+- For nested maps, explicit keys use dotted fields. Apply to every key present in each row only with the existing-values actions and key_policy "existing_keys_only"; never create missing keys unless explicitly requested.
+- For create, include only explicitly supplied fields. For delete/update, require a safe target scope; set match_all:true only on an explicit request to affect all rows. Ask for clarification if scope or intent is unclear.
+- CONVERSATION SCOPE INHERITANCE: If CONVERSATION CONTEXT is present with prior matched_row_ids or prior filters on this table and the user updates/deletes without restating a WHERE clause (or says "those", "them", "that one", "increase discount to 20%"), scope "target_filters" to those prior rows (or filter ${pkHint} with operator "in" and the prior matched_row_ids) and set match_all:false.
+- Return JSON only. Read: {"status":"ok","entity":"${schema.entity}","operation":"filter","filter_logic":"AND","filters":[{"field":"...","operator":"equals","value":"..."}],"sort":[],"limit":null}. Mutation: {"status":"ok","entity":"${schema.entity}","operation":"update","filter_logic":"AND","match_all":false,"target_filters":[{"field":"...","operator":"equals","value":"..."}],"updates":[{"field":"...","action":"add","value":1,"unit":"absolute"}]}. Clarification: {"status":"clarification_needed","message":"..."}.
+Reference date: ${currentDate}
+${contextBlock}
+USER REQUEST
+<user_message>
+${message}
+</user_message>`;
+  }
+
   return `Interpret the user's request as a safe spreadsheet query or mutation plan.
 
 ACTIVE TABLE SCHEMA
@@ -216,7 +268,7 @@ Table: ${schema.tableName} (${schema.entity})
 
 COMPLETE SCHEMA (exact database identifiers; logical type, storage type, mutability, metadata)
 ${columnsList}
-${representativeValuesBlock ? `\n${representativeValuesBlock}\n` : ''}
+${representativeValuesBlock ? `\n${representativeValuesBlock}\n` : ''}${catalogBlock}
 ${nestedMapInstructions}
 
 INTERPRETATION RULES
@@ -420,6 +472,7 @@ export async function interpretNaturalLanguageQuery({
   catalog: suppliedCatalog = null,
   responseSchema = null,
   conversationHistory = [],
+  compactPrompt = false,
 }: InterpretQueryParams): Promise<InterpretedSheetAction> {
   if (!isNonEmptyString(message)) {
     throw new AppError('Message is required and must be a non-empty string.', 400);
@@ -448,6 +501,7 @@ export async function interpretNaturalLanguageQuery({
     currentDate,
     catalog,
     conversationHistory,
+    compactPrompt,
   });
 
   // 4. Send to Gemini for interpretation

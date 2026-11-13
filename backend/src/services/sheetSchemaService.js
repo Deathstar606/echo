@@ -1453,7 +1453,85 @@ function validateFilter(entityOrSchema, filter) {
     candidateField = 'total_stock';
   }
 
-  const match = findColumnDef(schema, candidateField);
+  let match = findColumnDef(schema, candidateField);
+
+  // If filter targets internal 'id' (UUID) but the filter value is NOT a valid UUID
+  // (e.g. user or model passed an order code like 'ORD-2026-1014', an SKU, or product name),
+  // automatically redirect to the schema's business identifier column.
+  if (match && match.exactName.toLowerCase() === 'id' && match.colDef.type === 'uuid') {
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const isUuidVal = (v) => typeof v === 'string' && UUID_REGEX.test(v.trim());
+    const val = filter.value;
+    const allUuids = Array.isArray(val)
+      ? val.length > 0 && val.every(isUuidVal)
+      : isUuidVal(val);
+
+    if (!allUuids) {
+      const cols = Object.values(schema.columns || {});
+      let targetCol = null;
+
+      // 1. Explicit non-'id' primary key
+      if (schema.primaryKey && String(schema.primaryKey).toLowerCase() !== 'id') {
+        targetCol = cols.find(
+          (c) => c.exactName.toLowerCase() === String(schema.primaryKey).toLowerCase()
+        );
+      }
+
+      // 2. Candidate business identifier column
+      if (!targetCol) {
+        targetCol = cols.find((c) => {
+          const lower = c.exactName.toLowerCase();
+          return (
+            lower !== 'id' &&
+            ![
+              'business_id',
+              'workspace_id',
+              'user_id',
+              'workspace_document_id',
+              '_google_row_index',
+            ].includes(lower) &&
+            /(?:^|_)(?:order_id|account_id|backorder_id|customer_id|invoice_id|unit_id|ticket_id|shipment_id|record_id|row_id|sku|item_sku|code|ref|reference)(?:$|_)/i.test(
+              lower
+            )
+          );
+        });
+      }
+
+      // 3. Representative values match
+      if (!targetCol && schema.representativeValues) {
+        const valsToCheck = Array.isArray(val) ? val : [val];
+        for (const [repCol, repVals] of Object.entries(schema.representativeValues)) {
+          if (repCol.toLowerCase() === 'id' || !Array.isArray(repVals)) continue;
+          if (
+            repVals.some((rv) =>
+              valsToCheck.some(
+                (v) => String(v).trim().toLowerCase() === String(rv).trim().toLowerCase()
+              )
+            )
+          ) {
+            targetCol = cols.find((c) => c.exactName === repCol);
+            if (targetCol) break;
+          }
+        }
+      }
+
+      // 4. Fallback to name or title if string
+      if (!targetCol) {
+        targetCol = cols.find((c) => {
+          const lower = c.exactName.toLowerCase();
+          return (
+            ['name', 'title', 'item_name', 'product_name'].includes(lower) &&
+            c.type === 'string'
+          );
+        });
+      }
+
+      if (targetCol) {
+        match = { exactName: targetCol.exactName, colDef: targetCol };
+      }
+    }
+  }
+
   if (!match) {
     const available = Object.values(schema.columns)
       .filter((c) => c.queryable)
