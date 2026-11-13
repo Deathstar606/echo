@@ -5,6 +5,10 @@ const {
   createWorkspaceForUser,
   updateWorkspaceName,
 } = require('../services/authService');
+const {
+  getDocumentChunks,
+  deleteDocument,
+} = require('../controllers/workspaceController');
 const AppError = require('../utils/AppError');
 const router = express.Router();
 
@@ -117,5 +121,11 @@ router.put('/:workspaceId', async (req, res, next) => {
     return next(err);
   }
 });
+
+// GET /api/workspaces/:workspaceId/documents/:docIdentifier/chunks
+router.get('/:workspaceId/documents/:docIdentifier/chunks', getDocumentChunks);
+
+// DELETE /api/workspaces/:workspaceId/documents/:docIdentifier
+router.delete('/:workspaceId/documents/:docIdentifier', deleteDocument);
 
 module.exports = router;

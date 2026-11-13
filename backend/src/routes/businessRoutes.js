@@ -21,6 +21,10 @@ const {
   validateConversationIdParam,
   validateAnnouncementIdParam,
 } = require('../middleware/validate');
+const {
+  getDocumentChunks,
+  deleteDocument,
+} = require('../controllers/workspaceController');
 const sheetRoutes = require('./sheetRoutes');
 
 const router = express.Router();
@@ -139,6 +143,10 @@ router.post(
   validateConversationIdParam,
   postAgentReplyToConversation
 );
+
+// Document Inspection & Deletion Endpoints
+router.get('/:businessId/documents/:docIdentifier/chunks', validateBusinessIdParam, getDocumentChunks);
+router.delete('/:businessId/documents/:docIdentifier', validateBusinessIdParam, deleteDocument);
 
 // Phase 4: Spreadsheet Products and Services Routes (scoped to businessId)
 router.use('/:businessId/sheets', validateBusinessIdParam, sheetRoutes);

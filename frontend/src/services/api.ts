@@ -43,7 +43,7 @@ export class ApiError<TDetails = ApiErrorDetail[] | unknown> extends Error {
 /**
  * Normalizes the base URL and endpoint so duplicate `/api/api` prefixes cannot occur.
  */
-function buildApiUrl(endpoint: string): string {
+export function buildApiUrl(endpoint: string): string {
   const base = String(API_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
   if (base.endsWith('/api') && endpoint.startsWith('/api/')) {
     return `${base}${endpoint.slice(4)}`;
@@ -660,6 +660,59 @@ export async function deleteWorkspaceDocument(
     )}`,
     { method: 'DELETE' }
   );
+}
+
+export interface DocumentInspectionChunk {
+  id: string;
+  chunk_index: number;
+  locator: string;
+  breadcrumb_header: string | null;
+  raw_text: string;
+  enriched_text?: string | null;
+  extracted_entities: string[];
+}
+
+export interface DocumentInspectionMetadata {
+  id: string;
+  workspace_id: string;
+  filename: string;
+  total_chunks: number;
+  all_extracted_entities: string[];
+  created_at?: string;
+}
+
+export interface DocumentInspectionResponse {
+  document: DocumentInspectionMetadata;
+  chunks: DocumentInspectionChunk[];
+}
+
+/**
+ * Fetches all chunks and extracted entities for a specific workspace document.
+ * Flexible lookup: works with either docId (UUID) or filename.
+ * GET /api/workspaces/{workspaceId}/documents/{docIdentifier}/chunks
+ */
+export async function fetchDocumentChunks(
+  workspaceId: string,
+  docIdentifier: string
+): Promise<DocumentInspectionResponse> {
+  const targetPath = workspaceId
+    ? `/api/workspaces/${encodeURIComponent(workspaceId)}/documents/${encodeURIComponent(docIdentifier)}/chunks`
+    : `/api/workspace/documents/${encodeURIComponent(docIdentifier)}/chunks`;
+  return request<DocumentInspectionResponse>(targetPath, { method: 'GET' });
+}
+
+/**
+ * Deletes a workspace document and its semantic chunks by docIdentifier (UUID or filename).
+ * DELETE /api/workspaces/{workspaceId}/documents/{docIdentifier}
+ */
+export async function deleteWorkspaceDocumentByIdentifier(
+  workspaceId: string,
+  docIdentifier: string
+): Promise<{ status: string; message: string; deleted_chunks?: number }> {
+  const targetPath = workspaceId
+    ? `/api/workspaces/${encodeURIComponent(workspaceId)}/documents/${encodeURIComponent(docIdentifier)}`
+    : `/api/workspace/documents/${encodeURIComponent(docIdentifier)}`;
+  return request(targetPath, { method: 'DELETE' });
 }
 
 /**

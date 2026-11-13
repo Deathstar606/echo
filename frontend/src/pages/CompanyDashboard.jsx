@@ -3517,6 +3517,7 @@ export default function CompanyDashboard() {
       {/* Citation Inspector Modal */}
       <CitationInspectorModal
         citation={activeInquiryCitation}
+        workspaceId={activeBusinessId}
         onClose={() => setActiveInquiryCitation(null)}
       />
     </div>

@@ -2118,11 +2118,28 @@ export default function SheetManagementPanel(): React.ReactElement {
       {/* Citation Inspector Modal */}
       <CitationInspectorModal
         citation={activeCitation}
+        workspaceId={activeBusinessId}
         onClose={() => setActiveCitation(null)}
         onHighlightRow={(locator) => {
           setFlashHighlightedLocator(locator);
           setActiveCitation(null);
           setTimeout(() => setFlashHighlightedLocator(null), 3500);
+        }}
+        onAskAboutSection={(promptText) => {
+          dispatch(setSheetNlPrompt(promptText));
+          const cmdInput = document.querySelector(
+            'textarea, input[placeholder*="instruction"], input[placeholder*="command"]'
+          ) as HTMLTextAreaElement | HTMLInputElement | null;
+          if (cmdInput) {
+            cmdInput.focus();
+            cmdInput.selectionStart = cmdInput.value.length;
+            cmdInput.selectionEnd = cmdInput.value.length;
+          }
+        }}
+        onDocumentDeleted={async () => {
+          await loadDocuments(activeBusinessId);
+          setAddRowSuccessToast('Document successfully removed from workspace.');
+          setTimeout(() => setAddRowSuccessToast(null), 3000);
         }}
       />
 

@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const path = require('node:path');
 const fs = require('node:fs');
+const { query } = require('../../db');
 const AppError = require('../utils/AppError');
 const { findBusinessOrThrow } = require('./businessController');
 const {
@@ -395,20 +396,204 @@ async function confirmOperation(req, res, next) {
 }
 
 /**
- * DELETE /api/workspace/documents/:docId
+ * GET /api/workspaces/:workspaceId/documents/:docIdentifier/chunks
+ * Flexible lookup by doc_id (UUID) or filename.
+ * Fetches parent document metadata and all chunks ordered by chunk_index ASC.
+ * Aggregates all_extracted_entities across all chunks.
+ */
+async function getDocumentChunks(req, res, next) {
+  try {
+    const businessId = await requireBusinessId(req);
+    const rawIdentifier = req.params.docIdentifier || req.params.docId;
+    if (!rawIdentifier || !String(rawIdentifier).trim()) {
+      throw new AppError('Document identifier (ID or filename) is required.', 400);
+    }
+
+    const docIdentifier = decodeURIComponent(String(rawIdentifier).trim());
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const isUuid = UUID_RE.test(docIdentifier);
+
+    let docRow = null;
+
+    // 1. Fetch parent document from workspace_documents
+    try {
+      let docQuery;
+      let docParams;
+      if (isUuid) {
+        docQuery = `
+          SELECT doc_id, workspace_id, filename, mime_type, page_count, chunk_count, created_at, updated_at
+          FROM workspace_documents
+          WHERE workspace_id = $1 AND (doc_id = $2 OR LOWER(filename) = LOWER($3))
+          LIMIT 1;
+        `;
+        docParams = [businessId, docIdentifier, docIdentifier];
+      } else {
+        docQuery = `
+          SELECT doc_id, workspace_id, filename, mime_type, page_count, chunk_count, created_at, updated_at
+          FROM workspace_documents
+          WHERE workspace_id = $1 AND (LOWER(filename) = LOWER($2) OR LOWER(filename) = LOWER($3))
+          LIMIT 1;
+        `;
+        const baseName = path.basename(docIdentifier);
+        docParams = [businessId, docIdentifier, baseName];
+      }
+
+      const docRes = await query(docQuery, docParams);
+      if (docRes?.rows?.length > 0) {
+        docRow = docRes.rows[0];
+      }
+    } catch (dbErr) {
+      console.warn('[getDocumentChunks] DB query error on workspace_documents:', dbErr.message);
+    }
+
+    // Fallback to in-memory documents if DB returned nothing
+    if (!docRow) {
+      const memDocs = await listDocumentsForBusiness(businessId);
+      const matchedMem = memDocs.find(
+        (d) =>
+          String(d.doc_id || d.id || '') === docIdentifier ||
+          d.filename.toLowerCase() === docIdentifier.toLowerCase() ||
+          path.basename(d.filename).toLowerCase() === path.basename(docIdentifier).toLowerCase()
+      );
+      if (matchedMem) {
+        docRow = {
+          doc_id: matchedMem.doc_id || matchedMem.id,
+          workspace_id: businessId,
+          filename: matchedMem.filename,
+          mime_type: matchedMem.mime_type,
+          page_count: matchedMem.page_count,
+          chunk_count: matchedMem.chunk_count,
+          created_at: matchedMem.created_at,
+        };
+      }
+    }
+
+    if (!docRow) {
+      throw new AppError(`Document "${docIdentifier}" was not found in this workspace.`, 404);
+    }
+
+    const docId = docRow.doc_id;
+    const resolvedFilename = docRow.filename;
+
+    // 2. Fetch chunks from workspace_document_chunks
+    let chunkRows = [];
+    try {
+      const chunksRes = await query(
+        `SELECT chunk_id, doc_id, workspace_document_id, workspace_id, filename, chunk_index, locator, breadcrumb_header, raw_text, enriched_text, extracted_entities
+         FROM workspace_document_chunks
+         WHERE workspace_id = $1 AND (doc_id = $2 OR workspace_document_id = $2 OR LOWER(filename) = LOWER($3))
+         ORDER BY chunk_index ASC;`,
+        [businessId, docId, resolvedFilename]
+      );
+      if (chunksRes?.rows?.length > 0) {
+        chunkRows = chunksRes.rows;
+      }
+    } catch (dbErr) {
+      console.warn('[getDocumentChunks] DB query error on workspace_document_chunks:', dbErr.message);
+    }
+
+    // Fallback to in-memory chunks if DB returned nothing
+    if (chunkRows.length === 0) {
+      const memChunks = await getChunksForBusiness(businessId);
+      chunkRows = memChunks
+        .filter(
+          (c) =>
+            String(c.doc_id || c.workspace_document_id || '') === String(docId) ||
+            c.filename.toLowerCase() === resolvedFilename.toLowerCase()
+        )
+        .sort((a, b) => (a.chunk_index ?? 0) - (b.chunk_index ?? 0));
+    }
+
+    // 3. Aggregate a deduplicated array of all_extracted_entities across all chunks
+    const entitySet = new Set();
+    const formattedChunks = chunkRows.map((c, index) => {
+      let entities = [];
+      if (Array.isArray(c.extracted_entities)) {
+        entities = c.extracted_entities;
+      } else if (typeof c.extracted_entities === 'string') {
+        try {
+          const parsed = JSON.parse(c.extracted_entities);
+          if (Array.isArray(parsed)) entities = parsed;
+        } catch {
+          entities = [];
+        }
+      }
+
+      for (const ent of entities) {
+        if (ent && typeof ent === 'string' && ent.trim()) {
+          entitySet.add(ent.trim());
+        }
+      }
+
+      return {
+        id: c.chunk_id || `chunk-${c.chunk_index ?? index}`,
+        chunk_index: c.chunk_index !== undefined ? Number(c.chunk_index) : index,
+        locator: c.locator || `Page ${c.page_number || 1} / Chunk ${index + 1}`,
+        breadcrumb_header: c.breadcrumb_header || null,
+        raw_text: c.raw_text || '',
+        enriched_text: c.enriched_text || null,
+        extracted_entities: entities,
+      };
+    });
+
+    const allExtractedEntities = Array.from(entitySet);
+
+    return res.status(200).json({
+      document: {
+        id: docRow.doc_id,
+        workspace_id: docRow.workspace_id || businessId,
+        filename: docRow.filename,
+        total_chunks: formattedChunks.length || docRow.chunk_count || 0,
+        all_extracted_entities: allExtractedEntities,
+        created_at: docRow.created_at,
+      },
+      chunks: formattedChunks,
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+/**
+ * DELETE /api/workspace/documents/:docIdentifier
+ * DELETE /api/workspaces/:workspaceId/documents/:docIdentifier
  * Deletes a single indexed unstructured document and all of its chunks for the active workspace.
+ * Accepts either UUID doc_id OR filename.
  */
 async function deleteDocument(req, res, next) {
   try {
     const businessId = await requireBusinessId(req);
-    const { docId } = req.params;
-    const deleted = await deleteDocumentById({ businessId, docId });
+    const rawIdentifier = req.params.docIdentifier || req.params.docId;
+    if (!rawIdentifier || !String(rawIdentifier).trim()) {
+      throw new AppError('Document identifier (ID or filename) is required.', 400);
+    }
+    const docIdentifier = decodeURIComponent(String(rawIdentifier).trim());
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let targetDocId = docIdentifier;
+    let targetFilename = docIdentifier;
+
+    if (!UUID_RE.test(docIdentifier)) {
+      try {
+        const found = await query(
+          `SELECT doc_id, filename FROM workspace_documents WHERE workspace_id = $1 AND LOWER(filename) = LOWER($2) LIMIT 1;`,
+          [businessId, docIdentifier]
+        );
+        if (found?.rows?.length > 0) {
+          targetDocId = found.rows[0].doc_id;
+          targetFilename = found.rows[0].filename;
+        }
+      } catch (err) {
+        console.warn('[deleteDocument] Error finding doc by filename in PostgreSQL:', err.message);
+      }
+    }
+
+    const deleted = await deleteDocumentById({ businessId, docId: targetDocId });
     return res.status(200).json({
       status: 'success',
-      message: `Removed document "${deleted.filename || deleted.doc_id}" and ${deleted.deleted_chunks} chunk(s).`,
+      message: `Removed document "${deleted.filename || targetFilename || deleted.doc_id}" and ${deleted.deleted_chunks} chunk(s).`,
       business_id: businessId,
-      doc_id: deleted.doc_id,
-      filename: deleted.filename,
+      doc_id: deleted.doc_id || targetDocId,
+      filename: deleted.filename || targetFilename,
       deleted_chunks: deleted.deleted_chunks,
     });
   } catch (err) {
@@ -437,6 +622,7 @@ async function clearDocuments(req, res, next) {
 module.exports = {
   uploadDocuments,
   getDocuments,
+  getDocumentChunks,
   deleteDocument,
   clearDocuments,
   seedDemoWorkspace,
