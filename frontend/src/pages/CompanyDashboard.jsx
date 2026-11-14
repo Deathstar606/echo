@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  Download,
+  MessageSquare,
   BarChart3,
   Plus,
   History,
@@ -775,7 +775,7 @@ export default function CompanyDashboard() {
               />
             )}
             <span className="workspace-tab-label">
-              <Download
+              <MessageSquare
                 size={15}
                 color={activeTab === 'inquiry' ? 'var(--primary-indigo)' : 'var(--text-secondary)'}
               />
@@ -808,7 +808,7 @@ export default function CompanyDashboard() {
                 size={15}
                 color={activeTab === 'sheets' ? '#16a34a' : 'var(--text-secondary)'}
               />
-              <span>Operations &amp; Sheet Management</span>
+              <span>Operations Management</span>
             </span>
           </button>
         </div>

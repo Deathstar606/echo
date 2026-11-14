@@ -1287,6 +1287,11 @@ export default function SheetManagementPanel(): React.ReactElement {
     '';
   const aiResponseCitations = b2bWorkflow.conversationalData?.citations || [];
 
+  const handleShowAllRows = () => {
+    dispatch(clearSheetFiltersAndFeedback());
+    b2bWorkflow.handleClearConversationalData();
+  };
+
   return (
     <motion.div
       className="sheet-management-workspace"
@@ -1352,33 +1357,6 @@ export default function SheetManagementPanel(): React.ReactElement {
         style={{ padding: 0, overflow: 'hidden', gap: 0, borderRadius: '14px' }}
       >
         <div className="sheet-card-body">
-          {/* Show All Rows banner when filter is active */}
-          {isQueryFilterActive && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'flex-end',
-              }}
-            >
-              <button
-                type="button"
-                className="btn-warm-outlined"
-                style={{
-                  fontSize: '12px',
-                  padding: '4px 10px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-                onClick={() => dispatch(clearSheetFiltersAndFeedback())}
-              >
-                <RotateCcw size={13} />
-                Show All Rows ({activeRows.length})
-              </button>
-            </div>
-          )}
-
           {/* Status & Feedback Banners */}
           {sheetLoadError && (
             <div className="alert-banner error">
@@ -1778,16 +1756,17 @@ export default function SheetManagementPanel(): React.ReactElement {
                   type="button"
                   className="btn-warm-outlined"
                   style={{
-                    fontSize: '11px',
-                    padding: '2px 8px',
+                    fontSize: '11.5px',
+                    padding: '3px 9px',
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: '4px',
+                    gap: '5px',
                   }}
-                  onClick={() => dispatch(clearSheetFiltersAndFeedback())}
+                  onClick={handleShowAllRows}
+                  title="Show all records without query filter"
                 >
-                  <RotateCcw size={11} />
-                  Show All Rows
+                  <RotateCcw size={12} />
+                  Show All Rows ({activeRows.length})
                 </button>
               )}
             </div>
@@ -1873,7 +1852,7 @@ export default function SheetManagementPanel(): React.ReactElement {
                         alignItems: 'center',
                         gap: '6px',
                       }}
-                      onClick={() => dispatch(clearSheetFiltersAndFeedback())}
+                      onClick={handleShowAllRows}
                     >
                       <RotateCcw size={13} />
                       Show All Records ({activeRows.length})

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -59,6 +59,48 @@ export default function TopHeader() {
   const [googleLinkedNotice, setGoogleLinkedNotice] = useState(null);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [copiedId, setCopiedId] = useState(false);
+
+  const wsDropdownRef = useRef(null);
+  const userDropdownRef = useRef(null);
+
+  // Close workspace or user dropdown when clicking outside anywhere on the webpage or pressing Escape
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (
+        showWsDropdown &&
+        wsDropdownRef.current &&
+        !wsDropdownRef.current.contains(event.target)
+      ) {
+        setShowWsDropdown(false);
+      }
+      if (
+        showUserDropdown &&
+        userDropdownRef.current &&
+        !userDropdownRef.current.contains(event.target)
+      ) {
+        setShowUserDropdown(false);
+      }
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setShowWsDropdown(false);
+        setShowUserDropdown(false);
+      }
+    }
+
+    if (showWsDropdown || showUserDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleClickOutside);
+      window.addEventListener('keydown', handleKeyDown);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showWsDropdown, showUserDropdown]);
 
   // Listen to global authChanged / workspaceChanged / openCreateWorkspaceModal events
   useEffect(() => {
@@ -387,7 +429,7 @@ export default function TopHeader() {
             <>
               <span className="header-divider" aria-hidden="true">/</span>
 
-              <div style={{ position: 'relative' }}>
+              <div ref={wsDropdownRef} style={{ position: 'relative' }}>
                 <button
                   type="button"
                   onClick={() => {
@@ -420,27 +462,41 @@ export default function TopHeader() {
                   >
                     {currentWsName || 'No Workspace Selected'}
                   </span>
-                  <ChevronDown size={14} color="var(--text-muted)" />
+                  <ChevronDown
+                    size={14}
+                    color="var(--text-muted)"
+                    style={{
+                      transform: showWsDropdown ? 'rotate(180deg)' : 'rotate(0deg)',
+                      transition: 'transform 0.18s ease',
+                    }}
+                  />
                 </button>
 
-                {showWsDropdown && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: 'calc(100% + 6px)',
-                      left: 0,
-                      backgroundColor: '#ffffff',
-                      border: '1px solid var(--border-warm)',
-                      borderRadius: '12px',
-                      boxShadow: '0 12px 30px rgba(0,0,0,0.12)',
-                      minWidth: '280px',
-                      maxWidth: '340px',
-                      zIndex: 100,
-                      padding: '8px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '4px',
-                    }}
+                <AnimatePresence>
+                  {showWsDropdown && (
+                    <motion.div
+                      key="workspace-dropdown-menu"
+                      initial={{ opacity: 0, scale: 0.95, y: -6 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                      style={{
+                        position: 'absolute',
+                        top: 'calc(100% + 6px)',
+                        left: 0,
+                        transformOrigin: 'top left',
+                        backgroundColor: '#ffffff',
+                        border: '1px solid var(--border-warm)',
+                        borderRadius: '12px',
+                        boxShadow: '0 14px 34px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.04)',
+                        minWidth: '280px',
+                        maxWidth: '340px',
+                        zIndex: 100,
+                        padding: '8px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '4px',
+                      }}
                   >
                     <div
                       style={{
@@ -606,9 +662,10 @@ export default function TopHeader() {
                       <Plus size={14} />
                       Create New Workspace
                     </button>
-                  </div>
+                  </motion.div>
                 )}
-              </div>
+              </AnimatePresence>
+            </div>
             </>
           )}
         </div>
@@ -635,7 +692,7 @@ export default function TopHeader() {
           </div>
 
           {effectiveUser ? (
-            <div style={{ position: 'relative' }}>
+            <div ref={userDropdownRef} style={{ position: 'relative' }}>
               <button
                 type="button"
                 onClick={() => {
@@ -718,19 +775,33 @@ export default function TopHeader() {
                     {googleAuth.connected ? 'Google Connected' : 'Email Signed In'}
                   </span>
                 </div>
-                <ChevronDown size={13} color="var(--text-muted)" />
+                <ChevronDown
+                  size={13}
+                  color="var(--text-muted)"
+                  style={{
+                    transform: showUserDropdown ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.18s ease',
+                  }}
+                />
               </button>
 
-              {showUserDropdown && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 'calc(100% + 6px)',
-                    right: 0,
-                    backgroundColor: '#ffffff',
-                    border: '1px solid var(--border-warm)',
-                    borderRadius: '12px',
-                    boxShadow: '0 12px 30px rgba(0,0,0,0.12)',
+              <AnimatePresence>
+                {showUserDropdown && (
+                  <motion.div
+                    key="user-dropdown-menu"
+                    initial={{ opacity: 0, scale: 0.95, y: -6 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                    transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                    style={{
+                      position: 'absolute',
+                      top: 'calc(100% + 6px)',
+                      right: 0,
+                      transformOrigin: 'top right',
+                      backgroundColor: '#ffffff',
+                      border: '1px solid var(--border-warm)',
+                      borderRadius: '12px',
+                      boxShadow: '0 14px 34px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.04)',
                     padding: '12px',
                     minWidth: '250px',
                     zIndex: 100,
@@ -825,9 +896,10 @@ export default function TopHeader() {
                     <LogOut size={13} />
                     Sign Out
                   </button>
-                </div>
+                </motion.div>
               )}
-            </div>
+            </AnimatePresence>
+          </div>
           ) : null}
         </div>
       </header>

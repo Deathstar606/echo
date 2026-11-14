@@ -479,6 +479,14 @@ export function useB2BOperationsWorkflow({
     setWorkflowError(null);
   };
 
+  // Clears active AI conversational summary (e.g. when showing all rows / resetting query filter)
+  const handleClearConversationalData = () => {
+    setConversationalData(null);
+    if (workflowStatus === 'conversational') {
+      setWorkflowStatus('idle');
+    }
+  };
+
   // Reset workflow back to idle
   const handleResetWorkflow = () => {
     setWorkflowStatus('idle');
@@ -513,5 +521,6 @@ export function useB2BOperationsWorkflow({
     handleBackToClarification,
     handleDismissError,
     handleResetWorkflow,
+    handleClearConversationalData,
   };
 }
