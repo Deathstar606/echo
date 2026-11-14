@@ -1,8 +1,11 @@
 const crypto = require('node:crypto');
 const { query } = require('../../db');
 const AppError = require('../utils/AppError');
-const { DEMO_USER_ID } = require('../services/authService');
-const { updateWorkspaceName } = require('../services/authService');
+const {
+  DEMO_USER_ID,
+  updateWorkspaceName,
+  hasWorkspaceAccess,
+} = require('../services/authService');
 
 /**
  * Fetches a workspace (business) by UUID or throws a 404 AppError if not found.
@@ -30,10 +33,13 @@ async function findBusinessOrThrow(workspaceId, requestUserId = null) {
     workspace.user_id &&
     workspace.user_id !== String(requestUserId).trim()
   ) {
-    throw new AppError(
-      'Access denied: you do not have permission to access this workspace.',
-      403
-    );
+    const allowed = await hasWorkspaceAccess(workspaceId, requestUserId);
+    if (!allowed) {
+      throw new AppError(
+        'Access denied: you do not have permission to access this workspace.',
+        403
+      );
+    }
   }
 
   return workspace;

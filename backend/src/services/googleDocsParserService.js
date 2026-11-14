@@ -142,13 +142,15 @@ function mapGoogleDocsError(err, documentId) {
  * @param {string} [businessId]
  * @returns {Promise<{ title: string, documentId: string, pages: Array<{ page_number: number, text: string }> }>}
  */
-async function parseGoogleDoc(rawDocumentId, businessId) {
+async function parseGoogleDoc(rawDocumentId, businessId, requestUserId = '') {
   const documentId = extractGoogleDocId(rawDocumentId);
   if (!documentId) {
     throw new AppError('A valid Google Doc ID or URL is required.', 400);
   }
 
-  const auth = await getAuthenticatedClient(businessId);
+  const auth = await getAuthenticatedClient(
+    String(requestUserId || '').trim() || businessId
+  );
   const docs = google.docs({ version: 'v1', auth });
 
   let docRes;
@@ -247,12 +249,12 @@ async function parseGoogleDoc(rawDocumentId, businessId) {
  * @param {string} documentId
  * @returns {Promise<object>}
  */
-async function importGoogleDocToRAG(businessId, documentId) {
+async function importGoogleDocToRAG(businessId, documentId, requestUserId = '') {
   if (!businessId) {
     throw new AppError('businessId is required to import a document.', 400);
   }
 
-  const { title, pages } = await parseGoogleDoc(documentId, businessId);
+  const { title, pages } = await parseGoogleDoc(documentId, businessId, requestUserId);
 
   const cleanFilename = title.endsWith('.gdoc')
     ? title

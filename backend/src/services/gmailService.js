@@ -68,8 +68,9 @@ function extractBodyParts(payload) {
  * @returns {Promise<Array<object>>}
  */
 async function fetchPrimaryInboxMessages(businessId, options = {}) {
-  await assertGoogleServiceAllowed(businessId, options.requestUserId || '');
-  const auth = await getAuthenticatedClient(businessId);
+  const reqUserId = String(options.requestUserId || '').trim();
+  await assertGoogleServiceAllowed(businessId, reqUserId);
+  const auth = await getAuthenticatedClient(reqUserId || businessId);
   const gmail = google.gmail({ version: 'v1', auth });
   const maxResults = Math.min(options.maxResults || 20, 50);
 
@@ -144,14 +145,15 @@ async function fetchPrimaryInboxMessages(businessId, options = {}) {
  */
 async function sendGmailThreadReply(businessId, replyData) {
   const { threadId, to, subject, inReplyTo, references, bodyText, requestUserId = '' } = replyData;
+  const reqUserId = String(requestUserId || '').trim();
 
-  await assertGoogleServiceAllowed(businessId, requestUserId);
+  await assertGoogleServiceAllowed(businessId, reqUserId);
 
   if (!to || !bodyText) {
     throw new AppError('Recipient "to" and message "bodyText" are required.', 400);
   }
 
-  const auth = await getAuthenticatedClient(businessId);
+  const auth = await getAuthenticatedClient(reqUserId || businessId);
   const gmail = google.gmail({ version: 'v1', auth });
 
   const cleanSubject = /^re:\s*/i.test(subject || '')

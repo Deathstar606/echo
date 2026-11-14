@@ -14,6 +14,9 @@ import {
   ChevronDown,
   Link2,
   Pencil,
+  Share2,
+  Users,
+  Trash2,
 } from 'lucide-react';
 import {
   checkBackendHealth,
@@ -22,6 +25,9 @@ import {
   getUserWorkspacesApi,
   createWorkspaceApi,
   renameWorkspaceApi,
+  getWorkspaceSharesApi,
+  shareWorkspaceApi,
+  revokeWorkspaceShareApi,
 } from '../services/api';
 import {
   getActiveWorkspaceId,
@@ -54,6 +60,17 @@ export default function TopHeader() {
   const [renameWsInput, setRenameWsInput] = useState('');
   const [isRenamingWs, setIsRenamingWs] = useState(false);
   const [renameWsError, setRenameWsError] = useState(null);
+
+  const [showShareWsModal, setShowShareWsModal] = useState(false);
+  const [shareWsTarget, setShareWsTarget] = useState(null);
+  const [shareIdentifier, setShareIdentifier] = useState('');
+  const [shareRole, setShareRole] = useState('editor');
+  const [shareMembers, setShareMembers] = useState({ owner: null, shares: [] });
+  const [isLoadingShares, setIsLoadingShares] = useState(false);
+  const [isSubmittingShare, setIsSubmittingShare] = useState(false);
+  const [revokingUserId, setRevokingUserId] = useState(null);
+  const [shareWsError, setShareWsError] = useState(null);
+  const [shareWsSuccess, setShareWsSuccess] = useState(null);
 
   const [googleAuth, setGoogleAuth] = useState({ connected: false, user: null, loading: true });
   const [googleAuthErrorBanner, setGoogleAuthErrorBanner] = useState(null);
@@ -357,6 +374,84 @@ export default function TopHeader() {
     }
   };
 
+  const loadWorkspaceShares = async (workspaceId) => {
+    setIsLoadingShares(true);
+    try {
+      const res = await getWorkspaceSharesApi(workspaceId);
+      setShareMembers({
+        owner: res.owner || null,
+        shares: Array.isArray(res.shares) ? res.shares : [],
+      });
+    } catch (err) {
+      setShareWsError(err?.message || 'Failed to load workspace collaborators.');
+    } finally {
+      setIsLoadingShares(false);
+    }
+  };
+
+  const handleOpenShareModal = (ws) => {
+    setShareWsTarget(ws);
+    setShareIdentifier('');
+    setShareRole('editor');
+    setShareWsError(null);
+    setShareWsSuccess(null);
+    setShareMembers({ owner: null, shares: [] });
+    setShowWsDropdown(false);
+    setShowShareWsModal(true);
+    if (ws?.id) {
+      loadWorkspaceShares(ws.id);
+    }
+  };
+
+  const handleShareWorkspace = async (e) => {
+    e.preventDefault();
+    const raw = shareIdentifier.trim();
+    if (!shareWsTarget?.id || !raw) return;
+
+    setIsSubmittingShare(true);
+    setShareWsError(null);
+    setShareWsSuccess(null);
+
+    try {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw);
+      const payload = isUuid
+        ? { userId: raw, role: shareRole }
+        : { email: raw, role: shareRole };
+
+      const added = await shareWorkspaceApi(shareWsTarget.id, payload);
+      setShareIdentifier('');
+      setShareWsSuccess(
+        `Shared with ${added?.email || added?.name || added?.user_id || raw} as ${added?.role || shareRole}.`
+      );
+      await loadWorkspaceShares(shareWsTarget.id);
+    } catch (err) {
+      setShareWsError(err?.message || 'Failed to share workspace.');
+    } finally {
+      setIsSubmittingShare(false);
+    }
+  };
+
+  const handleRevokeShare = async (targetUser) => {
+    if (!shareWsTarget?.id || !targetUser?.user_id) return;
+    setRevokingUserId(targetUser.user_id);
+    setShareWsError(null);
+    setShareWsSuccess(null);
+    try {
+      await revokeWorkspaceShareApi(shareWsTarget.id, targetUser.user_id);
+      setShareMembers((prev) => ({
+        ...prev,
+        shares: prev.shares.filter((m) => m.user_id !== targetUser.user_id),
+      }));
+      setShareWsSuccess(
+        `Removed access for ${targetUser.email || targetUser.name || targetUser.user_id}.`
+      );
+    } catch (err) {
+      setShareWsError(err?.message || 'Failed to revoke workspace access.');
+    } finally {
+      setRevokingUserId(null);
+    }
+  };
+
   const handleGoogleSignInOrLink = async (linkMode = false) => {
     try {
       const url = linkMode && currentUser?.id
@@ -578,18 +673,37 @@ export default function TopHeader() {
                                   overflow: 'hidden',
                                 }}
                               >
-                                <span
-                                  style={{
-                                    fontSize: '12.5px',
-                                    fontWeight: ws.id === currentWsId ? 700 : 500,
-                                    color: 'var(--text-primary)',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap',
-                                  }}
-                                >
-                                  {ws.name}
-                                </span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                                  <span
+                                    style={{
+                                      fontSize: '12.5px',
+                                      fontWeight: ws.id === currentWsId ? 700 : 500,
+                                      color: 'var(--text-primary)',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    {ws.name}
+                                  </span>
+                                  {ws.is_shared && (
+                                    <span
+                                      title={`Shared by ${ws.owner_name || ws.owner_email || 'owner'} (${ws.share_role || 'editor'})`}
+                                      style={{
+                                        fontSize: '10px',
+                                        fontWeight: 600,
+                                        padding: '1px 6px',
+                                        borderRadius: '999px',
+                                        backgroundColor: '#eef2ff',
+                                        color: 'var(--primary-indigo)',
+                                        border: '1px solid #c7d2fe',
+                                        flexShrink: 0,
+                                      }}
+                                    >
+                                      Shared
+                                    </span>
+                                  )}
+                                </div>
                                 <code style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
                                   {ws.id.slice(0, 18)}...
                                 </code>
@@ -597,6 +711,37 @@ export default function TopHeader() {
                               {ws.id === currentWsId && (
                                 <Check size={14} color="var(--primary-indigo)" style={{ flexShrink: 0 }} />
                               )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenShareModal(ws);
+                              }}
+                              title={`Share workspace "${ws.name}"`}
+                              aria-label={`Share workspace ${ws.name}`}
+                              style={{
+                                padding: '5px',
+                                borderRadius: '6px',
+                                color: 'var(--text-muted)',
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.color = 'var(--primary-indigo)';
+                                e.currentTarget.style.backgroundColor = '#e0e7ff';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.color = 'var(--text-muted)';
+                                e.currentTarget.style.backgroundColor = 'transparent';
+                              }}
+                            >
+                              <Share2 size={12.5} />
                             </button>
                             <button
                               type="button"
@@ -1236,6 +1381,302 @@ export default function TopHeader() {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Share Workspace Modal */}
+      <AnimatePresence>
+        {showShareWsModal && shareWsTarget && (
+          <motion.div
+            className="modal-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => {
+              if (!isSubmittingShare && !revokingUserId) {
+                setShowShareWsModal(false);
+                setShareWsTarget(null);
+              }
+            }}
+          >
+            <motion.div
+              className="modal-card liquid-glass-modal"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              onClick={(e) => e.stopPropagation()}
+              style={{ maxWidth: '520px', gap: '14px', borderRadius: '16px' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                  <div
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: '10px',
+                      backgroundColor: 'var(--accent-lavender-bg)',
+                      color: 'var(--primary-indigo)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Users size={16} />
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <h3
+                      style={{
+                        fontSize: '16px',
+                        fontWeight: 700,
+                        margin: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      Share “{shareWsTarget.name}”
+                    </h3>
+                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
+                      Collaborators get full access to this workspace&apos;s documents, tables, and history
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="icon-action-btn"
+                  disabled={isSubmittingShare || Boolean(revokingUserId)}
+                  onClick={() => {
+                    setShowShareWsModal(false);
+                    setShareWsTarget(null);
+                  }}
+                  aria-label="Close share dialog"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {shareWsError && (
+                <div className="alert-banner error" style={{ fontSize: '12px' }}>
+                  <AlertCircle size={14} style={{ flexShrink: 0 }} />
+                  <span>{shareWsError}</span>
+                </div>
+              )}
+
+              {shareWsSuccess && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 12px',
+                    borderRadius: '10px',
+                    backgroundColor: '#ecfdf5',
+                    border: '1px solid #a7f3d0',
+                    color: '#065f46',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                  }}
+                >
+                  <Check size={14} style={{ flexShrink: 0 }} />
+                  <span>{shareWsSuccess}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleShareWorkspace} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <label className="form-label" htmlFor="share-ws-identifier" style={{ marginBottom: 0 }}>
+                  Invite User by Email or User ID
+                </label>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input
+                    id="share-ws-identifier"
+                    type="text"
+                    className="form-input"
+                    value={shareIdentifier}
+                    onChange={(e) => setShareIdentifier(e.target.value)}
+                    placeholder="colleague@company.com or user UUID"
+                    disabled={isSubmittingShare}
+                    style={{ flex: 1, minWidth: 0 }}
+                    required
+                    autoFocus
+                  />
+                  <select
+                    aria-label="Collaborator role"
+                    className="form-input"
+                    value={shareRole}
+                    onChange={(e) => setShareRole(e.target.value)}
+                    disabled={isSubmittingShare}
+                    style={{ width: '104px', flexShrink: 0 }}
+                  >
+                    <option value="editor">Editor</option>
+                    <option value="viewer">Viewer</option>
+                  </select>
+                  <button
+                    type="submit"
+                    className="btn-primary-indigo"
+                    disabled={isSubmittingShare || !shareIdentifier.trim()}
+                    style={{ fontSize: '12.5px', padding: '8px 14px', flexShrink: 0 }}
+                  >
+                    {isSubmittingShare ? (
+                      <>
+                        <Loader2 size={14} className="spin" />
+                        Sharing...
+                      </>
+                    ) : (
+                      'Share'
+                    )}
+                  </button>
+                </div>
+              </form>
+
+              <div
+                style={{
+                  borderTop: '1px solid var(--border-warm)',
+                  paddingTop: '12px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                }}
+              >
+                <div style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  People With Access
+                </div>
+
+                {isLoadingShares ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px', color: 'var(--text-muted)', padding: '8px 0' }}>
+                    <Loader2 size={14} className="spin" />
+                    <span>Loading collaborators...</span>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '220px', overflowY: 'auto' }}>
+                    {shareMembers.owner && (
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '10px',
+                          padding: '8px 10px',
+                          borderRadius: '10px',
+                          backgroundColor: '#fafaf9',
+                          border: '1px solid var(--border-warm)',
+                        }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {shareMembers.owner.name || shareMembers.owner.email || shareMembers.owner.user_id}
+                          </div>
+                          {shareMembers.owner.email && (
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {shareMembers.owner.email}
+                            </div>
+                          )}
+                        </div>
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            padding: '2px 8px',
+                            borderRadius: '999px',
+                            backgroundColor: '#f3f4f6',
+                            color: '#4b5563',
+                            flexShrink: 0,
+                          }}
+                        >
+                          Owner
+                        </span>
+                      </div>
+                    )}
+
+                    {shareMembers.shares.length === 0 ? (
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '6px 2px' }}>
+                        Not shared with anyone else yet.
+                      </div>
+                    ) : (
+                      shareMembers.shares.map((member) => (
+                        <div
+                          key={member.user_id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '10px',
+                            padding: '8px 10px',
+                            borderRadius: '10px',
+                            backgroundColor: '#ffffff',
+                            border: '1px solid var(--border-warm)',
+                          }}
+                        >
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {member.name || member.email || member.user_id}
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {member.email || member.user_id}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                padding: '2px 8px',
+                                borderRadius: '999px',
+                                backgroundColor: '#eef2ff',
+                                color: 'var(--primary-indigo)',
+                                textTransform: 'capitalize',
+                              }}
+                            >
+                              {member.role || 'editor'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleRevokeShare(member)}
+                              disabled={revokingUserId === member.user_id}
+                              title="Remove access"
+                              aria-label={`Remove access for ${member.email || member.name || member.user_id}`}
+                              style={{
+                                padding: '5px',
+                                borderRadius: '6px',
+                                color: '#dc2626',
+                                backgroundColor: '#fef2f2',
+                                border: '1px solid #fecaca',
+                                cursor: revokingUserId === member.user_id ? 'wait' : 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              {revokingUserId === member.user_id ? (
+                                <Loader2 size={13} className="spin" />
+                              ) : (
+                                <Trash2 size={13} />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  className="btn-warm-outlined"
+                  disabled={isSubmittingShare || Boolean(revokingUserId)}
+                  onClick={() => {
+                    setShowShareWsModal(false);
+                    setShareWsTarget(null);
+                  }}
+                  style={{ fontSize: '12.5px', padding: '6px 14px' }}
+                >
+                  Done
+                </button>
+              </div>
             </motion.div>
           </motion.div>
         )}

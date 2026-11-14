@@ -12,6 +12,276 @@ const DEMO_USER_NAME = 'MaxiText Demo Account';
  * @param {{ workspaceId: string, name: string, userId?: string | null }} param0
  * @returns {Promise<object>}
  */
+/**
+ * Checks whether a user owns or has shared access to a workspace.
+ * Falls back cleanly if workspace_shares does not exist in older schemas/mocks.
+ *
+ * @param {string} workspaceId
+ * @param {string} userId
+ * @returns {Promise<boolean>}
+ */
+async function hasWorkspaceAccess(workspaceId, userId) {
+  const cleanWsId = String(workspaceId || '').trim();
+  const cleanUserId = String(userId || '').trim();
+  if (!cleanWsId || !cleanUserId) return false;
+
+  const ownerRes = await query(
+    'SELECT user_id FROM workspaces WHERE id = $1 LIMIT 1;',
+    [cleanWsId]
+  );
+  if (ownerRes.rowCount === 0) return false;
+  if (!ownerRes.rows[0].user_id || ownerRes.rows[0].user_id === cleanUserId) {
+    return true;
+  }
+
+  try {
+    const shareRes = await query(
+      'SELECT 1 FROM workspace_shares WHERE workspace_id = $1 AND user_id = $2 LIMIT 1;',
+      [cleanWsId, cleanUserId]
+    );
+    return shareRes.rowCount > 0;
+  } catch {
+    return false;
+  }
+}
+
+let ensureSharesPromise = null;
+async function ensureWorkspaceSharesTable() {
+  if (!ensureSharesPromise) {
+    ensureSharesPromise = query(`
+      CREATE TABLE IF NOT EXISTS workspace_shares (
+        workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role VARCHAR(32) NOT NULL DEFAULT 'editor',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (workspace_id, user_id)
+      );
+    `).catch(() => {
+      ensureSharesPromise = null;
+    });
+  }
+  await ensureSharesPromise;
+}
+
+const VALID_SHARE_ROLES = new Set(['viewer', 'editor', 'owner']);
+
+/**
+ * Grants a user shared access to an existing workspace (along with its files and tables).
+ * Accepts either target `userId` (UUID) or `email`.
+ *
+ * @param {{ workspaceId: string, userId?: string, email?: string, role?: string, requesterUserId?: string | null }} param0
+ * @returns {Promise<{ workspace_id: string, user_id: string, name: string, email: string, role: string, created_at: string }>}
+ */
+async function shareWorkspaceWithUser({
+  workspaceId,
+  userId = '',
+  email = '',
+  role = 'editor',
+  requesterUserId = null,
+}) {
+  const cleanWsId = String(workspaceId || '').trim();
+  const cleanUserId = String(userId || '').trim();
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  const cleanRole = VALID_SHARE_ROLES.has(String(role || '').trim().toLowerCase())
+    ? String(role).trim().toLowerCase()
+    : 'editor';
+
+  if (!cleanWsId) {
+    throw new AppError('A valid workspaceId is required.', 400);
+  }
+  if (!cleanUserId && !cleanEmail) {
+    throw new AppError('Please provide a user email or userId to share with.', 400);
+  }
+
+  await ensureWorkspaceSharesTable();
+
+  const wsCheck = await query(
+    'SELECT id, user_id, name, created_at FROM workspaces WHERE id = $1 LIMIT 1;',
+    [cleanWsId]
+  );
+  if (wsCheck.rowCount === 0) {
+    throw new AppError(`Workspace with ID "${cleanWsId}" was not found.`, 404);
+  }
+  const workspace = wsCheck.rows[0];
+
+  if (requesterUserId) {
+    const allowed = await hasWorkspaceAccess(cleanWsId, requesterUserId);
+    if (!allowed) {
+      throw new AppError(
+        'Access denied: you do not have permission to share this workspace.',
+        403
+      );
+    }
+  }
+
+  // Look up target user by UUID (if userId looks like a UUID or was provided) or email
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  let userCheck;
+  if (cleanUserId && UUID_RE.test(cleanUserId)) {
+    userCheck = await query(
+      'SELECT id, name, email FROM users WHERE id = $1 LIMIT 1;',
+      [cleanUserId]
+    );
+  } else {
+    const emailLookup = cleanEmail || cleanUserId.toLowerCase();
+    userCheck = await query(
+      'SELECT id, name, email FROM users WHERE LOWER(email) = $1 LIMIT 1;',
+      [emailLookup]
+    );
+  }
+
+  if (!userCheck || userCheck.rowCount === 0) {
+    const label = cleanEmail || cleanUserId;
+    throw new AppError(
+      `No registered MaxiText account found for "${label}". The user must sign in or register first.`,
+      404
+    );
+  }
+
+  const targetUser = userCheck.rows[0];
+  if (
+    targetUser.id === DEMO_USER_ID ||
+    String(targetUser.email || '').toLowerCase() === DEMO_USER_EMAIL.toLowerCase()
+  ) {
+    throw new AppError(
+      'Cannot share a private workspace with the public Demo Account.',
+      400
+    );
+  }
+
+  if (workspace.user_id && workspace.user_id === targetUser.id) {
+    return {
+      workspace_id: cleanWsId,
+      user_id: targetUser.id,
+      name: targetUser.name,
+      email: targetUser.email,
+      role: 'owner',
+      created_at: workspace.created_at,
+    };
+  }
+
+  const shareRes = await query(
+    `INSERT INTO workspace_shares (workspace_id, user_id, role, created_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (workspace_id, user_id) DO UPDATE SET role = EXCLUDED.role
+     RETURNING workspace_id, user_id, role, created_at;`,
+    [cleanWsId, targetUser.id, cleanRole]
+  );
+
+  return {
+    ...shareRes.rows[0],
+    name: targetUser.name,
+    email: targetUser.email,
+  };
+}
+
+/**
+ * Lists the workspace owner and all users with shared access to a workspace.
+ *
+ * @param {string} workspaceId
+ * @param {string | null} [requesterUserId]
+ * @returns {Promise<{ owner: object | null, shares: Array<object> }>}
+ */
+async function getWorkspaceShares(workspaceId, requesterUserId = null) {
+  const cleanWsId = String(workspaceId || '').trim();
+  if (!cleanWsId) {
+    throw new AppError('A valid workspaceId is required.', 400);
+  }
+
+  await ensureWorkspaceSharesTable();
+
+  const wsRes = await query(
+    `SELECT w.id, w.name, w.user_id, w.created_at, u.name AS owner_name, u.email AS owner_email
+     FROM workspaces w
+     LEFT JOIN users u ON u.id = w.user_id
+     WHERE w.id = $1
+     LIMIT 1;`,
+    [cleanWsId]
+  );
+  if (wsRes.rowCount === 0) {
+    throw new AppError(`Workspace with ID "${cleanWsId}" was not found.`, 404);
+  }
+
+  if (requesterUserId) {
+    const allowed = await hasWorkspaceAccess(cleanWsId, requesterUserId);
+    if (!allowed) {
+      throw new AppError(
+        'Access denied: you do not have permission to view members of this workspace.',
+        403
+      );
+    }
+  }
+
+  const wsRow = wsRes.rows[0];
+  const owner = wsRow.user_id
+    ? {
+        user_id: wsRow.user_id,
+        name: wsRow.owner_name || 'Workspace Owner',
+        email: wsRow.owner_email || '',
+        role: 'owner',
+        created_at: wsRow.created_at,
+      }
+    : null;
+
+  const sharesRes = await query(
+    `SELECT ws.workspace_id, ws.user_id, u.name, u.email, ws.role, ws.created_at
+     FROM workspace_shares ws
+     JOIN users u ON u.id = ws.user_id
+     WHERE ws.workspace_id = $1
+       AND ($2::uuid IS NULL OR ws.user_id <> $2::uuid)
+     ORDER BY ws.created_at ASC;`,
+    [cleanWsId, wsRow.user_id || null]
+  );
+
+  return {
+    owner,
+    shares: sharesRes.rows || [],
+  };
+}
+
+/**
+ * Revokes a user's shared access to a workspace.
+ *
+ * @param {{ workspaceId: string, targetUserId: string, requesterUserId?: string | null }} param0
+ */
+async function revokeWorkspaceShare({ workspaceId, targetUserId, requesterUserId = null }) {
+  const cleanWsId = String(workspaceId || '').trim();
+  const cleanTargetId = String(targetUserId || '').trim();
+  if (!cleanWsId || !cleanTargetId) {
+    throw new AppError('workspaceId and targetUserId are required.', 400);
+  }
+
+  await ensureWorkspaceSharesTable();
+
+  const wsRes = await query(
+    'SELECT id, user_id FROM workspaces WHERE id = $1 LIMIT 1;',
+    [cleanWsId]
+  );
+  if (wsRes.rowCount === 0) {
+    throw new AppError(`Workspace with ID "${cleanWsId}" was not found.`, 404);
+  }
+  if (wsRes.rows[0].user_id === cleanTargetId) {
+    throw new AppError('Cannot remove the original owner of the workspace.', 400);
+  }
+
+  if (requesterUserId) {
+    const allowed = await hasWorkspaceAccess(cleanWsId, requesterUserId);
+    if (!allowed) {
+      throw new AppError(
+        'Access denied: you do not have permission to manage sharing for this workspace.',
+        403
+      );
+    }
+  }
+
+  await query(
+    'DELETE FROM workspace_shares WHERE workspace_id = $1 AND user_id = $2;',
+    [cleanWsId, cleanTargetId]
+  );
+
+  return { workspace_id: cleanWsId, user_id: cleanTargetId, removed: true };
+}
+
 async function updateWorkspaceName({ workspaceId, name, userId = null }) {
   const cleanWsId = String(workspaceId || '').trim();
   const trimmedName = String(name || '').trim();
@@ -36,7 +306,10 @@ async function updateWorkspaceName({ workspaceId, name, userId = null }) {
 
   const current = existingRes.rows[0];
   if (userId && current.user_id && current.user_id !== String(userId).trim()) {
-    throw new AppError('Access denied: you do not have permission to modify this workspace.', 403);
+    const allowed = await hasWorkspaceAccess(cleanWsId, userId);
+    if (!allowed) {
+      throw new AppError('Access denied: you do not have permission to modify this workspace.', 403);
+    }
   }
 
   const updateRes = await query(
@@ -104,11 +377,35 @@ async function getUserWorkspaces(userId) {
   if (!userId || typeof userId !== 'string' || !userId.trim()) {
     return [];
   }
-  const res = await query(
-    'SELECT id, user_id, name, created_at FROM workspaces WHERE user_id = $1 ORDER BY created_at ASC;',
-    [userId.trim()]
-  );
-  return res.rows || [];
+  const cleanUserId = userId.trim();
+  try {
+    const res = await query(
+      `SELECT DISTINCT
+         w.id,
+         w.user_id,
+         w.name,
+         w.created_at,
+         (w.user_id IS NOT NULL AND w.user_id <> $1) AS is_shared,
+         COALESCE(ws.role, CASE WHEN w.user_id = $1 THEN 'owner' ELSE 'editor' END) AS share_role,
+         u_owner.name AS owner_name,
+         u_owner.email AS owner_email
+       FROM workspaces w
+       LEFT JOIN workspace_shares ws
+         ON ws.workspace_id = w.id AND ws.user_id = $1
+       LEFT JOIN users u_owner
+         ON u_owner.id = w.user_id
+       WHERE w.user_id = $1 OR ws.user_id = $1
+       ORDER BY w.created_at ASC;`,
+      [cleanUserId]
+    );
+    return res.rows || [];
+  } catch {
+    const res = await query(
+      'SELECT id, user_id, name, created_at FROM workspaces WHERE user_id = $1 ORDER BY created_at ASC;',
+      [cleanUserId]
+    );
+    return res.rows || [];
+  }
 }
 
 /**
@@ -345,6 +642,10 @@ module.exports = {
   hashPassword,
   verifyPassword,
   getUserWorkspaces,
+  hasWorkspaceAccess,
+  shareWorkspaceWithUser,
+  getWorkspaceShares,
+  revokeWorkspaceShare,
   createWorkspaceForUser,
   updateWorkspaceName,
   loginUser,

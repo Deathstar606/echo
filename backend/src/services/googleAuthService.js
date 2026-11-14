@@ -328,24 +328,33 @@ async function getAuthStatus(identifier) {
  * @param {string} [requestUserId]
  */
 async function assertGoogleServiceAllowed(identifier, requestUserId = '') {
-  if (
-    isDemoIdentifierString(String(requestUserId || '')) ||
-    isDemoIdentifierString(String(identifier || ''))
-  ) {
+  const cleanRequester = String(requestUserId || '').trim();
+  const cleanIdentifier = String(identifier || '').trim();
+
+  if (isDemoIdentifierString(cleanRequester)) {
     throw new AppError(DEMO_RESTRICTION_MESSAGE, 403);
   }
 
-  const resolvedFromIdentifier = await resolveUserId(identifier);
+  if (cleanRequester) {
+    const resolvedFromRequester = await resolveUserId(cleanRequester);
+    if (resolvedFromRequester && isDemoIdentifierString(resolvedFromRequester)) {
+      throw new AppError(DEMO_RESTRICTION_MESSAGE, 403);
+    }
+    if (resolvedFromRequester) {
+      return;
+    }
+  }
+
+  if (isDemoIdentifierString(cleanIdentifier)) {
+    throw new AppError(DEMO_RESTRICTION_MESSAGE, 403);
+  }
+
+  const resolvedFromIdentifier = await resolveUserId(cleanIdentifier);
   if (resolvedFromIdentifier && isDemoIdentifierString(resolvedFromIdentifier)) {
     throw new AppError(DEMO_RESTRICTION_MESSAGE, 403);
   }
 
-  const resolvedFromRequester = await resolveUserId(requestUserId);
-  if (resolvedFromRequester && isDemoIdentifierString(resolvedFromRequester)) {
-    throw new AppError(DEMO_RESTRICTION_MESSAGE, 403);
-  }
-
-  if (!resolvedFromIdentifier && !resolvedFromRequester) {
+  if (!resolvedFromIdentifier) {
     throw new AppError(
       'To connect Gmail services, please sign in with a Google account.',
       401

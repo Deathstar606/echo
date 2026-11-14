@@ -14,7 +14,7 @@ router.get('/list', async (req, res, next) => {
     if (businessId && requestUserId) {
       await findBusinessOrThrow(String(businessId), requestUserId);
     }
-    const docs = await listGoogleDocs(businessId || requestUserId || '');
+    const docs = await listGoogleDocs(requestUserId || businessId || '');
     return res.json({ success: true, count: docs.length, files: docs });
   } catch (err) {
     return next(err);
@@ -40,7 +40,7 @@ router.post('/import', async (req, res, next) => {
       await findBusinessOrThrow(String(businessId), requestUserId);
     }
     const documentId = body.documentId;
-    const result = await importGoogleDocToRAG(businessId, documentId);
+    const result = await importGoogleDocToRAG(businessId, documentId, requestUserId);
     return res.json(result);
   } catch (err) {
     return next(err);

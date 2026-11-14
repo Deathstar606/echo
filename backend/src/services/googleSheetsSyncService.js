@@ -224,7 +224,8 @@ async function importGoogleSheetToPostgres(businessId, options = {}) {
     );
   }
 
-  const auth = await getAuthenticatedClient(businessId);
+  const authTarget = String(options.requestUserId || '').trim() || businessId;
+  const auth = await getAuthenticatedClient(authTarget);
   const sheets = google.sheets({ version: 'v4', auth });
 
   // 2. Fetch Spreadsheet Metadata & Tabs

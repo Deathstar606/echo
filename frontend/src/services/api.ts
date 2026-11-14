@@ -1133,6 +1133,25 @@ export interface WorkspaceItem {
   user_id?: string;
   name: string;
   created_at?: string;
+  is_shared?: boolean;
+  share_role?: 'viewer' | 'editor' | 'owner' | string | null;
+  owner_name?: string | null;
+  owner_email?: string | null;
+}
+
+export interface WorkspaceShareMember {
+  workspace_id?: string;
+  user_id: string;
+  name?: string | null;
+  email?: string | null;
+  role: 'owner' | 'editor' | 'viewer' | string;
+  created_at?: string;
+}
+
+export interface WorkspaceSharesResponse {
+  success: boolean;
+  owner: WorkspaceShareMember | null;
+  shares: WorkspaceShareMember[];
 }
 
 export async function demoLoginApi(): Promise<{
@@ -1223,6 +1242,40 @@ export async function getWorkspaceApi(workspaceId: string): Promise<WorkspaceIte
     `/api/workspaces/${encodeURIComponent(workspaceId)}${qs}`
   );
   return res.workspace;
+}
+
+export async function getWorkspaceSharesApi(
+  workspaceId: string
+): Promise<WorkspaceSharesResponse> {
+  return request<WorkspaceSharesResponse>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/shares`
+  );
+}
+
+export async function shareWorkspaceApi(
+  workspaceId: string,
+  payload: { email?: string; userId?: string; role?: 'editor' | 'viewer' }
+): Promise<WorkspaceShareMember> {
+  const res = await request<{ success: boolean; share: WorkspaceShareMember }>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/share`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
+  return res.share;
+}
+
+export async function revokeWorkspaceShareApi(
+  workspaceId: string,
+  targetUserId: string
+): Promise<{ success: boolean; workspace_id: string; user_id: string; removed: boolean }> {
+  return request<{ success: boolean; workspace_id: string; user_id: string; removed: boolean }>(
+    `/api/workspaces/${encodeURIComponent(workspaceId)}/shares/${encodeURIComponent(targetUserId)}`,
+    {
+      method: 'DELETE',
+    }
+  );
 }
 
 // ============================================================================

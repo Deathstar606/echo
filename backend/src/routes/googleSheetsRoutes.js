@@ -15,7 +15,7 @@ router.get('/list', async (req, res, next) => {
     if (businessId && requestUserId) {
       await findBusinessOrThrow(String(businessId), requestUserId);
     }
-    const spreadsheets = await listGoogleSpreadsheets(businessId || requestUserId || '');
+    const spreadsheets = await listGoogleSpreadsheets(requestUserId || businessId || '');
     return res.json({ success: true, count: spreadsheets.length, files: spreadsheets });
   } catch (err) {
     return next(err);
@@ -45,6 +45,7 @@ router.post('/import', async (req, res, next) => {
       spreadsheetId,
       sheetTabName,
       customEntityName,
+      requestUserId,
     });
     return res.json(result);
   } catch (err) {

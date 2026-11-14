@@ -2,6 +2,10 @@ const express = require('express');
 const { query } = require('../../db');
 const {
   getUserWorkspaces,
+  hasWorkspaceAccess,
+  shareWorkspaceWithUser,
+  getWorkspaceShares,
+  revokeWorkspaceShare,
   createWorkspaceForUser,
   updateWorkspaceName,
 } = require('../services/authService');
@@ -67,9 +71,86 @@ router.get('/:workspaceId', async (req, res, next) => {
       workspace.user_id &&
       workspace.user_id !== String(requestUserId).trim()
     ) {
-      throw new AppError('Access denied: you do not have permission to access this workspace.', 403);
+      const allowed = await hasWorkspaceAccess(workspaceId, requestUserId);
+      if (!allowed) {
+        throw new AppError('Access denied: you do not have permission to access this workspace.', 403);
+      }
     }
     return res.json({ success: true, workspace });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// GET /api/workspaces/:workspaceId/shares
+// Lists the workspace owner and shared collaborators
+router.get('/:workspaceId/shares', async (req, res, next) => {
+  try {
+    const { workspaceId } = req.params;
+    const requesterUserId =
+      req.headers['x-user-id'] || req.query.userId || req.query.user_id || null;
+    const data = await getWorkspaceShares(workspaceId, requesterUserId);
+    return res.json({ success: true, ...data });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// POST /api/workspaces/:workspaceId/share
+// Shares an existing workspace (along with its files and tables) to another user by email or userId
+router.post('/:workspaceId/share', async (req, res, next) => {
+  try {
+    const { workspaceId } = req.params;
+    const { userId, user_id, email, role } = req.body || {};
+    const targetUserId = userId || user_id || '';
+    const requesterUserId =
+      req.headers['x-user-id'] ||
+      req.query?.userId ||
+      req.query?.user_id ||
+      req.body?.requesterUserId ||
+      null;
+    const share = await shareWorkspaceWithUser({
+      workspaceId,
+      userId: targetUserId,
+      email: email || '',
+      role,
+      requesterUserId,
+    });
+    return res.status(200).json({ success: true, share });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// DELETE /api/workspaces/:workspaceId/shares/:targetUserId
+router.delete('/:workspaceId/shares/:targetUserId', async (req, res, next) => {
+  try {
+    const { workspaceId, targetUserId } = req.params;
+    const requesterUserId =
+      req.headers['x-user-id'] || req.query?.userId || req.query?.user_id || null;
+    const result = await revokeWorkspaceShare({
+      workspaceId,
+      targetUserId,
+      requesterUserId,
+    });
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// DELETE /api/workspaces/:workspaceId/share/:targetUserId (alias)
+router.delete('/:workspaceId/share/:targetUserId', async (req, res, next) => {
+  try {
+    const { workspaceId, targetUserId } = req.params;
+    const requesterUserId =
+      req.headers['x-user-id'] || req.query?.userId || req.query?.user_id || null;
+    const result = await revokeWorkspaceShare({
+      workspaceId,
+      targetUserId,
+      requesterUserId,
+    });
+    return res.json({ success: true, ...result });
   } catch (err) {
     return next(err);
   }

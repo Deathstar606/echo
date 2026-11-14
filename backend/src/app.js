@@ -13,9 +13,27 @@ const gmailRoutes = require('./routes/gmailRoutes');
 const googleSheetsRoutes = require('./routes/googleSheetsRoutes');
 const googleDocsRoutes = require('./routes/googleDocsRoutes');
 const workspaceContactsRoutes = require('./routes/workspaceContactsRoutes');
+const { autoMigrateDatabase } = require('../db/autoMigrate');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
+
+let vercelMigrationPromise = null;
+if (process.env.VERCEL && env.nodeEnv !== 'test') {
+  app.use(async (req, res, next) => {
+    try {
+      if (!vercelMigrationPromise) {
+        vercelMigrationPromise = autoMigrateDatabase().catch((err) => {
+          console.warn('[Vercel AutoMigrate] Non-fatal migration warning:', err.message);
+        });
+      }
+      await vercelMigrationPromise;
+    } catch {
+      // Proceed even if migration skipped
+    }
+    return next();
+  });
+}
 
 // Security headers
 app.use(
