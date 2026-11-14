@@ -1090,16 +1090,53 @@ export default function SheetManagementPanel(): React.ReactElement {
         status: result.status,
       };
     }
-    const diffIds = Array.isArray(result.diff)
-      ? result.diff.map((d: any) => String(d.row_identifier || d.id || '').trim()).filter(Boolean)
-      : Array.isArray(result.target_rows)
-        ? result.target_rows.map((r: any) => String(r?.id || '').trim()).filter(Boolean)
-        : [];
+    const pickRowBusinessId = (row: any, fallbackId?: any): string => {
+      if (!row || typeof row !== 'object') {
+        return String(fallbackId || '').trim();
+      }
+      const keys = Object.keys(row).filter(
+        (k) =>
+          !/^(?:business_id|workspace_id|user_id|created_at|updated_at)$/i.test(k) &&
+          row[k] != null &&
+          String(row[k]).trim() !== ''
+      );
+      const businessIdKey = keys.find(
+        (k) => /_id$/i.test(k) && k.toLowerCase() !== 'id'
+      );
+      if (businessIdKey) {
+        return String(row[businessIdKey]).trim();
+      }
+      if (row.id != null && String(row.id).trim() !== '') {
+        return String(row.id).trim();
+      }
+      return String(fallbackId || '').trim();
+    };
+
+    const diffIds =
+      Array.isArray(result.target_rows) && result.target_rows.length > 0
+        ? result.target_rows
+            .map((r: any, idx: number) =>
+              pickRowBusinessId(
+                r,
+                result.diff?.[idx]?.row_identifier || result.diff?.[idx]?.id
+              )
+            )
+            .filter(Boolean)
+        : Array.isArray(result.diff)
+          ? result.diff
+              .map((d: any) => String(d.row_identifier || d.id || '').trim())
+              .filter(Boolean)
+          : [];
+    const proposedSummary = String(
+      result.message || result.approved_mutation?.update_description || ''
+    )
+      .trim()
+      .slice(0, 220);
     return {
       message: `Mutation preview ready: ${result.affected_count} row(s) in ${entity} are affected. Review the diff and confirm it in the spreadsheet panel.`,
       entity: result.entity || entity,
       matched_row_ids: diffIds,
-      applied_filter_summary: '',
+      applied_filter_summary: proposedSummary,
       status: result.status || 'preview',
     };
   };
@@ -1468,7 +1505,15 @@ export default function SheetManagementPanel(): React.ReactElement {
             </div>
           )}
 
-          {mutationPreview?.status === 'preview' && (
+          {mutationPreview?.status === 'preview' &&
+            !(
+              b2bWorkflow.workflowStatus === 'preview' &&
+              (b2bWorkflow.previewData?.mutations_preview?.length || 0) > 0
+            ) &&
+            !(
+              b2bWorkflow.workflowStatus === 'executed' &&
+              (b2bWorkflow.executedData?.updated_rows_count || 0) > 0
+            ) && (
             <section
               aria-label="Spreadsheet mutation preview"
               style={{
@@ -1631,10 +1676,20 @@ export default function SheetManagementPanel(): React.ReactElement {
             clarificationData={b2bWorkflow.clarificationData}
             selectedOptionsMap={b2bWorkflow.selectedOptionsMap}
             previewData={b2bWorkflow.previewData}
+            editedEmails={b2bWorkflow.editedEmails}
             executedData={b2bWorkflow.executedData}
             onSelectSocraticOption={b2bWorkflow.handleSelectSocraticOption}
             onResolveSocratic={b2bWorkflow.handleResolveSocratic}
-            onConfirmOperation={b2bWorkflow.handleConfirmOperation}
+            onUpdateEmailDraft={b2bWorkflow.handleUpdateEmailDraft}
+            onConfirmOperation={async () => {
+              if (
+                (b2bWorkflow.previewData?.mutations_preview?.length || 0) > 0 &&
+                mutationPreview?.status === 'preview'
+              ) {
+                dispatch(discardMutationPreview());
+              }
+              await b2bWorkflow.handleConfirmOperation();
+            }}
             onBackToClarification={b2bWorkflow.handleBackToClarification}
             onResetWorkflow={b2bWorkflow.handleResetWorkflow}
             onSelectCitation={(citation) => setActiveCitation(citation)}
@@ -2085,11 +2140,25 @@ export default function SheetManagementPanel(): React.ReactElement {
         executingStep={b2bWorkflow.executingStep}
         workflowError={b2bWorkflow.workflowError}
         conversationHistory={b2bWorkflow.conversationHistory}
+        previewData={b2bWorkflow.previewData}
+        editedEmails={b2bWorkflow.editedEmails}
         isBusy={isBusy}
         nlPrompt={nlPrompt}
         onPromptChange={(prompt) => dispatch(setSheetNlPrompt(prompt))}
         samplePrompts={samplePrompts}
         onExecuteOperation={b2bWorkflow.handleExecuteOperation}
+        onUpdateEmailDraft={b2bWorkflow.handleUpdateEmailDraft}
+        onApplyTemplateToAllEmails={b2bWorkflow.handleApplyTemplateToAllEmails}
+        onRestoreOriginalEmails={b2bWorkflow.handleRestoreOriginalEmails}
+        onConfirmOperation={async () => {
+          if (
+            (b2bWorkflow.previewData?.mutations_preview?.length || 0) > 0 &&
+            mutationPreview?.status === 'preview'
+          ) {
+            dispatch(discardMutationPreview());
+          }
+          await b2bWorkflow.handleConfirmOperation();
+        }}
         onDismissError={b2bWorkflow.handleDismissError}
         onResetWorkflow={b2bWorkflow.handleResetWorkflow}
       />

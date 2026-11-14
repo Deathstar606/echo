@@ -4,7 +4,7 @@ const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const FOLLOW_UP_REFERENCE_REGEX =
-  /\b(?:those|them|these|their|its|that\s+(?:unit|order|account|product|record|row|item|batch|invoice|list|set|cohort|subset)|the\s+(?:ones?|same|above|matched|filtered|selected|remaining)|from\s+(?:those|them|these|that)|among\s+(?:those|them|these)|of\s+(?:those|them|these)|with\s+only|narrow\s+(?:that|this|it|them|those)\s*(?:down)?|filter\s+(?:those|them|these|it|that))\b/i;
+  /\b(?:those|them|these|their|its|that\s+(?:unit|order|account|product|record|row|item|batch|invoice|list|set|cohort|subset)|the\s+(?:ones?|same|above|matched|filtered|selected|remaining|customers?|buyers?|clients?|recipients?|accounts?|orders?|units?|patients?|nurses?|contacts?|rows?|records?|items?|products?)|(?:all\s+)?(?:affected|selected|matched|filtered|delayed|impacted)\s+(?:customers?|buyers?|clients?|recipients?|accounts?|orders?|units?|rows?|records?)|from\s+(?:those|them|these|that)|among\s+(?:those|them|these)|of\s+(?:those|them|these)|with\s+only|narrow\s+(?:that|this|it|them|those)\s*(?:down)?|filter\s+(?:those|them|these|it|that))\b/i;
 
 const SCOPE_RESET_REGEX =
   /\b(?:across\s+(?:all|the\s+(?:whole|entire)\s+(?:table|sheet|dataset))|in\s+the\s+(?:whole|entire)\s+(?:table|sheet|dataset)|from\s+the\s+(?:whole|entire)\s+(?:table|sheet|dataset)|all\s+rows\s+in\s+(?:the\s+)?(?:table|sheet)|ignore\s+previous|start\s+over)\b/i;

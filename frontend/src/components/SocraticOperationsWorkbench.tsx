@@ -1,12 +1,18 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  Check,
   Loader2,
+  Mail,
   RotateCcw,
   Send,
   Sparkles,
   X,
 } from 'lucide-react';
+import type {
+  PreviewReadyPayload,
+  WorkspaceEmailPreview,
+} from '../../../shared/types/contracts';
 import type {
   ConversationChatMessage,
   WorkflowStatus,
@@ -19,11 +25,23 @@ interface SocraticOperationsWorkbenchProps {
   executingStep: string;
   workflowError: string | null;
   conversationHistory: ConversationChatMessage[];
+  previewData?: PreviewReadyPayload | null;
+  editedEmails?: WorkspaceEmailPreview[];
   isBusy: boolean;
   nlPrompt: string;
   onPromptChange: (prompt: string) => void;
   samplePrompts: Array<{ label: string; text: string }>;
   onExecuteOperation: (customPrompt?: string) => void;
+  onUpdateEmailDraft?: (
+    index: number,
+    patch: { subject?: string; body?: string }
+  ) => void;
+  onApplyTemplateToAllEmails?: (template: {
+    subject?: string;
+    body?: string;
+  }) => void;
+  onRestoreOriginalEmails?: () => void;
+  onConfirmOperation?: () => void;
   onDismissError: () => void;
   onResetWorkflow: () => void;
 }
@@ -35,22 +53,91 @@ export default function SocraticOperationsWorkbench({
   executingStep,
   workflowError,
   conversationHistory,
+  previewData,
+  editedEmails,
   isBusy,
   nlPrompt,
   onPromptChange,
   samplePrompts,
   onExecuteOperation,
+  onUpdateEmailDraft,
+  onApplyTemplateToAllEmails,
+  onRestoreOriginalEmails,
+  onConfirmOperation,
   onDismissError,
   onResetWorkflow,
 }: SocraticOperationsWorkbenchProps): React.ReactElement {
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [selectedTab, setSelectedTab] = useState<'all' | number>(0);
+  const [templateSubject, setTemplateSubject] = useState('');
+  const [templateBody, setTemplateBody] = useState('');
+
+  const emailsToEdit = useMemo(
+    () =>
+      editedEmails && editedEmails.length > 0
+        ? editedEmails
+        : previewData?.emails_preview || [],
+    [editedEmails, previewData]
+  );
 
   useEffect(() => {
-    if (conversationHistory.length > 0 || workflowStatus === 'executing') {
+    setSelectedTab(0);
+    if (previewData) {
+      const firstEmail = previewData.emails_preview?.[0];
+      setTemplateSubject(
+        previewData.email_draft_template?.subject || firstEmail?.subject || ''
+      );
+      setTemplateBody(
+        previewData.email_draft_template?.body || firstEmail?.body || ''
+      );
+    } else {
+      setTemplateSubject('');
+      setTemplateBody('');
+    }
+  }, [previewData?.workflow_id]);
+
+  useEffect(() => {
+    if (
+      conversationHistory.length > 0 ||
+      workflowStatus === 'executing' ||
+      workflowStatus === 'preview'
+    ) {
       threadEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
-  }, [conversationHistory.length, workflowStatus]);
+  }, [conversationHistory.length, workflowStatus, emailsToEdit.length]);
+
+  const originalEmails = previewData?.emails_preview || [];
+  const hasCustomEdits =
+    emailsToEdit.length > 0 &&
+    originalEmails.length === emailsToEdit.length &&
+    emailsToEdit.some(
+      (item, idx) =>
+        item.subject !== originalEmails[idx]?.subject ||
+        item.body !== originalEmails[idx]?.body
+    );
+  const hasBlankDraft = emailsToEdit.some(
+    (item) => !item.subject?.trim() || !item.body?.trim()
+  );
+  const activeEmailIndex =
+    typeof selectedTab === 'number' && selectedTab < emailsToEdit.length
+      ? selectedTab
+      : 0;
+  const currentEmail = emailsToEdit[activeEmailIndex];
+  const hasMutations = (previewData?.mutations_preview?.length || 0) > 0;
+
+  const handleRestoreDrafts = () => {
+    onRestoreOriginalEmails?.();
+    if (previewData) {
+      const firstOrig = previewData.emails_preview?.[0];
+      setTemplateSubject(
+        previewData.email_draft_template?.subject || firstOrig?.subject || ''
+      );
+      setTemplateBody(
+        previewData.email_draft_template?.body || firstOrig?.body || ''
+      );
+    }
+  };
 
   const handleSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -213,6 +300,341 @@ export default function SocraticOperationsWorkbench({
             <X size={13} />
           </button>
         </div>
+      )}
+
+      {/* Inline Editable Email Draft Box for Chat-Triggered Email Previews */}
+      {workflowStatus === 'preview' && emailsToEdit.length > 0 && (
+        <section
+          aria-label="Editable email draft preview"
+          style={{
+            margin: '0 14px 10px 14px',
+            padding: '12px',
+            borderRadius: '10px',
+            border: '1.5px solid var(--primary-indigo)',
+            backgroundColor: '#f8fafc',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+            maxHeight: '340px',
+            overflowY: 'auto',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '6px',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Mail size={14} color="var(--primary-indigo)" />
+              <span
+                style={{
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  color: 'var(--primary-indigo-dark)',
+                }}
+              >
+                Email Draft ({emailsToEdit.length} Recipient
+                {emailsToEdit.length === 1 ? '' : 's'})
+              </span>
+              {hasMutations && (
+                <span
+                  style={{
+                    fontSize: '10.5px',
+                    fontWeight: 700,
+                    padding: '1px 6px',
+                    borderRadius: '999px',
+                    backgroundColor: '#fef3c7',
+                    color: '#92400e',
+                  }}
+                >
+                  +{previewData?.mutations_preview?.length} DB Update(s)
+                </span>
+              )}
+            </div>
+
+            {hasCustomEdits && onRestoreOriginalEmails && (
+              <button
+                type="button"
+                onClick={handleRestoreDrafts}
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  color: 'var(--primary-indigo)',
+                  backgroundColor: '#ffffff',
+                  border: '1px solid var(--border-warm)',
+                  borderRadius: '6px',
+                  padding: '2px 7px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  cursor: 'pointer',
+                }}
+              >
+                <RotateCcw size={11} />
+                <span>Restore Original</span>
+              </button>
+            )}
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              overflowX: 'auto',
+              paddingBottom: '2px',
+            }}
+          >
+            {emailsToEdit.map((email, idx) => {
+              const isSelected = selectedTab === idx;
+              return (
+                <button
+                  key={`${email.recipient_email}-${idx}`}
+                  type="button"
+                  onClick={() => setSelectedTab(idx)}
+                  title={`${email.customer_identifier} (${email.recipient_email})`}
+                  style={{
+                    flexShrink: 0,
+                    fontSize: '11px',
+                    fontWeight: isSelected ? 700 : 500,
+                    padding: '3px 8px',
+                    borderRadius: '999px',
+                    border: `1px solid ${
+                      isSelected ? 'var(--primary-indigo)' : 'var(--border-warm)'
+                    }`,
+                    backgroundColor: isSelected
+                      ? 'var(--primary-indigo)'
+                      : '#ffffff',
+                    color: isSelected ? '#ffffff' : 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    maxWidth: '165px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {email.customer_identifier || email.recipient_email}
+                </button>
+              );
+            })}
+
+            {emailsToEdit.length > 1 && onApplyTemplateToAllEmails && (
+              <button
+                type="button"
+                onClick={() => setSelectedTab('all')}
+                style={{
+                  flexShrink: 0,
+                  fontSize: '11px',
+                  fontWeight: selectedTab === 'all' ? 700 : 600,
+                  padding: '3px 8px',
+                  borderRadius: '999px',
+                  border: `1px solid ${
+                    selectedTab === 'all'
+                      ? 'var(--primary-indigo)'
+                      : 'var(--border-warm)'
+                  }`,
+                  backgroundColor:
+                    selectedTab === 'all'
+                      ? 'var(--primary-indigo)'
+                      : '#eef2ff',
+                  color:
+                    selectedTab === 'all'
+                      ? '#ffffff'
+                      : 'var(--primary-indigo-dark)',
+                  cursor: 'pointer',
+                }}
+              >
+                All ({emailsToEdit.length}) Template
+              </button>
+            )}
+          </div>
+
+          {selectedTab === 'all' && emailsToEdit.length > 1 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div
+                style={{
+                  fontSize: '11px',
+                  color: 'var(--text-secondary)',
+                  backgroundColor: '#eef2ff',
+                  padding: '4px 8px',
+                  borderRadius: '6px',
+                }}
+              >
+                Editing all {emailsToEdit.length} drafts together. Use{' '}
+                <code>{'{{customer_name}}'}</code> to personalize each greeting.
+              </div>
+
+              <input
+                type="text"
+                aria-label="Master email subject"
+                placeholder="Email Subject"
+                value={templateSubject}
+                onChange={(e) => {
+                  const nextSubject = e.target.value;
+                  setTemplateSubject(nextSubject);
+                  onApplyTemplateToAllEmails?.({
+                    subject: nextSubject,
+                    body: templateBody,
+                  });
+                }}
+                style={{
+                  width: '100%',
+                  padding: '6px 8px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-warm)',
+                  backgroundColor: '#ffffff',
+                }}
+              />
+
+              <textarea
+                rows={4}
+                aria-label="Master email body"
+                placeholder="Email body..."
+                value={templateBody}
+                onChange={(e) => {
+                  const nextBody = e.target.value;
+                  setTemplateBody(nextBody);
+                  onApplyTemplateToAllEmails?.({
+                    subject: templateSubject,
+                    body: nextBody,
+                  });
+                }}
+                style={{
+                  width: '100%',
+                  padding: '7px 8px',
+                  fontSize: '12px',
+                  lineHeight: 1.45,
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-warm)',
+                  backgroundColor: '#ffffff',
+                  resize: 'vertical',
+                  fontFamily: 'inherit',
+                }}
+              />
+            </div>
+          ) : (
+            currentEmail && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div
+                  style={{
+                    fontSize: '11px',
+                    color: 'var(--text-secondary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '6px',
+                  }}
+                >
+                  <span
+                    style={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <strong>To:</strong> {currentEmail.customer_identifier} &lt;
+                    {currentEmail.recipient_email}&gt;
+                  </span>
+                </div>
+
+                <input
+                  type="text"
+                  aria-label="Email subject"
+                  placeholder="Email Subject"
+                  value={currentEmail.subject}
+                  onChange={(e) =>
+                    onUpdateEmailDraft?.(activeEmailIndex, {
+                      subject: e.target.value,
+                    })
+                  }
+                  style={{
+                    width: '100%',
+                    padding: '6px 8px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    borderRadius: '6px',
+                    border: '1px solid var(--border-warm)',
+                    backgroundColor: '#ffffff',
+                  }}
+                />
+
+                <textarea
+                  rows={4}
+                  aria-label="Email message body"
+                  placeholder="Email message body..."
+                  value={currentEmail.body}
+                  onChange={(e) =>
+                    onUpdateEmailDraft?.(activeEmailIndex, {
+                      body: e.target.value,
+                    })
+                  }
+                  style={{
+                    width: '100%',
+                    padding: '7px 8px',
+                    fontSize: '12px',
+                    lineHeight: 1.45,
+                    borderRadius: '6px',
+                    border: '1px solid var(--border-warm)',
+                    backgroundColor: '#ffffff',
+                    resize: 'vertical',
+                    fontFamily: 'inherit',
+                  }}
+                />
+              </div>
+            )
+          )}
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              marginTop: '2px',
+            }}
+          >
+            <button
+              type="button"
+              className="btn-primary-indigo"
+              disabled={isBusy || hasBlankDraft}
+              onClick={() => onConfirmOperation?.()}
+              style={{
+                flex: 1,
+                padding: '7px 10px',
+                fontSize: '12px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '5px',
+              }}
+            >
+              <Check size={13} />
+              <span>
+                {hasMutations
+                  ? `Confirm Updates & Send (${emailsToEdit.length})`
+                  : `Confirm & Send (${emailsToEdit.length})`}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              className="btn-warm-outlined"
+              disabled={isBusy}
+              onClick={onResetWorkflow}
+              style={{
+                padding: '7px 10px',
+                fontSize: '12px',
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </section>
       )}
 
       {/* Chat Composer Box */}

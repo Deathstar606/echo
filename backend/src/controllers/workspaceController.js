@@ -381,12 +381,18 @@ async function confirmOperation(req, res, next) {
     const workflowId = req.body?.workflow_id || req.body?.workflowId;
     const confirm = Boolean(req.body?.confirm);
     const dryRun = Boolean(req.body?.dry_run ?? req.body?.dryRun ?? false);
+    const editedEmails = Array.isArray(req.body?.edited_emails)
+      ? req.body.edited_emails
+      : Array.isArray(req.body?.editedEmails)
+        ? req.body.editedEmails
+        : null;
 
     const result = await confirmWorkspaceOperation({
       workflowId,
       businessId,
       confirm,
       dryRun,
+      editedEmails,
     });
 
     return res.status(200).json(result);

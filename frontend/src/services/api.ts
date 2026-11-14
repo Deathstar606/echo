@@ -863,6 +863,13 @@ export interface ConfirmWorkspaceOperationParams {
   confirm?: boolean;
   dryRun?: boolean;
   businessId?: string;
+  editedEmails?: Array<{
+    customer_identifier: string;
+    recipient_email: string;
+    subject: string;
+    body: string;
+    metadata?: Record<string, any>;
+  }>;
 }
 
 /**
@@ -875,6 +882,7 @@ export async function confirmWorkspaceOperationApi({
   confirm = true,
   dryRun = false,
   businessId = getActiveBusinessId(),
+  editedEmails,
 }: ConfirmWorkspaceOperationParams): Promise<ExecutedPayload> {
   return request<ExecutedPayload>('/api/workspace/confirm-operation', {
     method: 'POST',
@@ -883,6 +891,7 @@ export async function confirmWorkspaceOperationApi({
       business_id: businessId,
       confirm: Boolean(confirm),
       dry_run: Boolean(dryRun),
+      ...(Array.isArray(editedEmails) ? { edited_emails: editedEmails } : {}),
     }),
   });
 }

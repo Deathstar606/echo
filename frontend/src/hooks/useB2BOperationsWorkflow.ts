@@ -6,6 +6,7 @@ import type {
   ExecutedPayload,
   PreviewReadyPayload,
   RoutedSheetInstruction,
+  WorkspaceEmailPreview,
   WorkspaceMutationDiff,
 } from '../../../shared/types/contracts';
 import {
@@ -71,6 +72,24 @@ function createMessageId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function extractRecipientDisplayName(customerIdentifier: string): string {
+  const raw = String(customerIdentifier || '').trim();
+  if (!raw) return 'Customer';
+  const parenMatch = raw.match(/\(([^)]+)\)\s*$/);
+  if (parenMatch && parenMatch[1]?.trim()) {
+    return parenMatch[1].trim();
+  }
+  return raw;
+}
+
+function isChatConfirmationPrompt(prompt: string): boolean {
+  const trimmed = String(prompt || '').trim();
+  if (!trimmed || trimmed.length > 64) return false;
+  return /^(?:(?:yes|yeah|yep|ok(?:ay)?|sure|please)[\s,]*)*(?:confirm(?:\s+(?:all|it|them|and\s+send(?:\s+(?:the\s+)?emails?)?))?|approve(?:\s+(?:all|it|them|and\s+send))?|proceed|go\s+ahead|execute|do\s+it|send(?:\s+(?:it|them|all|now|(?:the\s+)?(?:draft|drafts|email|emails)))?)(?:[\s,]*(?:please|now))?[.!]*$/i.test(
+    trimmed
+  );
+}
+
 export function useB2BOperationsWorkflow({
   activeBusinessId,
   activeEntity,
@@ -92,6 +111,7 @@ export function useB2BOperationsWorkflow({
     useState<ClarificationRequiredPayload | null>(null);
   const [selectedOptionsMap, setSelectedOptionsMap] = useState<Record<string, string>>({});
   const [previewData, setPreviewData] = useState<PreviewReadyPayload | null>(null);
+  const [editedEmails, setEditedEmails] = useState<WorkspaceEmailPreview[]>([]);
   const [executedData, setExecutedData] = useState<ExecutedPayload | null>(null);
   const [conversationalData, setConversationalData] =
     useState<ConversationalPayload | null>(null);
@@ -107,6 +127,7 @@ export function useB2BOperationsWorkflow({
     setClarificationData(null);
     setSelectedOptionsMap({});
     setPreviewData(null);
+    setEditedEmails([]);
     setExecutedData(null);
     setConversationalData(null);
     setWorkflowError(null);
@@ -123,12 +144,82 @@ export function useB2BOperationsWorkflow({
     }));
   };
 
+  const handleUpdateEmailDraft = (
+    index: number,
+    patch: { subject?: string; body?: string }
+  ) => {
+    setEditedEmails((prev) =>
+      prev.map((item, idx) =>
+        idx === index
+          ? {
+              ...item,
+              ...(typeof patch.subject === 'string' ? { subject: patch.subject } : {}),
+              ...(typeof patch.body === 'string' ? { body: patch.body } : {}),
+            }
+          : item
+      )
+    );
+  };
+
+  const handleApplyTemplateToAllEmails = (template: {
+    subject?: string;
+    body?: string;
+  }) => {
+    setEditedEmails((prev) =>
+      prev.map((item) => {
+        const displayName = extractRecipientDisplayName(item.customer_identifier);
+        const replaceTokens = (text: string) =>
+          text
+            .replace(/\{\{\s*customer_name\s*\}\}/gi, displayName)
+            .replace(/\{\{\s*recipient_name\s*\}\}/gi, displayName)
+            .replace(/\{\{\s*identifier\s*\}\}/gi, item.customer_identifier || displayName)
+            .replace(/\{\{\s*recipient_email\s*\}\}/gi, item.recipient_email || '');
+        return {
+          ...item,
+          ...(typeof template.subject === 'string'
+            ? { subject: replaceTokens(template.subject) }
+            : {}),
+          ...(typeof template.body === 'string'
+            ? { body: replaceTokens(template.body) }
+            : {}),
+        };
+      })
+    );
+  };
+
+  const handleRestoreOriginalEmails = () => {
+    if (previewData?.emails_preview) {
+      setEditedEmails(previewData.emails_preview.map((e) => ({ ...e })));
+    }
+  };
+
   // Turn 1..N: Run AI Instruction with 5-turn sliding conversational memory
   const handleExecuteOperation = async (customPrompt?: string) => {
     const promptToRun = (
       typeof customPrompt === 'string' ? customPrompt : nlPrompt
     ).trim();
     if (!promptToRun || isBusy || workflowStatus === 'executing') return;
+
+    // Support natural back-and-forth confirmation via chat while a preview is active
+    if (
+      workflowStatus === 'preview' &&
+      previewData &&
+      currentWorkflowId &&
+      (editedEmails.length > 0 || (previewData.mutations_preview?.length || 0) > 0) &&
+      isChatConfirmationPrompt(promptToRun)
+    ) {
+      onPromptChange('');
+      setConversationHistory((previous) => [
+        ...previous,
+        {
+          id: createMessageId('user'),
+          role: 'user',
+          content: promptToRun,
+        },
+      ]);
+      await handleConfirmOperation();
+      return;
+    }
 
     const windowHistory = structuredHistory.slice(-5);
 
@@ -137,6 +228,7 @@ export function useB2BOperationsWorkflow({
     setExecutingStep('Discovering sources & evaluating multi-hop policy constraints...');
     setClarificationData(null);
     setPreviewData(null);
+    setEditedEmails([]);
     setExecutedData(null);
     setConversationalData(null);
     onPromptChange('');
@@ -268,15 +360,43 @@ export function useB2BOperationsWorkflow({
         turnMatchedIds =
           Array.isArray(res.matched_row_ids) && res.matched_row_ids.length > 0
             ? res.matched_row_ids
-            : (res.mutations_preview || [])
-                .map((m) => String(m.row_identifier || '').trim())
-                .filter(Boolean);
+            : (res.mutations_preview || []).length > 0
+              ? (res.mutations_preview || [])
+                  .map((m) => String(m.row_identifier || '').trim())
+                  .filter(Boolean)
+              : (res.emails_preview || [])
+                  .map((e) => String(e.customer_identifier || '').trim())
+                  .filter(Boolean);
+
+        if (Array.isArray(res.rows) && res.rows.length > 0) {
+          onApplySheetQueryResult?.({
+            status: 'SHEET_QUERY',
+            intent: 'sheet_query',
+            entity: res.target_entity || activeEntity,
+            prompt: promptToRun,
+            message: res.message || '',
+            count: res.rows.length,
+            rows: res.rows,
+            matched_ids: turnMatchedIds,
+            highlighted_rows: res.highlighted_rows,
+            citations: res.citations || [],
+          });
+        }
+
         setCurrentWorkflowId(res.workflow_id);
         setPreviewData(res);
+        setEditedEmails(
+          Array.isArray(res.emails_preview)
+            ? res.emails_preview.map((e) => ({ ...e }))
+            : []
+        );
         setWorkflowStatus('preview');
         onMutationsPreviewChange?.(res.mutations_preview || []);
         stageHint = 'preview';
-        stageSummary = `${res.mutations_preview?.length || 0} DB row(s), ${res.emails_preview?.length || 0} email(s) • Review in main panel`;
+        stageSummary =
+          (res.mutations_preview?.length || 0) === 0 && (res.emails_preview?.length || 0) > 0
+            ? `${res.emails_preview?.length || 0} email draft(s) • Editable below`
+            : `${res.mutations_preview?.length || 0} DB row(s), ${res.emails_preview?.length || 0} email(s) • Review & confirm`;
       }
 
       const structuredSummaryText =
@@ -292,13 +412,16 @@ export function useB2BOperationsWorkflow({
                     ...question.options.map((option) => option.label),
                   ]),
                 ].join('\n')
-              : 'Prepared a preview of the requested actions.';
+              : res.status === 'PREVIEW_READY'
+                ? res.message || 'Prepared a preview of the requested actions.'
+                : 'Completed the requested operation.';
 
       const chatBubbleMessage =
         res.status === 'CLARIFICATION_REQUIRED'
           ? `${res.conflict_summary}\n\nPlease select your preferred policy resolution in the Clarification panel on the left.`
           : res.status === 'PREVIEW_READY'
-            ? `Prepared a Stage 1 action preview (${res.mutations_preview?.length || 0} row mutation(s) and ${res.emails_preview?.length || 0} email draft(s)). Review and approve it in the main panel.`
+            ? res.message ||
+              `Prepared an action preview (${res.mutations_preview?.length || 0} row mutation(s) and ${res.emails_preview?.length || 0} email draft(s)). Review and confirm to execute.`
             : structuredSummaryText;
 
       setConversationHistory((previous) => [
@@ -361,6 +484,11 @@ export function useB2BOperationsWorkflow({
       });
 
       setPreviewData(res);
+      setEditedEmails(
+        Array.isArray(res.emails_preview)
+          ? res.emails_preview.map((e) => ({ ...e }))
+          : []
+      );
       setWorkflowStatus('preview');
       onMutationsPreviewChange?.(res.mutations_preview || []);
 
@@ -435,6 +563,7 @@ export function useB2BOperationsWorkflow({
         confirm: true,
         dryRun: false,
         businessId: activeBusinessId,
+        editedEmails: editedEmails.length > 0 ? editedEmails : previewData.emails_preview,
       });
 
       setExecutedData(res);
@@ -446,7 +575,7 @@ export function useB2BOperationsWorkflow({
         {
           id: createMessageId('assistant'),
           role: 'assistant',
-          content: `Completed the approved operation: updated ${res.updated_rows_count} row(s) and queued ${res.dispatched_emails_count} email(s).`,
+          content: `Completed the approved operation: updated ${res.updated_rows_count} row(s) and sent ${res.dispatched_emails_count} email(s).`,
           stageHint: 'executed',
           stageSummary: `Committed • ${res.updated_rows_count} rows, ${res.dispatched_emails_count} emails`,
         },
@@ -456,7 +585,7 @@ export function useB2BOperationsWorkflow({
         if (previous.length === 0) return previous;
         const next = [...previous];
         const last = { ...next[next.length - 1] };
-        last.assistant_response_summary = `Completed the approved operation: updated ${res.updated_rows_count} rows and queued ${res.dispatched_emails_count} emails.`;
+        last.assistant_response_summary = `Completed the approved operation: updated ${res.updated_rows_count} rows and sent ${res.dispatched_emails_count} emails.`;
         next[next.length - 1] = last;
         return next.slice(-5);
       });
@@ -494,6 +623,7 @@ export function useB2BOperationsWorkflow({
     setClarificationData(null);
     setSelectedOptionsMap({});
     setPreviewData(null);
+    setEditedEmails([]);
     setExecutedData(null);
     setConversationalData(null);
     setWorkflowError(null);
@@ -511,10 +641,14 @@ export function useB2BOperationsWorkflow({
     clarificationData,
     selectedOptionsMap,
     previewData,
+    editedEmails,
     executedData,
     conversationalData,
     conversationHistory,
     handleSelectSocraticOption,
+    handleUpdateEmailDraft,
+    handleApplyTemplateToAllEmails,
+    handleRestoreOriginalEmails,
     handleExecuteOperation,
     handleResolveSocratic,
     handleConfirmOperation,

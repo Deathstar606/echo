@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Sparkles,
@@ -19,6 +19,7 @@ import type {
   PreviewReadyPayload,
   SocraticOption,
   SocraticQuestion,
+  WorkspaceEmailPreview,
 } from '../../../shared/types/contracts';
 import type { WorkflowStatus } from '../hooks/useB2BOperationsWorkflow';
 import CitationBadges from './CitationBadges';
@@ -30,9 +31,14 @@ interface B2BActionStagePanelProps {
   clarificationData: ClarificationRequiredPayload | null;
   selectedOptionsMap: Record<string, string>;
   previewData: PreviewReadyPayload | null;
+  editedEmails?: WorkspaceEmailPreview[];
   executedData: ExecutedPayload | null;
   onSelectSocraticOption: (questionId: string, optionId: string) => void;
   onResolveSocratic: () => void;
+  onUpdateEmailDraft?: (
+    index: number,
+    patch: { subject?: string; body?: string }
+  ) => void;
   onConfirmOperation: () => void;
   onBackToClarification: () => void;
   onResetWorkflow: () => void;
@@ -46,9 +52,11 @@ export default function B2BActionStagePanel({
   clarificationData,
   selectedOptionsMap,
   previewData,
+  editedEmails,
   executedData,
   onSelectSocraticOption,
   onResolveSocratic,
+  onUpdateEmailDraft,
   onConfirmOperation,
   onBackToClarification,
   onResetWorkflow,
@@ -56,6 +64,14 @@ export default function B2BActionStagePanel({
 }: B2BActionStagePanelProps): React.ReactElement | null {
   const [previewTab, setPreviewTab] = useState<'mutations' | 'emails'>('mutations');
   const [expandedEmailIndex, setExpandedEmailIndex] = useState<number | null>(0);
+
+  useEffect(() => {
+    if (!previewData) return;
+    const hasMutations = (previewData.mutations_preview?.length || 0) > 0;
+    const hasEmails = (previewData.emails_preview?.length || 0) > 0;
+    setPreviewTab(!hasMutations && hasEmails ? 'emails' : 'mutations');
+    setExpandedEmailIndex(0);
+  }, [previewData?.workflow_id]);
 
   if (
     workflowStatus === 'clarification' &&
@@ -256,6 +272,10 @@ export default function B2BActionStagePanel({
   }
 
   if (workflowStatus === 'preview' && previewData) {
+    const activeEmails =
+      editedEmails && editedEmails.length > 0
+        ? editedEmails
+        : previewData.emails_preview || [];
     return (
       <motion.section
         aria-label="Stage 1 B2B action preview"
@@ -437,13 +457,13 @@ export default function B2BActionStagePanel({
         {previewTab === 'emails' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-              {previewData.emails_preview?.length || 0} customer notification email(s) queued for
-              individual dispatch.
+              {activeEmails.length} customer notification email(s) queued for individual
+              dispatch. You can edit the subject or body before confirming.
             </div>
 
             <div
               style={{
-                maxHeight: '260px',
+                maxHeight: '300px',
                 overflowY: 'auto',
                 display: 'flex',
                 flexDirection: 'column',
@@ -451,7 +471,7 @@ export default function B2BActionStagePanel({
                 paddingRight: '2px',
               }}
             >
-              {(previewData.emails_preview || []).map((email, idx) => {
+              {activeEmails.map((email, idx) => {
                 const isExpanded = expandedEmailIndex === idx;
                 return (
                   <div
@@ -496,11 +516,42 @@ export default function B2BActionStagePanel({
                           borderTop: '1px solid var(--border-subtle)',
                           display: 'flex',
                           flexDirection: 'column',
-                          gap: '6px',
+                          gap: '8px',
                         }}
                       >
-                        <div>
-                          <strong>Subject:</strong> {email.subject}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <label
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              color: 'var(--text-secondary)',
+                            }}
+                          >
+                            Subject
+                          </label>
+                          {onUpdateEmailDraft ? (
+                            <input
+                              type="text"
+                              value={email.subject}
+                              onChange={(e) =>
+                                onUpdateEmailDraft(idx, { subject: e.target.value })
+                              }
+                              style={{
+                                width: '100%',
+                                padding: '6px 9px',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                borderRadius: '6px',
+                                border: '1px solid var(--border-warm)',
+                                backgroundColor: '#ffffff',
+                                color: 'var(--text-primary)',
+                              }}
+                            />
+                          ) : (
+                            <div>
+                              <strong>Subject:</strong> {email.subject}
+                            </div>
+                          )}
                         </div>
 
                         {email.metadata?.applied_rule && (
@@ -518,19 +569,52 @@ export default function B2BActionStagePanel({
                           </div>
                         )}
 
-                        <div
-                          style={{
-                            whiteSpace: 'pre-wrap',
-                            fontSize: '12px',
-                            lineHeight: 1.5,
-                            backgroundColor: '#ffffff',
-                            padding: '10px',
-                            borderRadius: '6px',
-                            border: '1px solid var(--border-light)',
-                            color: 'var(--text-primary)',
-                          }}
-                        >
-                          {email.body}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <label
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              color: 'var(--text-secondary)',
+                            }}
+                          >
+                            Message Body
+                          </label>
+                          {onUpdateEmailDraft ? (
+                            <textarea
+                              rows={5}
+                              value={email.body}
+                              onChange={(e) =>
+                                onUpdateEmailDraft(idx, { body: e.target.value })
+                              }
+                              style={{
+                                width: '100%',
+                                padding: '8px 10px',
+                                fontSize: '12px',
+                                lineHeight: 1.5,
+                                borderRadius: '6px',
+                                border: '1px solid var(--border-warm)',
+                                backgroundColor: '#ffffff',
+                                color: 'var(--text-primary)',
+                                resize: 'vertical',
+                                fontFamily: 'inherit',
+                              }}
+                            />
+                          ) : (
+                            <div
+                              style={{
+                                whiteSpace: 'pre-wrap',
+                                fontSize: '12px',
+                                lineHeight: 1.5,
+                                backgroundColor: '#ffffff',
+                                padding: '10px',
+                                borderRadius: '6px',
+                                border: '1px solid var(--border-light)',
+                                color: 'var(--text-primary)',
+                              }}
+                            >
+                              {email.body}
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}

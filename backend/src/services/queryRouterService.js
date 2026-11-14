@@ -42,6 +42,7 @@ const SYSTEM_TABLES = new Set([
   'socratic_workflows',
   'google_auth_tokens',
   'google_sheet_sync_metadata',
+  'workspace_contacts',
   'sheet_Active_Metadata',
   'sheet_active_metadata',
 ]);

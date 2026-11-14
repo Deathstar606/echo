@@ -500,6 +500,17 @@ export interface PreviewReadyPayload {
   mutations_preview: WorkspaceMutationDiff[];
   emails_preview: WorkspaceEmailPreview[];
   citations: Citation[];
+  rows?: Record<string, any>[];
+  highlighted_rows?: Array<{
+    table_name: string;
+    row_identifier: string;
+    row_data: Record<string, any>;
+  }>;
+  message?: string;
+  email_draft_template?: {
+    subject: string;
+    body: string;
+  };
 }
 
 export interface ExecutedPayload {

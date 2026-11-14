@@ -876,13 +876,22 @@ async function discoverTableSchema(tableName, businessId, options = {}) {
       const sampleColumns = Object.values(dynamicSchema.columns)
         .filter((colDef) => colDef.modifiable && !colDef.virtual)
         .map((colDef) => quoteIdentifier(colDef.exactName));
-      const sampleWhere = dynamicSchema.columns?.workspace_id
-        ? '(business_id = $1 OR workspace_id = $1)'
-        : 'business_id = $1';
-      const sampleRes = await query(
-        `SELECT ${sampleColumns.length > 0 ? sampleColumns.join(', ') : '*'} FROM ${quoteIdentifier(dynamicSchema.tableName)} WHERE ${sampleWhere} LIMIT 5;`,
-        [businessId]
-      );
+      const hasBusinessId = Boolean(dynamicSchema.columns?.business_id);
+      const hasWorkspaceId = Boolean(dynamicSchema.columns?.workspace_id);
+      const sampleWhere =
+        hasBusinessId && hasWorkspaceId
+          ? '(business_id = $1 OR workspace_id = $1)'
+          : hasWorkspaceId
+            ? 'workspace_id = $1'
+            : hasBusinessId
+              ? 'business_id = $1'
+              : null;
+      const sampleRes = sampleWhere
+        ? await query(
+            `SELECT ${sampleColumns.length > 0 ? sampleColumns.join(', ') : '*'} FROM ${quoteIdentifier(dynamicSchema.tableName)} WHERE ${sampleWhere} LIMIT 5;`,
+            [businessId]
+          )
+        : { rows: [] };
       if (sampleRes.rows && sampleRes.rows.length > 0) {
         for (const colDef of Object.values(dynamicSchema.columns)) {
           if (!colDef.modifiable || colDef.virtual) continue;
