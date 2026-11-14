@@ -24,7 +24,7 @@ import {
   getGoogleAuthUrlApi,
   type GoogleDriveFile,
 } from '../services/api';
-import { getActiveBusinessId, getLoggedInUser } from '../config/constants';
+import { getActiveBusinessId, getLoggedInUser, isDemoUserAccount } from '../config/constants';
 
 interface KnowledgeSourceBarProps {
   activeBusinessId?: string;
@@ -144,6 +144,11 @@ export default function KnowledgeSourceBar({
     setGoogleDocsList([]);
 
     const currentUser = getLoggedInUser();
+    if (isDemoUserAccount(currentUser)) {
+      setIsDocGoogleConnected(false);
+      setCheckingDocGoogleAuth(false);
+      return;
+    }
     const statusTarget = currentUser?.id || resolvedBusinessId;
 
     setCheckingDocGoogleAuth(true);
@@ -180,15 +185,18 @@ export default function KnowledgeSourceBar({
 
   const handleConnectGoogleForDocs = async () => {
     const currentUser = getLoggedInUser();
+    const isDemo = isDemoUserAccount(currentUser);
     setConnectingDocGoogle(true);
     setDocImportError(null);
     try {
-      const url = await getGoogleAuthUrlApi(currentUser?.id || resolvedBusinessId, {
-        mode: currentUser?.id ? 'link' : 'login',
-        userId: currentUser?.id,
-        workspaceId: resolvedBusinessId,
-        tab: 'sheets',
-      });
+      const url = !isDemo && currentUser?.id
+        ? await getGoogleAuthUrlApi(currentUser.id, {
+            mode: 'link',
+            userId: currentUser.id,
+            workspaceId: resolvedBusinessId,
+            tab: 'sheets',
+          })
+        : await getGoogleAuthUrlApi('');
       window.location.href = url;
     } catch (err: any) {
       setDocImportError(err?.message || 'Failed to initiate Google account connection.');

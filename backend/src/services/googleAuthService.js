@@ -2,7 +2,14 @@ const { google } = require('googleapis');
 const env = require('../config/env');
 const { query } = require('../../db');
 const AppError = require('../utils/AppError');
-const { upsertGoogleUser } = require('./authService');
+const {
+  DEMO_USER_ID,
+  DEMO_USER_EMAIL,
+  upsertGoogleUser,
+} = require('./authService');
+
+const DEMO_RESTRICTION_MESSAGE =
+  'Gmail and Google Workspace privileges are disabled in the Demo Account. To connect Gmail services, please sign in with a Google account.';
 
 const GOOGLE_SCOPES = [
   'openid',
@@ -90,12 +97,44 @@ function decodeOAuthState(rawState) {
   return { identifier: trimmed };
 }
 
+function isDemoIdentifierString(value) {
+  if (!value || typeof value !== 'string') return false;
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized === DEMO_USER_ID.toLowerCase() ||
+    normalized === DEMO_USER_EMAIL.toLowerCase()
+  );
+}
+
+/**
+ * Checks whether a userId or workspaceId resolves to the shared Demo Account.
+ *
+ * @param {string} [identifier]
+ * @returns {Promise<boolean>}
+ */
+async function isDemoAccountIdentifier(identifier) {
+  if (!identifier || typeof identifier !== 'string') return false;
+  if (isDemoIdentifierString(identifier)) return true;
+  const resolved = await resolveUserId(identifier);
+  return Boolean(resolved && resolved.toLowerCase() === DEMO_USER_ID.toLowerCase());
+}
+
 /**
  * Generates an OAuth 2.0 authorization URL for user consent.
+ * Blocks linking OAuth tokens onto the public Demo Account.
  * @param {string | { mode?: 'login' | 'link', userId?: string, workspaceId?: string, tab?: string, origin?: string, identifier?: string }} [stateOrIdentifier]
  * @returns {string}
  */
 function getAuthUrl(stateOrIdentifier) {
+  if (
+    stateOrIdentifier &&
+    typeof stateOrIdentifier === 'object' &&
+    stateOrIdentifier.mode === 'link' &&
+    (isDemoIdentifierString(stateOrIdentifier.userId) ||
+      isDemoIdentifierString(stateOrIdentifier.identifier))
+  ) {
+    throw new AppError(DEMO_RESTRICTION_MESSAGE, 403);
+  }
   const oauth2Client = createOAuth2Client();
   const state = encodeOAuthState(stateOrIdentifier);
   return oauth2Client.generateAuthUrl({
@@ -138,16 +177,24 @@ async function handleAuthCallback(code, rawState) {
   let user = null;
   let mode = stateData.mode === 'link' ? 'link' : 'login';
 
-  if (mode === 'link' && stateData.userId && UUID_RE.test(String(stateData.userId))) {
+  if (
+    mode === 'link' &&
+    stateData.userId &&
+    UUID_RE.test(String(stateData.userId)) &&
+    !isDemoIdentifierString(String(stateData.userId))
+  ) {
     const existingRes = await query(
       'SELECT id, name, email, created_at FROM users WHERE id = $1 LIMIT 1;',
       [String(stateData.userId)]
     );
-    if (existingRes.rowCount > 0) {
+    if (existingRes.rowCount > 0 && !isDemoIdentifierString(existingRes.rows[0].id)) {
       user = existingRes.rows[0];
     } else {
       mode = 'login';
     }
+  } else if (mode === 'link' && isDemoIdentifierString(String(stateData.userId || ''))) {
+    // Never attach personal Google OAuth tokens to the shared Demo Account; fall back to signing into the user's own Google account.
+    mode = 'login';
   }
 
   if (!user) {
@@ -158,6 +205,9 @@ async function handleAuthCallback(code, rawState) {
   }
 
   const targetUserId = user.id;
+  if (isDemoIdentifierString(String(targetUserId))) {
+    throw new AppError(DEMO_RESTRICTION_MESSAGE, 403);
+  }
 
   await query(
     `INSERT INTO google_auth_tokens (
@@ -237,56 +287,90 @@ async function getEnvUserProfile() {
  */
 async function getAuthStatus(identifier) {
   const hasExplicitIdentifier = Boolean(identifier && String(identifier).trim());
-  const targetUserId = await resolveUserId(identifier);
-
-  if (targetUserId) {
-    try {
-      const res = await query(
-        'SELECT email, name, picture, is_env_connected, updated_at FROM google_auth_tokens WHERE user_id = $1 LIMIT 1;',
-        [targetUserId]
-      );
-      if (res.rows && res.rows.length > 0) {
-        const row = res.rows[0];
-        return {
-          connected: true,
-          user: {
-            email: row.email,
-            name: row.name,
-            picture: row.picture,
-            isEnvConnected: Boolean(row.is_env_connected),
-          },
-        };
-      }
-    } catch (dbErr) {
-      console.warn('[GoogleAuth] DB query error on getAuthStatus:', dbErr.message);
-    }
+  if (!hasExplicitIdentifier || isDemoIdentifierString(String(identifier))) {
+    return { connected: false, user: null };
   }
 
-  // Only check .env fallback when no explicit identifier was provided
-  if (!hasExplicitIdentifier) {
-    const envUser = await getEnvUserProfile();
-    if (envUser) {
+  const targetUserId = await resolveUserId(identifier);
+  if (!targetUserId || isDemoIdentifierString(targetUserId)) {
+    return { connected: false, user: null };
+  }
+
+  try {
+    const res = await query(
+      'SELECT email, name, picture, is_env_connected, updated_at FROM google_auth_tokens WHERE user_id = $1 LIMIT 1;',
+      [targetUserId]
+    );
+    if (res.rows && res.rows.length > 0) {
+      const row = res.rows[0];
       return {
         connected: true,
-        user: envUser,
+        user: {
+          email: row.email,
+          name: row.name,
+          picture: row.picture,
+          isEnvConnected: Boolean(row.is_env_connected),
+        },
       };
     }
+  } catch (dbErr) {
+    console.warn('[GoogleAuth] DB query error on getAuthStatus:', dbErr.message);
   }
 
   return { connected: false, user: null };
 }
 
 /**
+ * Verifies that Gmail/Google services are allowed for the given identifier and requesting user.
+ * Strictly blocks the public Demo Account and requires an authenticated non-demo Google account.
+ *
+ * @param {string} [identifier]
+ * @param {string} [requestUserId]
+ */
+async function assertGoogleServiceAllowed(identifier, requestUserId = '') {
+  if (
+    isDemoIdentifierString(String(requestUserId || '')) ||
+    isDemoIdentifierString(String(identifier || ''))
+  ) {
+    throw new AppError(DEMO_RESTRICTION_MESSAGE, 403);
+  }
+
+  const resolvedFromIdentifier = await resolveUserId(identifier);
+  if (resolvedFromIdentifier && isDemoIdentifierString(resolvedFromIdentifier)) {
+    throw new AppError(DEMO_RESTRICTION_MESSAGE, 403);
+  }
+
+  const resolvedFromRequester = await resolveUserId(requestUserId);
+  if (resolvedFromRequester && isDemoIdentifierString(resolvedFromRequester)) {
+    throw new AppError(DEMO_RESTRICTION_MESSAGE, 403);
+  }
+
+  if (!resolvedFromIdentifier && !resolvedFromRequester) {
+    throw new AppError(
+      'To connect Gmail services, please sign in with a Google account.',
+      401
+    );
+  }
+}
+
+/**
  * Resolves an authenticated Google OAuth2 Client.
- * Prioritizes database-persisted user tokens, then falls back to GOOGLE_REFRESH_TOKEN.
+ * Strictly scoped to authenticated non-demo user tokens stored in PostgreSQL.
  *
  * @param {string} [identifier] - userId or workspaceId
  * @returns {Promise<import('googleapis').Auth.OAuth2Client>}
  */
 async function getAuthenticatedClient(identifier) {
+  if (isDemoIdentifierString(String(identifier || ''))) {
+    throw new AppError(DEMO_RESTRICTION_MESSAGE, 403);
+  }
+
   const oauth2Client = createOAuth2Client();
-  const hasExplicitIdentifier = Boolean(identifier && String(identifier).trim());
   const targetUserId = await resolveUserId(identifier);
+
+  if (targetUserId && isDemoIdentifierString(targetUserId)) {
+    throw new AppError(DEMO_RESTRICTION_MESSAGE, 403);
+  }
 
   if (targetUserId) {
     try {
@@ -333,19 +417,8 @@ async function getAuthenticatedClient(identifier) {
     }
   }
 
-  // Only fall back to .env refresh token when no explicit user/workspace identifier was supplied
-  if (!hasExplicitIdentifier) {
-    const envRefreshToken = env.googleRefreshToken || process.env.GOOGLE_REFRESH_TOKEN;
-    if (envRefreshToken) {
-      oauth2Client.setCredentials({
-        refresh_token: envRefreshToken,
-      });
-      return oauth2Client;
-    }
-  }
-
   throw new AppError(
-    'No Google Workspace account is currently connected for this user. Please connect your Google account first.',
+    'No Google Workspace account is currently connected for this user. Please sign in with a Google account first.',
     401
   );
 }
@@ -365,9 +438,13 @@ async function disconnectGoogleAuth(identifier) {
 }
 
 module.exports = {
+  DEMO_RESTRICTION_MESSAGE,
   createOAuth2Client,
   decodeOAuthState,
   encodeOAuthState,
+  isDemoIdentifierString,
+  isDemoAccountIdentifier,
+  assertGoogleServiceAllowed,
   getAuthUrl,
   handleAuthCallback,
   getAuthStatus,

@@ -1,8 +1,9 @@
 -- Migration 014: Shared Demo Account & Ownership Migration
 -- 1. Create canonical shared Demo Account accessible to everyone clicking "Try Now".
--- 2. Migrate all existing workspaces, workspace_documents, workspace_document_chunks,
---    and linked google_auth_tokens from legacy user_id ('48244777-c7a4-4e30-be4b-fe1104e443b8')
+-- 2. Migrate all existing workspaces, workspace_documents, and workspace_document_chunks
+--    from legacy user_id ('48244777-c7a4-4e30-be4b-fe1104e443b8')
 --    to the shared Demo Account ('10000000-0000-4000-8000-000000000001') without reuploading files.
+-- Note: Personal google_auth_tokens are intentionally NOT transferred to the public Demo Account.
 
 BEGIN;
 
@@ -47,15 +48,5 @@ WHERE user_id = '48244777-c7a4-4e30-be4b-fe1104e443b8'
      )
      AND user_id IS NULL
    );
-
--- Transfer Google OAuth link token row to the Demo Account if not already present
-UPDATE google_auth_tokens
-SET user_id = '10000000-0000-4000-8000-000000000001',
-    updated_at = NOW()
-WHERE user_id = '48244777-c7a4-4e30-be4b-fe1104e443b8'
-  AND NOT EXISTS (
-    SELECT 1 FROM google_auth_tokens g2
-    WHERE g2.user_id = '10000000-0000-4000-8000-000000000001'
-  );
 
 COMMIT;

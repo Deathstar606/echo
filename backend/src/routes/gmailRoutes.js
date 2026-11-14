@@ -1,5 +1,6 @@
 const express = require('express');
 const { findBusinessOrThrow } = require('../controllers/businessController');
+const { assertGoogleServiceAllowed } = require('../services/googleAuthService');
 const {
   fetchPrimaryInboxMessages,
   sendGmailThreadReply,
@@ -47,12 +48,13 @@ router.get('/inbox', async (req, res, next) => {
   try {
     const wsId = resolveWorkspaceIdOnly(req);
     const requestUserId = req.headers['x-user-id'] || req.query.userId || req.query.user_id || null;
+    const businessId = resolveIdentifier(req);
+    await assertGoogleServiceAllowed(businessId, requestUserId);
     if (wsId && UUID_RE.test(String(wsId)) && requestUserId) {
       await findBusinessOrThrow(String(wsId), requestUserId);
     }
-    const businessId = resolveIdentifier(req);
     const maxResults = req.query.maxResults ? Number.parseInt(req.query.maxResults, 10) : 20;
-    const messages = await fetchPrimaryInboxMessages(businessId, { maxResults });
+    const messages = await fetchPrimaryInboxMessages(businessId, { maxResults, requestUserId });
     return res.json({ success: true, count: messages.length, messages });
   } catch (err) {
     return next(err);
@@ -65,10 +67,11 @@ router.post('/reply', async (req, res, next) => {
     const body = req.body || {};
     const wsId = resolveWorkspaceIdOnly(req);
     const requestUserId = req.headers['x-user-id'] || body.userId || body.user_id || req.query.userId || null;
+    const businessId = resolveIdentifier(req);
+    await assertGoogleServiceAllowed(businessId, requestUserId);
     if (wsId && UUID_RE.test(String(wsId)) && requestUserId) {
       await findBusinessOrThrow(String(wsId), requestUserId);
     }
-    const businessId = resolveIdentifier(req);
     const { threadId, to, subject, inReplyTo, references, bodyText } = body;
     const result = await sendGmailThreadReply(businessId, {
       threadId,
@@ -77,6 +80,7 @@ router.post('/reply', async (req, res, next) => {
       inReplyTo,
       references,
       bodyText,
+      requestUserId,
     });
     return res.json(result);
   } catch (err) {
@@ -90,16 +94,18 @@ router.post('/suggest-reply', async (req, res, next) => {
     const body = req.body || {};
     const wsId = resolveWorkspaceIdOnly(req);
     const requestUserId = req.headers['x-user-id'] || body.userId || body.user_id || req.query.userId || null;
+    const businessId = resolveIdentifier(req);
+    await assertGoogleServiceAllowed(businessId, requestUserId);
     if (wsId && UUID_RE.test(String(wsId)) && requestUserId) {
       await findBusinessOrThrow(String(wsId), requestUserId);
     }
-    const businessId = resolveIdentifier(req);
     const { messageText, senderName, subject } = body;
     const { generateAiDraftForGmailMessage } = require('../services/gmailService');
     const result = await generateAiDraftForGmailMessage(businessId, {
       messageText,
       senderName,
       subject,
+      requestUserId,
     });
     return res.json(result);
   } catch (err) {

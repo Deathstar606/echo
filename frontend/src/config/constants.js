@@ -5,6 +5,22 @@
 export const DEFAULT_WORKSPACE_ID = "684a8863-5094-4c8b-9b15-c50c06335b7f";
 export const DEFAULT_WORKSPACE_NAME = "Veloura Apparel";
 
+export const DEMO_USER_ID = "10000000-0000-4000-8000-000000000001";
+export const DEMO_USER_EMAIL = "demo@maxitext.studio";
+
+export function isDemoUserAccount(user) {
+  if (!user || typeof user !== "object") return false;
+  const id = String(user.id || "")
+    .trim()
+    .toLowerCase();
+  const email = String(user.email || "")
+    .trim()
+    .toLowerCase();
+  return (
+    id === DEMO_USER_ID.toLowerCase() || email === DEMO_USER_EMAIL.toLowerCase()
+  );
+}
+
 // Backwards-compatible aliases
 export const DEFAULT_BUSINESS_ID = DEFAULT_WORKSPACE_ID;
 export const DEFAULT_BUSINESS_NAME = DEFAULT_WORKSPACE_NAME;
@@ -176,8 +192,8 @@ export let BUSINESS_ID = WORKSPACE_ID;
 
 export const API_BASE_URL =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
-  //"http://localhost:3000";
-  "https://echo-back.vercel.app";
+  "http://localhost:3000";
+//"https://echo-back.vercel.app";
 
 /**
  * Product catalog schema metadata for the Sheet Management panel (backed by products.csv).

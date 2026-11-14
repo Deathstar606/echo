@@ -48,7 +48,8 @@ function resolveFrontendOrigin(req, stateData = null) {
       // Ignore malformed referer
     }
   }
-  return "https://echo-oyzy.vercel.app";
+  //return "https://echo-oyzy.vercel.app";
+  return "http://localhost:5173";
 }
 
 // GET /api/auth/google/url

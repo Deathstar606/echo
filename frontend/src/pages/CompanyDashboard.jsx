@@ -72,6 +72,7 @@ import {
   getActiveBusinessId,
   getActiveWorkspaceName,
   getLoggedInUser,
+  isDemoUserAccount,
 } from '../config/constants';
 import SheetManagementPanel from '../components/SheetManagementPanel';
 import CitationBadges from '../components/CitationBadges';
@@ -139,6 +140,7 @@ export default function CompanyDashboard() {
     return t === 'sheets' ? 'sheets' : 'inquiry';
   });
   const [currentUser, setCurrentUser] = useState(() => getLoggedInUser());
+  const isDemoUser = isDemoUserAccount(currentUser);
   const [activeBusinessId, setActiveBusinessId] = useState(() => getActiveBusinessId());
   const [activeWorkspaceName, setActiveWorkspaceName] = useState(
     () => getActiveWorkspaceName() || 'Workspace Customer Base'
@@ -361,8 +363,24 @@ export default function CompanyDashboard() {
     }
   };
 
+  const handleSignInWithGoogleForGmail = async () => {
+    try {
+      const url = await getGoogleAuthUrlApi('');
+      window.location.href = url;
+    } catch (err) {
+      setGmailError(err?.message || 'Unable to start Google Sign-In.');
+    }
+  };
+
   const loadGmailInbox = async (silent = false, targetBizId = activeBusinessId) => {
-    if (!targetBizId) return;
+    if (!targetBizId || isDemoUserAccount(getLoggedInUser())) {
+      setGmailMessages([]);
+      setActiveGmailMessage(null);
+      activeGmailMessageIdRef.current = null;
+      setGmailError(null);
+      setGmailLoading(false);
+      return;
+    }
     if (!silent) setGmailLoading(true);
     setGmailError(null);
     try {
@@ -393,6 +411,13 @@ export default function CompanyDashboard() {
   const handleSwitchToGmail = () => {
     setInboxSource('gmail');
     setGmailDraftError(null);
+    if (isDemoUserAccount(getLoggedInUser())) {
+      setGmailMessages([]);
+      setActiveGmailMessage(null);
+      activeGmailMessageIdRef.current = null;
+      dispatch(setExternalAiSuggestion({ draftText: '', meta: null }));
+      return;
+    }
     if (gmailMessages.length === 0) {
       activeGmailMessageIdRef.current = null;
       dispatch(setExternalAiSuggestion({ draftText: '', meta: null }));
@@ -417,7 +442,12 @@ export default function CompanyDashboard() {
   };
 
   const handleGenerateGmailReply = async () => {
-    if (!activeGmailMessage || !activeBusinessId || generatingGmailAiDraft) {
+    if (
+      isDemoUserAccount(getLoggedInUser()) ||
+      !activeGmailMessage ||
+      !activeBusinessId ||
+      generatingGmailAiDraft
+    ) {
       return;
     }
 
@@ -466,7 +496,15 @@ export default function CompanyDashboard() {
 
   const handleSendGmailReply = async (replyText) => {
     const text = (replyText || '').trim();
-    if (!text || !activeGmailMessage || gmailSending || !activeBusinessId) return;
+    if (
+      isDemoUserAccount(getLoggedInUser()) ||
+      !text ||
+      !activeGmailMessage ||
+      gmailSending ||
+      !activeBusinessId
+    ) {
+      return;
+    }
 
     setGmailSending(true);
     setGmailError(null);
@@ -1306,7 +1344,54 @@ export default function CompanyDashboard() {
 
                   {/* Channel 2: Gmail */}
                   {inboxSource === 'gmail' && (
-                    gmailLoading && gmailMessages.length === 0 ? (
+                    isDemoUser ? (
+                      <div
+                        style={{
+                          padding: '28px 18px',
+                          textAlign: 'center',
+                          color: 'var(--text-secondary)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '10px',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: 44,
+                            height: 44,
+                            borderRadius: '12px',
+                            backgroundColor: '#fef2f2',
+                            color: '#dc2626',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Mail size={20} />
+                        </div>
+                        <div
+                          style={{
+                            fontWeight: 700,
+                            fontSize: '13.5px',
+                            color: 'var(--text-primary)',
+                          }}
+                        >
+                          Gmail Disabled in Demo Account
+                        </div>
+                        <p style={{ fontSize: '12px', lineHeight: 1.55, margin: 0 }}>
+                          The shared Demo Account does not connect to any Gmail services. To connect Gmail services, you must sign in with a Google account.
+                        </p>
+                        <button
+                          type="button"
+                          className="btn-primary-indigo"
+                          style={{ marginTop: 4, padding: '7px 14px', fontSize: '12px' }}
+                          onClick={handleSignInWithGoogleForGmail}
+                        >
+                          Sign in with Google Account
+                        </button>
+                      </div>
+                    ) : gmailLoading && gmailMessages.length === 0 ? (
                       <div
                         style={{
                           padding: '32px 16px',
@@ -1517,7 +1602,46 @@ export default function CompanyDashboard() {
               {/* Center Sub-Column: Active Conversation Thread / Gmail Thread */}
               <div className="thread-column">
                 {inboxSource === 'gmail' ? (
-                  !activeGmailMessage ? (
+                  isDemoUser ? (
+                    <div
+                      style={{
+                        margin: 'auto',
+                        textAlign: 'center',
+                        padding: '36px 24px',
+                        maxWidth: '460px',
+                        color: 'var(--text-secondary)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '10px',
+                      }}
+                    >
+                      <Mail
+                        size={34}
+                        style={{ opacity: 0.65, color: '#dc2626' }}
+                      />
+                      <div
+                        style={{
+                          fontSize: '15.5px',
+                          fontWeight: 700,
+                          color: 'var(--text-primary)',
+                        }}
+                      >
+                        Sign In With Google to Connect Gmail
+                      </div>
+                      <p style={{ fontSize: '13px', lineHeight: 1.55, margin: 0 }}>
+                        Gmail services are disabled in the MaxiText Demo Account to prevent sharing personal email access. To connect Gmail services, please sign in with your Google account.
+                      </p>
+                      <button
+                        type="button"
+                        className="btn-primary-indigo"
+                        style={{ marginTop: 6, padding: '9px 16px', fontSize: '13px' }}
+                        onClick={handleSignInWithGoogleForGmail}
+                      >
+                        Sign in with Google Account
+                      </button>
+                    </div>
+                  ) : !activeGmailMessage ? (
                     <div
                       style={{
                         margin: 'auto',

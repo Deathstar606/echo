@@ -1,5 +1,8 @@
 const { google } = require('googleapis');
-const { getAuthenticatedClient } = require('./googleAuthService');
+const {
+  getAuthenticatedClient,
+  assertGoogleServiceAllowed,
+} = require('./googleAuthService');
 const AppError = require('../utils/AppError');
 
 /**
@@ -65,6 +68,7 @@ function extractBodyParts(payload) {
  * @returns {Promise<Array<object>>}
  */
 async function fetchPrimaryInboxMessages(businessId, options = {}) {
+  await assertGoogleServiceAllowed(businessId, options.requestUserId || '');
   const auth = await getAuthenticatedClient(businessId);
   const gmail = google.gmail({ version: 'v1', auth });
   const maxResults = Math.min(options.maxResults || 20, 50);
@@ -139,7 +143,9 @@ async function fetchPrimaryInboxMessages(businessId, options = {}) {
  * @returns {Promise<object>}
  */
 async function sendGmailThreadReply(businessId, replyData) {
-  const { threadId, to, subject, inReplyTo, references, bodyText } = replyData;
+  const { threadId, to, subject, inReplyTo, references, bodyText, requestUserId = '' } = replyData;
+
+  await assertGoogleServiceAllowed(businessId, requestUserId);
 
   if (!to || !bodyText) {
     throw new AppError('Recipient "to" and message "bodyText" are required.', 400);
@@ -202,7 +208,8 @@ async function sendGmailThreadReply(businessId, replyData) {
  * @returns {Promise<object>}
  */
 async function generateAiDraftForGmailMessage(businessId, payload) {
-  const { messageText, senderName = 'Customer', subject = '' } = payload;
+  const { messageText, senderName = 'Customer', subject = '', requestUserId = '' } = payload;
+  await assertGoogleServiceAllowed(businessId, requestUserId);
   const { query } = require('../../db');
   const { retrieveRelevantContextForBusiness } = require('./contextRetrievalService');
   const { buildContextualPrompt } = require('./promptBuilderService');

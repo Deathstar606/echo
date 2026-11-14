@@ -53,7 +53,7 @@ import {
   resetSheetWorkspaceState,
 } from '../store/sheetSlice';
 
-import { getActiveBusinessId, getLoggedInUser } from '../config/constants';
+import { getActiveBusinessId, getLoggedInUser, isDemoUserAccount } from '../config/constants';
 
 import {
   fetchWorkspaceDocuments,
@@ -528,6 +528,11 @@ export default function SheetManagementPanel(): React.ReactElement {
     setGoogleSpreadsheetsList([]);
 
     const currentUser = getLoggedInUser();
+    if (isDemoUserAccount(currentUser)) {
+      setIsSheetGoogleConnected(false);
+      setCheckingSheetGoogleAuth(false);
+      return;
+    }
     const statusTarget = currentUser?.id || activeBusinessId;
 
     setCheckingSheetGoogleAuth(true);
@@ -564,15 +569,18 @@ export default function SheetManagementPanel(): React.ReactElement {
 
   const handleConnectGoogleForSheets = async () => {
     const currentUser = getLoggedInUser();
+    const isDemo = isDemoUserAccount(currentUser);
     setConnectingSheetGoogle(true);
     setImportSheetError(null);
     try {
-      const url = await getGoogleAuthUrlApi(currentUser?.id || activeBusinessId, {
-        mode: currentUser?.id ? 'link' : 'login',
-        userId: currentUser?.id,
-        workspaceId: activeBusinessId,
-        tab: 'sheets',
-      });
+      const url = !isDemo && currentUser?.id
+        ? await getGoogleAuthUrlApi(currentUser.id, {
+            mode: 'link',
+            userId: currentUser.id,
+            workspaceId: activeBusinessId,
+            tab: 'sheets',
+          })
+        : await getGoogleAuthUrlApi('');
       window.location.href = url;
     } catch (err: any) {
       setImportSheetError(err?.message || 'Failed to initiate Google account connection.');

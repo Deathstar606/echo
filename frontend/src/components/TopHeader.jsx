@@ -30,6 +30,7 @@ import {
   clearActiveWorkspace,
   getLoggedInUser,
   setLoggedInUser,
+  isDemoUserAccount,
 } from '../config/constants';
 
 export default function TopHeader() {
@@ -233,7 +234,7 @@ export default function TopHeader() {
   useEffect(() => {
     let mounted = true;
     async function checkGoogleStatus() {
-      if (!currentUser?.id) {
+      if (!currentUser?.id || isDemoUserAccount(currentUser)) {
         if (mounted) {
           setGoogleAuth({ connected: false, user: null, loading: false });
         }
@@ -397,12 +398,15 @@ export default function TopHeader() {
     }
   };
 
+  const isDemoUser = isDemoUserAccount(currentUser);
+  const effectiveGoogleConnected = !isDemoUser && googleAuth.connected;
+
   const effectiveUser = currentUser?.id
     ? {
         ...currentUser,
         picture:
           currentUser.picture ||
-          (googleAuth.connected ? googleAuth.user?.picture || null : null),
+          (effectiveGoogleConnected ? googleAuth.user?.picture || null : null),
       }
     : null;
   const userInitials = (effectiveUser?.name || 'User')
@@ -757,7 +761,7 @@ export default function TopHeader() {
                   <span
                     style={{
                       fontSize: '10px',
-                      color: googleAuth.connected ? '#059669' : '#64748b',
+                      color: effectiveGoogleConnected ? '#059669' : '#64748b',
                       display: 'flex',
                       alignItems: 'center',
                       gap: '4px',
@@ -769,10 +773,14 @@ export default function TopHeader() {
                         width: 6,
                         height: 6,
                         borderRadius: '50%',
-                        backgroundColor: googleAuth.connected ? '#10b981' : '#94a3b8',
+                        backgroundColor: effectiveGoogleConnected ? '#10b981' : '#94a3b8',
                       }}
                     />
-                    {googleAuth.connected ? 'Google Connected' : 'Email Signed In'}
+                    {effectiveGoogleConnected
+                      ? 'Google Connected'
+                      : isDemoUser
+                        ? 'Demo Mode (No Gmail)'
+                        : 'Email Signed In'}
                   </span>
                 </div>
                 <ChevronDown
@@ -830,7 +838,44 @@ export default function TopHeader() {
 
                   <div style={{ height: '1px', backgroundColor: 'var(--border-warm)' }} />
 
-                  {!googleAuth.connected && (
+                  {isDemoUser ? (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '6px',
+                        padding: '8px 10px',
+                        borderRadius: '8px',
+                        backgroundColor: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                      }}
+                    >
+                      <span style={{ fontSize: '11px', color: '#475569', lineHeight: 1.4 }}>
+                        Gmail services are disabled in Demo Mode. To connect Gmail services, sign in with a Google account.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleGoogleSignInOrLink(false)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '7px',
+                          padding: '7px 10px',
+                          borderRadius: '7px',
+                          backgroundColor: '#eff6ff',
+                          border: '1px solid #bfdbfe',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          color: '#1d4ed8',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <Link2 size={13} />
+                        Sign in with Google Account
+                      </button>
+                    </div>
+                  ) : !effectiveGoogleConnected ? (
                     <button
                       type="button"
                       onClick={() => handleGoogleSignInOrLink(true)}
@@ -852,7 +897,7 @@ export default function TopHeader() {
                       <Link2 size={13} />
                       Connect Google Account
                     </button>
-                  )}
+                  ) : null}
 
                   {currentWsId && (
                     <button
