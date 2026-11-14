@@ -176,8 +176,8 @@ export let BUSINESS_ID = WORKSPACE_ID;
 
 export const API_BASE_URL =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
-  "http://localhost:3000";
-//"https://echo-back.vercel.app";
+  //"http://localhost:3000";
+  "https://echo-back.vercel.app";
 
 /**
  * Product catalog schema metadata for the Sheet Management panel (backed by products.csv).
