@@ -22,6 +22,12 @@ import {
   deleteWorkspaceDocumentByIdentifier,
 } from '../services/api';
 import { getActiveWorkspaceId, getActiveBusinessId } from '../config/constants';
+import {
+  getCachedDocumentChunks,
+  setCachedDocumentChunks,
+  removeCachedDocument,
+  runDeduplicatedWorkspaceRequest,
+} from '../services/workspaceContextCache';
 
 export interface ChunkItem {
   id: string;
@@ -193,7 +199,6 @@ export default function CitationInspectorModal({
     }
 
     let isMounted = true;
-    setLoading(true);
     setError(null);
     setSearchQuery('');
     setSelectedEntity(null);
@@ -202,8 +207,24 @@ export default function CitationInspectorModal({
     const effectiveWorkspaceId =
       workspaceId || getActiveWorkspaceId() || getActiveBusinessId() || '';
 
-    fetchDocumentChunks(effectiveWorkspaceId, docIdentifier)
+    const cached = getCachedDocumentChunks(effectiveWorkspaceId, docIdentifier);
+    if (cached && cached.document) {
+      setDocumentMeta(cached.document || null);
+      setChunks(Array.isArray(cached.chunks) ? cached.chunks : []);
+      setLoading(false);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    setLoading(true);
+    runDeduplicatedWorkspaceRequest(
+      `docChunks:${String(docIdentifier).trim().toLowerCase()}`,
+      effectiveWorkspaceId,
+      () => fetchDocumentChunks(effectiveWorkspaceId, docIdentifier)
+    )
       .then((data) => {
+        setCachedDocumentChunks(effectiveWorkspaceId, docIdentifier, data);
         if (!isMounted) return;
         setDocumentMeta(data.document || null);
         setChunks(Array.isArray(data.chunks) ? data.chunks : []);
@@ -273,6 +294,13 @@ export default function CitationInspectorModal({
       const effectiveWorkspaceId =
         workspaceId || getActiveWorkspaceId() || getActiveBusinessId() || '';
       await deleteWorkspaceDocumentByIdentifier(effectiveWorkspaceId, docIdentifier);
+      removeCachedDocument(effectiveWorkspaceId, docIdentifier);
+      if (documentMeta?.id) {
+        removeCachedDocument(effectiveWorkspaceId, documentMeta.id);
+      }
+      if (documentMeta?.filename) {
+        removeCachedDocument(effectiveWorkspaceId, documentMeta.filename);
+      }
       setIsDeleting(false);
       setConfirmDelete(false);
       onDocumentDeleted?.(docIdentifier);

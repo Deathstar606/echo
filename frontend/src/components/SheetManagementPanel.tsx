@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -51,7 +51,18 @@ import {
   clearRowInsertState,
   setActiveSheetEntity,
   resetSheetWorkspaceState,
+  hydrateWorkspaceTablesFromCache,
 } from '../store/sheetSlice';
+
+import {
+  getCachedWorkspaceContext,
+  setCachedWorkspaceDocuments,
+  setCachedWorkspaceSyncedSheets,
+  setWorkspaceLastActiveEntity,
+  removeCachedDocument,
+  evictCachedDocumentChunks,
+  runDeduplicatedWorkspaceRequest,
+} from '../services/workspaceContextCache';
 
 import { getActiveBusinessId, getLoggedInUser, isDemoUserAccount } from '../config/constants';
 
@@ -374,6 +385,11 @@ export default function SheetManagementPanel(): React.ReactElement {
   const [activeBusinessId, setActiveBusinessId] = useState<string>(() =>
     getActiveBusinessId()
   );
+  const [cacheUserId, setCacheUserId] = useState<string>(
+    () => getLoggedInUser()?.id || ''
+  );
+  const activeBusinessIdRef = useRef<string>(activeBusinessId);
+  activeBusinessIdRef.current = activeBusinessId;
 
   const {
     activeEntity = '',
@@ -443,43 +459,102 @@ export default function SheetManagementPanel(): React.ReactElement {
   const [importSheetError, setImportSheetError] = useState<string | null>(null);
   const [isManualSyncing, setIsManualSyncing] = useState<boolean>(false);
 
-  const loadDocuments = async (targetBizId = activeBusinessId) => {
-    if (!targetBizId) {
-      setDocuments([]);
-      return;
-    }
-    try {
-      const res = await fetchWorkspaceDocuments(targetBizId);
-      if (Array.isArray(res?.documents)) {
-        setDocuments(res.documents);
+  const loadDocuments = useCallback(
+    async (
+      targetBizId = activeBusinessId,
+      options: { forceRefresh?: boolean; silent?: boolean } = {}
+    ) => {
+      const cleanBizId = String(targetBizId || '').trim();
+      if (!cleanBizId) {
+        setDocuments([]);
+        return;
       }
-    } catch {
-      // Best effort load
-    }
-  };
+      const userId = getLoggedInUser()?.id || cacheUserId || null;
+      if (!options.forceRefresh) {
+        const cached = getCachedWorkspaceContext(cleanBizId, userId);
+        if (
+          cached?.freshness?.documentsUsable &&
+          Array.isArray(cached.snapshot?.documents)
+        ) {
+          if (activeBusinessIdRef.current === cleanBizId && !options.silent) {
+            setDocuments(cached.snapshot.documents);
+          }
+          if (cached.freshness.documentsFresh) {
+            return;
+          }
+        }
+      }
+      try {
+        const res = await runDeduplicatedWorkspaceRequest(
+          'documents',
+          cleanBizId,
+          () => fetchWorkspaceDocuments(cleanBizId),
+          { force: options.forceRefresh, userId }
+        );
+        if (Array.isArray(res?.documents)) {
+          setCachedWorkspaceDocuments(cleanBizId, res.documents, userId);
+          if (activeBusinessIdRef.current === cleanBizId) {
+            setDocuments(res.documents);
+          }
+        }
+      } catch {
+        // Best effort load
+      }
+    },
+    [activeBusinessId, cacheUserId]
+  );
 
-  const loadSyncedSheets = async (targetBizId = activeBusinessId) => {
-    if (!targetBizId) {
-      setSyncedSheets([]);
-      return;
-    }
-    try {
-      const sheets = await getSyncedGoogleSheetsApi(targetBizId);
-      setSyncedSheets(sheets);
-    } catch {
-      // Best effort load
-    }
-  };
+  const loadSyncedSheets = useCallback(
+    async (
+      targetBizId = activeBusinessId,
+      options: { forceRefresh?: boolean; silent?: boolean } = {}
+    ) => {
+      const cleanBizId = String(targetBizId || '').trim();
+      if (!cleanBizId) {
+        setSyncedSheets([]);
+        return;
+      }
+      const userId = getLoggedInUser()?.id || cacheUserId || null;
+      if (!options.forceRefresh) {
+        const cached = getCachedWorkspaceContext(cleanBizId, userId);
+        if (
+          cached?.freshness?.syncedSheetsUsable &&
+          Array.isArray(cached.snapshot?.syncedSheets)
+        ) {
+          if (activeBusinessIdRef.current === cleanBizId && !options.silent) {
+            setSyncedSheets(cached.snapshot.syncedSheets);
+          }
+          if (cached.freshness.syncedSheetsFresh) {
+            return;
+          }
+        }
+      }
+      try {
+        const sheets = await runDeduplicatedWorkspaceRequest(
+          'syncedSheets',
+          cleanBizId,
+          () => getSyncedGoogleSheetsApi(cleanBizId),
+          { force: options.forceRefresh, userId }
+        );
+        setCachedWorkspaceSyncedSheets(cleanBizId, sheets, userId);
+        if (activeBusinessIdRef.current === cleanBizId) {
+          setSyncedSheets(sheets);
+        }
+      } catch {
+        // Best effort load
+      }
+    },
+    [activeBusinessId, cacheUserId]
+  );
 
   // Subscribe to workspace switching and auth changes
   useEffect(() => {
     const handleWorkspaceOrAuthSync = () => {
       const nextBizId = getActiveBusinessId();
+      const nextUserId = getLoggedInUser()?.id || '';
+      setCacheUserId(nextUserId);
       setActiveBusinessId((prev) => {
         if (prev !== nextBizId) {
-          dispatch(resetSheetWorkspaceState());
-          setDocuments([]);
-          setSyncedSheets([]);
           setPendingMutations([]);
           setActiveCitation(null);
           setClientAppendError(null);
@@ -502,21 +577,72 @@ export default function SheetManagementPanel(): React.ReactElement {
       window.removeEventListener('workspaceChanged', handleWorkspaceOrAuthSync);
       window.removeEventListener('authChanged', handleWorkspaceOrAuthSync);
     };
-  }, [dispatch]);
+  }, []);
 
-  // Discover and load only the tables, documents, and synced sheets belonging to active businessId
+  // Discover, hydrate from L1/L2 cache instantaneously, and revalidate only when missing or stale
   useEffect(() => {
+    activeBusinessIdRef.current = activeBusinessId;
     if (!activeBusinessId) {
       dispatch(resetSheetWorkspaceState());
       setDocuments([]);
       setSyncedSheets([]);
       return;
     }
-    dispatch(loadBusinessSheets({ businessId: activeBusinessId }));
-    loadDocuments(activeBusinessId);
-    loadSyncedSheets(activeBusinessId);
+
+    const effectiveUserId = getLoggedInUser()?.id || cacheUserId || null;
+    const cached = getCachedWorkspaceContext(activeBusinessId, effectiveUserId);
+
+    if (cached?.freshness?.tablesUsable && Array.isArray(cached.snapshot.tables)) {
+      dispatch(
+        hydrateWorkspaceTablesFromCache({
+          businessId: activeBusinessId,
+          tables: cached.snapshot.tables,
+          rowsByEntity: cached.snapshot.rowsByEntity,
+          preferredEntity: cached.snapshot.lastActiveEntity,
+        })
+      );
+      if (!cached.freshness.tablesFresh) {
+        dispatch(
+          loadBusinessSheets({
+            businessId: activeBusinessId,
+            preferredEntity: cached.snapshot.lastActiveEntity,
+            silent: true,
+            forceRefresh: Boolean(cached.snapshot.rowsTruncatedInL2),
+          })
+        );
+      }
+    } else {
+      dispatch(resetSheetWorkspaceState());
+      dispatch(loadBusinessSheets({ businessId: activeBusinessId }));
+    }
+
+    if (
+      cached?.freshness?.documentsUsable &&
+      Array.isArray(cached.snapshot.documents)
+    ) {
+      setDocuments(cached.snapshot.documents);
+      if (!cached.freshness.documentsFresh) {
+        loadDocuments(activeBusinessId, { forceRefresh: true, silent: true });
+      }
+    } else {
+      setDocuments([]);
+      loadDocuments(activeBusinessId);
+    }
+
+    if (
+      cached?.freshness?.syncedSheetsUsable &&
+      Array.isArray(cached.snapshot.syncedSheets)
+    ) {
+      setSyncedSheets(cached.snapshot.syncedSheets);
+      if (!cached.freshness.syncedSheetsFresh) {
+        loadSyncedSheets(activeBusinessId, { forceRefresh: true, silent: true });
+      }
+    } else {
+      setSyncedSheets([]);
+      loadSyncedSheets(activeBusinessId);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dispatch, activeBusinessId]);
+  }, [dispatch, activeBusinessId, cacheUserId]);
 
   const handleOpenImportSheetModal = async () => {
     if (!activeBusinessId) {
@@ -632,8 +758,14 @@ export default function SheetManagementPanel(): React.ReactElement {
         businessId: activeBusinessId,
       });
 
-      await dispatch(loadBusinessSheets({ preferredEntity: res.entity, businessId: activeBusinessId }));
-      await loadSyncedSheets(activeBusinessId);
+      await dispatch(
+        loadBusinessSheets({
+          preferredEntity: res.entity,
+          businessId: activeBusinessId,
+          forceRefresh: true,
+        })
+      );
+      await loadSyncedSheets(activeBusinessId, { forceRefresh: true });
       setShowImportSheetModal(false);
       setAddRowSuccessToast(
         `Successfully imported & synced "${res.entity}" from Google Sheets (${res.rowCount} rows).`
@@ -664,8 +796,14 @@ export default function SheetManagementPanel(): React.ReactElement {
         customEntityName: meta.table_name,
         businessId: activeBusinessId,
       });
-      await dispatch(loadSheetRows(activeEntity));
-      await loadSyncedSheets(activeBusinessId);
+      await dispatch(
+        loadSheetRows({
+          entity: activeEntity,
+          businessId: activeBusinessId,
+          forceRefresh: true,
+        })
+      );
+      await loadSyncedSheets(activeBusinessId, { forceRefresh: true });
       setAddRowSuccessToast(
         `Successfully synchronized "${activeEntity}" with Google Sheets (${res.rowCount} rows).`
       );
@@ -786,9 +924,13 @@ export default function SheetManagementPanel(): React.ReactElement {
     setClientAppendError(null);
     try {
       const res = await seedWorkspaceDemo(activeBusinessId);
-      await loadDocuments(activeBusinessId);
+      await loadDocuments(activeBusinessId, { forceRefresh: true });
       await dispatch(
-        loadBusinessSheets({ preferredEntity: 'orders', businessId: activeBusinessId })
+        loadBusinessSheets({
+          preferredEntity: 'orders',
+          businessId: activeBusinessId,
+          forceRefresh: true,
+        })
       );
       dispatch(
         setSheetNlPrompt(
@@ -814,7 +956,8 @@ export default function SheetManagementPanel(): React.ReactElement {
     setClientAppendError(null);
     try {
       await uploadWorkspaceDocument(file, activeBusinessId);
-      await loadDocuments(activeBusinessId);
+      evictCachedDocumentChunks(activeBusinessId, file.name);
+      await loadDocuments(activeBusinessId, { forceRefresh: true });
       setAddRowSuccessToast(`Successfully ingested and indexed "${file.name}".`);
       setTimeout(() => setAddRowSuccessToast(null), 4000);
     } catch (err: any) {
@@ -833,7 +976,7 @@ export default function SheetManagementPanel(): React.ReactElement {
     const res = await dispatch(
       removeSheetTable({ entity, businessId: activeBusinessId })
     ).unwrap();
-    await loadSyncedSheets(activeBusinessId);
+    await loadSyncedSheets(activeBusinessId, { forceRefresh: true });
     if (
       activeCitation &&
       activeCitation.source_type === 'table' &&
@@ -854,7 +997,8 @@ export default function SheetManagementPanel(): React.ReactElement {
     }
     setClientAppendError(null);
     const res = await deleteWorkspaceDocument(doc.doc_id, activeBusinessId);
-    await loadDocuments(activeBusinessId);
+    removeCachedDocument(activeBusinessId, doc.doc_id || doc.filename);
+    await loadDocuments(activeBusinessId, { forceRefresh: true });
     if (activeCitation && activeCitation.source_id === doc.doc_id) {
       setActiveCitation(null);
     }
@@ -1313,9 +1457,13 @@ export default function SheetManagementPanel(): React.ReactElement {
     nlPrompt,
     onPromptChange: (prompt) => dispatch(setSheetNlPrompt(prompt)),
     onRefreshTable: () =>
-      activeEntity
-        ? dispatch(loadSheetRows(activeEntity))
-        : dispatch(loadBusinessSheets({ businessId: activeBusinessId })),
+      dispatch(
+        loadBusinessSheets({
+          businessId: activeBusinessId,
+          preferredEntity: activeEntity,
+          forceRefresh: true,
+        })
+      ),
     onMutationsPreviewChange: (mutations) => setPendingMutations(mutations),
     onRunSheetInstruction: handleRoutedSheetInstruction,
     onApplySheetQueryResult: (payload) => dispatch(applySheetQueryPayload(payload)),
@@ -1354,7 +1502,24 @@ export default function SheetManagementPanel(): React.ReactElement {
           tableList={tableList}
           onSelectTable={(entity) => {
             dispatch(setActiveSheetEntity(entity));
-            dispatch(loadSheetRows(entity));
+            setWorkspaceLastActiveEntity(activeBusinessId, entity);
+            const existingRows = rowsByEntity[entity];
+            const tableMeta = availableTables.find(
+              (t) => t.entity.toLowerCase() === entity.toLowerCase()
+            );
+            const expectedCount = Number(tableMeta?.rowCount ?? 0);
+            const hasCompleteRows =
+              Array.isArray(existingRows) &&
+              (expectedCount === 0 || existingRows.length >= Math.min(expectedCount, 500));
+            if (!hasCompleteRows) {
+              dispatch(
+                loadSheetRows({
+                  entity,
+                  businessId: activeBusinessId,
+                  forceRefresh: true,
+                })
+              );
+            }
           }}
           onRemoveTable={handleRemoveTable}
           onUploadCsv={(file) => {
@@ -1365,11 +1530,22 @@ export default function SheetManagementPanel(): React.ReactElement {
           onOpenImportGoogleSheet={handleOpenImportSheetModal}
           onRefreshTable={() => {
             if (activeEntity) {
-              dispatch(loadSheetRows(activeEntity));
+              dispatch(
+                loadSheetRows({
+                  entity: activeEntity,
+                  businessId: activeBusinessId,
+                  forceRefresh: true,
+                })
+              );
             } else {
-              dispatch(loadBusinessSheets({ businessId: activeBusinessId }));
+              dispatch(
+                loadBusinessSheets({
+                  businessId: activeBusinessId,
+                  forceRefresh: true,
+                })
+              );
             }
-            loadSyncedSheets(activeBusinessId);
+            loadSyncedSheets(activeBusinessId, { forceRefresh: true });
           }}
           documents={documents}
           onUploadDocument={handleUploadDocument}
@@ -1387,7 +1563,7 @@ export default function SheetManagementPanel(): React.ReactElement {
           }}
           isUploadingDoc={isUploadingDoc}
           isBusy={isBusy}
-          onRefreshDocuments={() => loadDocuments(activeBusinessId)}
+          onRefreshDocuments={() => loadDocuments(activeBusinessId, { forceRefresh: true })}
           syncedTables={syncedSheets.map((s) => ({
             entity: s.table_name,
             google_spreadsheet_id: s.google_spreadsheet_id,
@@ -1805,7 +1981,15 @@ export default function SheetManagementPanel(): React.ReactElement {
                   type="button"
                   className="icon-action-btn"
                   disabled={sheetLoadStatus === 'loading'}
-                  onClick={() => dispatch(loadSheetRows(activeEntity))}
+                  onClick={() =>
+                    dispatch(
+                      loadSheetRows({
+                        entity: activeEntity,
+                        businessId: activeBusinessId,
+                        forceRefresh: true,
+                      })
+                    )
+                  }
                   title={`Refresh ${activeDisplayName || activeEntity} sheet from database`}
                 >
                   <RefreshCw
@@ -2192,8 +2376,11 @@ export default function SheetManagementPanel(): React.ReactElement {
             cmdInput.selectionEnd = cmdInput.value.length;
           }
         }}
-        onDocumentDeleted={async () => {
-          await loadDocuments(activeBusinessId);
+        onDocumentDeleted={async (deletedIdentifier) => {
+          if (deletedIdentifier) {
+            removeCachedDocument(activeBusinessId, deletedIdentifier);
+          }
+          await loadDocuments(activeBusinessId, { forceRefresh: true });
           setAddRowSuccessToast('Document successfully removed from workspace.');
           setTimeout(() => setAddRowSuccessToast(null), 3000);
         }}

@@ -9,25 +9,35 @@ import {
   deleteSheetTable,
 } from '../services/api';
 import { getActiveBusinessId } from '../config/constants';
+import {
+  getCachedWorkspaceContext,
+  setCachedWorkspaceTables,
+  patchCachedTableRows,
+  removeCachedTableEntity,
+  runDeduplicatedWorkspaceRequest,
+} from '../services/workspaceContextCache';
 
 /**
  * Thunk: Discover and load all spreadsheet tables that belong to the active businessId.
  * GET /api/sheets/tables?businessId={BUSINESS_ID}
+ * Supports L1/L2 cache hit when not forced, plus request deduplication and silent SWR.
  * @type {any}
  */
 export const loadBusinessSheets = createAsyncThunk(
   'sheets/loadBusinessSheets',
   async (arg = null, { rejectWithValue }) => {
     try {
-      const preferredEntity =
+      const options =
         typeof arg === 'string'
-          ? arg
+          ? { preferredEntity: arg }
           : arg && typeof arg === 'object'
-            ? arg.preferredEntity
-            : null;
+            ? arg
+            : {};
+      const preferredEntity = options.preferredEntity || null;
+      const forceRefresh = Boolean(options.forceRefresh);
       const businessId =
-        arg && typeof arg === 'object' && arg.businessId !== undefined
-          ? String(arg.businessId || '').trim()
+        options.businessId !== undefined
+          ? String(options.businessId || '').trim()
           : getActiveBusinessId();
 
       if (!businessId) {
@@ -35,15 +45,46 @@ export const loadBusinessSheets = createAsyncThunk(
           businessId: '',
           tables: [],
           preferredEntity: null,
+          fromCache: false,
         };
       }
 
-      const data = await fetchBusinessSheets(businessId);
+      if (!forceRefresh) {
+        const cached = getCachedWorkspaceContext(businessId);
+        if (cached?.freshness?.tablesFresh && Array.isArray(cached.snapshot?.tables)) {
+          const cleanPref = preferredEntity
+            ? String(preferredEntity).trim()
+            : cached.snapshot.lastActiveEntity || null;
+          return {
+            businessId,
+            tables: cached.snapshot.tables,
+            rowsByEntity: cached.snapshot.rowsByEntity || undefined,
+            preferredEntity: cleanPref,
+            fromCache: true,
+          };
+        }
+      }
+
+      const data = await runDeduplicatedWorkspaceRequest(
+        'businessSheets',
+        businessId,
+        () => fetchBusinessSheets(businessId),
+        { force: forceRefresh }
+      );
       const tables = Array.isArray(data?.tables) ? data.tables : [];
-      return {
-        businessId: data?.business_id || businessId,
+      const resolvedBizId = data?.business_id || businessId;
+      const cleanPreferred = preferredEntity ? String(preferredEntity).trim() : null;
+
+      setCachedWorkspaceTables(resolvedBizId, {
         tables,
-        preferredEntity: preferredEntity ? String(preferredEntity).trim() : null,
+        lastActiveEntity: cleanPreferred || undefined,
+      });
+
+      return {
+        businessId: resolvedBizId,
+        tables,
+        preferredEntity: cleanPreferred,
+        fromCache: false,
       };
     } catch (err) {
       return rejectWithValue({
@@ -62,19 +103,36 @@ export const loadSheetRows = createAsyncThunk(
   'sheets/loadSheetRows',
   async (entityArg, { getState, dispatch, rejectWithValue }) => {
     try {
+      const isObjArg = Boolean(entityArg && typeof entityArg === 'object');
+      const rawEntity = isObjArg ? entityArg.entity : entityArg;
+      const forceRefresh = isObjArg ? Boolean(entityArg.forceRefresh) : false;
+      const targetBiz =
+        isObjArg && entityArg.businessId
+          ? String(entityArg.businessId).trim()
+          : getState().sheets?.businessId || getActiveBusinessId();
+
       const targetEntity = String(
-        entityArg || getState().sheets?.activeEntity || ''
+        rawEntity || getState().sheets?.activeEntity || ''
       ).trim();
       if (!targetEntity) {
-        const res = await dispatch(loadBusinessSheets()).unwrap();
+        const res = await dispatch(
+          loadBusinessSheets({ businessId: targetBiz, forceRefresh })
+        ).unwrap();
         return {
           isBusinessDiscovery: true,
           ...res,
         };
       }
-      const data = await fetchSheetRows(targetEntity);
+
+      const data = await runDeduplicatedWorkspaceRequest(
+        `sheetRows:${targetEntity}`,
+        targetBiz,
+        () => fetchSheetRows(targetEntity, targetBiz),
+        { force: forceRefresh }
+      );
       return {
         isBusinessDiscovery: false,
+        businessId: targetBiz,
         entity: data?.entity || targetEntity,
         displayName: data?.displayName || targetEntity,
         columns: Array.isArray(data?.columns) ? data.columns : [],
@@ -184,6 +242,8 @@ export const applySheetMutation = createAsyncThunk(
     try {
       const targetEntity =
         entity || getState().sheets?.activeEntity || 'products';
+      const targetBiz =
+        getState().sheets?.businessId || getActiveBusinessId();
       const historyPayload = Array.isArray(conversation_history) && conversation_history.length > 0
         ? conversation_history.slice(-5)
         : Array.isArray(conversationHistory)
@@ -196,9 +256,10 @@ export const applySheetMutation = createAsyncThunk(
         mutation,
         expectedPreviewHash,
         conversation_history: historyPayload,
-      });
+      }, targetBiz);
       return {
         ...data,
+        businessId: targetBiz,
         entity: targetEntity,
         promptUsed: message,
       };
@@ -216,12 +277,20 @@ export const applySheetMutation = createAsyncThunk(
  */
 export const importSheetCsvFile = createAsyncThunk(
   'sheets/importSheetCsvFile',
-  async ({ file, entity }, { dispatch, rejectWithValue }) => {
+  async ({ file, entity }, { getState, dispatch, rejectWithValue }) => {
     try {
       const targetEntity = entity ? String(entity).trim() : '';
-      const data = await uploadSheetCsv(targetEntity, file, 'replace');
+      const targetBiz =
+        getState().sheets?.businessId || getActiveBusinessId();
+      const data = await uploadSheetCsv(targetEntity, file, 'replace', targetBiz);
       const activeEntity = data.entity || targetEntity;
-      await dispatch(loadBusinessSheets(activeEntity));
+      await dispatch(
+        loadBusinessSheets({
+          preferredEntity: activeEntity,
+          businessId: targetBiz,
+          forceRefresh: true,
+        })
+      );
       return {
         ...data,
         entity: activeEntity,
@@ -244,9 +313,17 @@ export const appendSheetCsvFile = createAsyncThunk(
     try {
       const targetEntity =
         entity || getState().sheets?.activeEntity || '';
-      const data = await uploadSheetCsv(targetEntity, file, 'append');
+      const targetBiz =
+        getState().sheets?.businessId || getActiveBusinessId();
+      const data = await uploadSheetCsv(targetEntity, file, 'append', targetBiz);
       const activeEntity = data.entity || targetEntity;
-      await dispatch(loadBusinessSheets(activeEntity));
+      await dispatch(
+        loadBusinessSheets({
+          preferredEntity: activeEntity,
+          businessId: targetBiz,
+          forceRefresh: true,
+        })
+      );
       return {
         ...data,
         entity: activeEntity,
@@ -269,13 +346,22 @@ export const insertSingleSheetRow = createAsyncThunk(
     try {
       const targetEntity =
         entity || getState().sheets?.activeEntity || '';
-      const data = await addSheetRow(targetEntity, row);
+      const targetBiz =
+        getState().sheets?.businessId || getActiveBusinessId();
+      const data = await addSheetRow(targetEntity, row, targetBiz);
       const activeEntity = data.entity || targetEntity;
       if (!Array.isArray(data.rows)) {
-        await dispatch(loadSheetRows(activeEntity));
+        await dispatch(
+          loadSheetRows({
+            entity: activeEntity,
+            businessId: targetBiz,
+            forceRefresh: true,
+          })
+        );
       }
       return {
         ...data,
+        businessId: targetBiz,
         entity: activeEntity,
       };
     } catch (err) {
@@ -302,10 +388,17 @@ export const removeSheetTable = createAsyncThunk(
         throw new Error('Sheet entity and workspace ID are required.');
       }
       const data = await deleteSheetTable(targetEntity, targetBiz);
-      await dispatch(loadBusinessSheets({ businessId: targetBiz }));
+      const removedEntity = data.entity || targetEntity;
+      removeCachedTableEntity(targetBiz, removedEntity);
+      await dispatch(
+        loadBusinessSheets({
+          businessId: targetBiz,
+          forceRefresh: true,
+        })
+      );
       return {
         ...data,
-        entity: data.entity || targetEntity,
+        entity: removedEntity,
       };
     } catch (err) {
       return rejectWithValue({
@@ -451,32 +544,119 @@ const sheetSlice = createSlice({
     resetSheetWorkspaceState() {
       return { ...initialState };
     },
+    hydrateWorkspaceTablesFromCache(state, action) {
+      const payload = action.payload || {};
+      const targetBizId = String(payload.businessId || '').trim();
+      const tables = Array.isArray(payload.tables) ? payload.tables : [];
+      const providedRowsByEntity =
+        payload.rowsByEntity && typeof payload.rowsByEntity === 'object'
+          ? payload.rowsByEntity
+          : null;
+
+      state.businessId = targetBizId || state.businessId;
+      state.sheetLoadStatus = 'succeeded';
+      state.sheetLoadError = null;
+      state.availableTables = tables.map((t) => ({
+        entity: t.entity,
+        tableName: t.tableName || t.entity,
+        displayName: t.displayName || t.entity,
+        fileName: t.fileName || `${t.entity}.csv`,
+        columns: Array.isArray(t.columns) ? t.columns : [],
+        rowCount:
+          typeof t.rowCount === 'number'
+            ? t.rowCount
+            : Array.isArray(t.rows)
+              ? t.rows.length
+              : 0,
+      }));
+
+      const nextRowsByEntity = {};
+      for (const t of tables) {
+        if (Array.isArray(t.rows) && t.rows.length > 0) {
+          nextRowsByEntity[t.entity] = t.rows;
+        } else if (
+          providedRowsByEntity &&
+          Array.isArray(providedRowsByEntity[t.entity])
+        ) {
+          nextRowsByEntity[t.entity] = providedRowsByEntity[t.entity];
+        } else {
+          nextRowsByEntity[t.entity] = Array.isArray(t.rows) ? t.rows : [];
+        }
+      }
+      state.rowsByEntity = nextRowsByEntity;
+
+      if (tables.length === 0) {
+        state.activeEntity = '';
+        state.activeDisplayName = '';
+        state.activeFileName = '';
+        state.activeColumns = [];
+      } else {
+        const preferred = payload.preferredEntity || state.activeEntity;
+        const chosenTable =
+          (preferred &&
+            tables.find(
+              (t) => t.entity.toLowerCase() === String(preferred).toLowerCase()
+            )) ||
+          tables[0];
+        state.activeEntity = chosenTable.entity;
+        state.activeDisplayName = chosenTable.displayName || chosenTable.entity;
+        state.activeFileName =
+          chosenTable.fileName || `${chosenTable.entity}.csv`;
+        state.activeColumns = Array.isArray(chosenTable.columns)
+          ? chosenTable.columns
+          : [];
+      }
+
+      state.queryResult = null;
+      state.queryError = null;
+      state.queryStatus = 'idle';
+      state.mutationPreview = null;
+      state.mutationPreviewError = null;
+      state.mutationPreviewStatus = 'idle';
+      state.mutationApplyError = null;
+      state.mutationApplySuccessMessage = null;
+    },
   },
   extraReducers: (builder) => {
     builder
       // Load Business Sheets (Discovers only tables belonging to active businessId)
-      .addCase(loadBusinessSheets.pending, (state) => {
-        state.sheetLoadStatus = 'loading';
-        state.sheetLoadError = null;
-        const currentBizId = getActiveBusinessId();
-        if (state.businessId && state.businessId !== currentBizId) {
-          state.businessId = currentBizId;
-          state.availableTables = [];
-          state.rowsByEntity = {};
-          state.activeEntity = '';
-          state.activeDisplayName = '';
-          state.activeFileName = '';
-          state.activeColumns = [];
-          state.queryResult = null;
-          state.mutationPreview = null;
+      .addCase(loadBusinessSheets.pending, (state, action) => {
+        const isSilent = Boolean(action.meta?.arg?.silent);
+        if (!isSilent) {
+          state.sheetLoadStatus = 'loading';
+          state.sheetLoadError = null;
+          const currentBizId = getActiveBusinessId();
+          if (state.businessId && state.businessId !== currentBizId) {
+            state.businessId = currentBizId;
+            state.availableTables = [];
+            state.rowsByEntity = {};
+            state.activeEntity = '';
+            state.activeDisplayName = '';
+            state.activeFileName = '';
+            state.activeColumns = [];
+            state.queryResult = null;
+            state.mutationPreview = null;
+          }
         }
       })
       .addCase(loadBusinessSheets.fulfilled, (state, action) => {
+        const activeBizId = getActiveBusinessId();
+        if (
+          activeBizId &&
+          action.payload?.businessId &&
+          action.payload.businessId !== activeBizId
+        ) {
+          return;
+        }
         state.sheetLoadStatus = 'succeeded';
         state.businessId = action.payload.businessId;
         const tables = Array.isArray(action.payload.tables)
           ? action.payload.tables
           : [];
+        const cachedRowsMap =
+          action.payload.rowsByEntity && typeof action.payload.rowsByEntity === 'object'
+            ? action.payload.rowsByEntity
+            : null;
 
         state.availableTables = tables.map((t) => ({
           entity: t.entity,
@@ -494,7 +674,13 @@ const sheetSlice = createSlice({
 
         const nextRowsByEntity = {};
         for (const t of tables) {
-          nextRowsByEntity[t.entity] = Array.isArray(t.rows) ? t.rows : [];
+          if (Array.isArray(t.rows) && t.rows.length > 0) {
+            nextRowsByEntity[t.entity] = t.rows;
+          } else if (cachedRowsMap && Array.isArray(cachedRowsMap[t.entity])) {
+            nextRowsByEntity[t.entity] = cachedRowsMap[t.entity];
+          } else {
+            nextRowsByEntity[t.entity] = Array.isArray(t.rows) ? t.rows : [];
+          }
         }
         state.rowsByEntity = nextRowsByEntity;
 
@@ -525,23 +711,49 @@ const sheetSlice = createSlice({
         }
       })
       .addCase(loadBusinessSheets.rejected, (state, action) => {
+        const isSilent = Boolean(action.meta?.arg?.silent);
+        if (isSilent && state.availableTables.length > 0) {
+          return;
+        }
         state.sheetLoadStatus = 'failed';
         state.sheetLoadError =
           action.payload?.message || 'Failed to load business sheets.';
       })
 
       // Load Sheet Rows
-      .addCase(loadSheetRows.pending, (state) => {
-        state.sheetLoadStatus = 'loading';
-        state.sheetLoadError = null;
+      .addCase(loadSheetRows.pending, (state, action) => {
+        const isSilent = Boolean(
+          action.meta?.arg &&
+            typeof action.meta.arg === 'object' &&
+            action.meta.arg.silent
+        );
+        if (!isSilent) {
+          state.sheetLoadStatus = 'loading';
+          state.sheetLoadError = null;
+        }
       })
       .addCase(loadSheetRows.fulfilled, (state, action) => {
-        state.sheetLoadStatus = 'succeeded';
         if (action.payload?.isBusinessDiscovery) {
+          state.sheetLoadStatus = 'succeeded';
           return;
         }
-        const { entity, displayName, columns, rows } = action.payload;
-        if (!entity) return;
+        const { businessId, entity, displayName, columns, rows } = action.payload;
+        if (!entity) {
+          state.sheetLoadStatus = 'succeeded';
+          return;
+        }
+        const resolvedBizId = businessId || state.businessId || getActiveBusinessId();
+        if (resolvedBizId) {
+          patchCachedTableRows(resolvedBizId, entity, rows, {
+            displayName,
+            columns,
+          });
+        }
+        const activeBizId = getActiveBusinessId();
+        if (activeBizId && resolvedBizId && resolvedBizId !== activeBizId) {
+          return;
+        }
+        state.sheetLoadStatus = 'succeeded';
         state.activeEntity = entity;
         if (displayName) state.activeDisplayName = displayName;
         if (Array.isArray(columns) && columns.length > 0) {
@@ -576,6 +788,14 @@ const sheetSlice = createSlice({
         }
       })
       .addCase(loadSheetRows.rejected, (state, action) => {
+        const isSilent = Boolean(
+          action.meta?.arg &&
+            typeof action.meta.arg === 'object' &&
+            action.meta.arg.silent
+        );
+        if (isSilent && state.availableTables.length > 0) {
+          return;
+        }
         state.sheetLoadStatus = 'failed';
         state.sheetLoadError =
           action.payload?.message || 'Failed to load sheet records.';
@@ -777,6 +997,24 @@ const sheetSlice = createSlice({
         } else {
           state.queryResult = null;
         }
+
+        const syncedRows = state.rowsByEntity[targetEntity];
+        const mutatedBizId =
+          payload.businessId || state.businessId || getActiveBusinessId();
+        if (targetEntity && Array.isArray(syncedRows)) {
+          const tblIdx = state.availableTables.findIndex(
+            (t) => t.entity.toLowerCase() === targetEntity.toLowerCase()
+          );
+          if (tblIdx >= 0) {
+            state.availableTables[tblIdx] = {
+              ...state.availableTables[tblIdx],
+              rowCount: syncedRows.length,
+            };
+          }
+          if (mutatedBizId) {
+            patchCachedTableRows(mutatedBizId, targetEntity, syncedRows);
+          }
+        }
       })
       .addCase(applySheetMutation.rejected, (state, action) => {
         state.mutationApplyStatus = 'failed';
@@ -869,6 +1107,20 @@ const sheetSlice = createSlice({
         const targetEntity = action.payload?.entity || state.activeEntity;
         if (Array.isArray(action.payload?.rows)) {
           state.rowsByEntity[targetEntity] = action.payload.rows;
+          const tblIdx = state.availableTables.findIndex(
+            (t) => t.entity.toLowerCase() === String(targetEntity || '').toLowerCase()
+          );
+          if (tblIdx >= 0) {
+            state.availableTables[tblIdx] = {
+              ...state.availableTables[tblIdx],
+              rowCount: action.payload.rows.length,
+            };
+          }
+          const targetBizId =
+            action.payload?.businessId || state.businessId || getActiveBusinessId();
+          if (targetBizId && targetEntity) {
+            patchCachedTableRows(targetBizId, targetEntity, action.payload.rows);
+          }
         }
       })
       .addCase(insertSingleSheetRow.rejected, (state, action) => {
@@ -912,6 +1164,7 @@ export const {
   discardMutationPreview,
   clearRowInsertState,
   resetSheetWorkspaceState,
+  hydrateWorkspaceTablesFromCache,
 } = sheetSlice.actions;
 
 export default sheetSlice.reducer;

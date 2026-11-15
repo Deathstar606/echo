@@ -38,10 +38,16 @@ import {
   setLoggedInUser,
   isDemoUserAccount,
 } from '../config/constants';
+import {
+  clearAllL1Cache,
+  clearUserWorkspaceCache,
+} from '../services/workspaceContextCache';
+import { prefetchWorkspaceContext } from '../services/workspacePrefetch';
 
 export default function TopHeader() {
   const location = useLocation();
   const navigate = useNavigate();
+  const hoverPrefetchTimerRef = useRef(null);
   const [apiConnected, setApiConnected] = useState(true);
 
   const [currentUser, setCurrentUser] = useState(() => getLoggedInUser());
@@ -468,6 +474,15 @@ export default function TopHeader() {
   };
 
   const handleSignOut = () => {
+    const departingUserId = currentUser?.id;
+    if (hoverPrefetchTimerRef.current) {
+      clearTimeout(hoverPrefetchTimerRef.current);
+      hoverPrefetchTimerRef.current = null;
+    }
+    clearAllL1Cache();
+    if (departingUserId) {
+      clearUserWorkspaceCache(departingUserId);
+    }
     setLoggedInUser(null);
     clearActiveWorkspace(true);
     setCurrentUser(null);
@@ -650,6 +665,23 @@ export default function TopHeader() {
                             <button
                               type="button"
                               onClick={() => handleSelectWorkspace(ws)}
+                              onMouseEnter={() => {
+                                if (!ws.id || ws.id === currentWsId) return;
+                                if (hoverPrefetchTimerRef.current) {
+                                  clearTimeout(hoverPrefetchTimerRef.current);
+                                }
+                                hoverPrefetchTimerRef.current = setTimeout(() => {
+                                  prefetchWorkspaceContext(ws.id, {
+                                    userId: currentUser?.id,
+                                  });
+                                }, 140);
+                              }}
+                              onMouseLeave={() => {
+                                if (hoverPrefetchTimerRef.current) {
+                                  clearTimeout(hoverPrefetchTimerRef.current);
+                                  hoverPrefetchTimerRef.current = null;
+                                }
+                              }}
                               style={{
                                 textAlign: 'left',
                                 padding: '6px 10px',

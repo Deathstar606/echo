@@ -77,6 +77,7 @@ import {
 import SheetManagementPanel from '../components/SheetManagementPanel';
 import CitationBadges from '../components/CitationBadges';
 import CitationInspectorModal from '../components/CitationInspectorModal';
+import { prefetchWorkspaceContext } from '../services/workspacePrefetch';
 
 function formatInboxTime(isoString) {
   if (!isoString) return '';
@@ -138,6 +139,10 @@ export default function CompanyDashboard() {
   const [activeTab, setActiveTab] = useState(() => {
     const t = new URLSearchParams(window.location.search).get('tab');
     return t === 'sheets' ? 'sheets' : 'inquiry';
+  });
+  const [hasOpenedSheetsTab, setHasOpenedSheetsTab] = useState(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    return t === 'sheets';
   });
   const [currentUser, setCurrentUser] = useState(() => getLoggedInUser());
   const isDemoUser = isDemoUserAccount(currentUser);
@@ -627,6 +632,42 @@ export default function CompanyDashboard() {
     };
   }, [dispatch, currentUser?.id, activeBusinessId]);
 
+  useEffect(() => {
+    if (activeTab === 'sheets') {
+      setHasOpenedSheetsTab(true);
+    }
+  }, [activeTab]);
+
+  // Idle background prefetch of active workspace tables, docs & synced sheets while on Customer Inquiry
+  useEffect(() => {
+    if (!currentUser?.id || !activeBusinessId || hasOpenedSheetsTab) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const runPrefetch = () => {
+      if (cancelled) return;
+      prefetchWorkspaceContext(activeBusinessId, {
+        dispatch,
+        userId: currentUser.id,
+      });
+    };
+
+    if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+      const idleId = window.requestIdleCallback(runPrefetch, { timeout: 1200 });
+      return () => {
+        cancelled = true;
+        window.cancelIdleCallback(idleId);
+      };
+    }
+
+    const timerId = window.setTimeout(runPrefetch, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timerId);
+    };
+  }, [dispatch, currentUser?.id, activeBusinessId, hasOpenedSheetsTab]);
+
   // Scroll to bottom when conversation changes or new messages arrive
   useEffect(() => {
     if (activeTab === 'inquiry' && threadEndRef.current) {
@@ -927,15 +968,20 @@ export default function CompanyDashboard() {
             Create New Workspace
           </button>
         </div>
-      ) : activeTab === 'sheets' ? (
-        <SheetManagementPanel />
       ) : (
-        <motion.main
-          className="company-workspace-main"
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2 }}
-        >
+        <>
+          {(hasOpenedSheetsTab || activeTab === 'sheets') && (
+            <div style={{ display: activeTab === 'sheets' ? 'block' : 'none', width: '100%' }}>
+              <SheetManagementPanel />
+            </div>
+          )}
+          {activeTab !== 'sheets' && (
+            <motion.main
+              className="company-workspace-main"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+            >
           {/* Left & Center Card: Customer Inquiry Panel */}
           <section className="inquiry-main-card">
             <div className="inquiry-card-header">
@@ -3161,6 +3207,8 @@ export default function CompanyDashboard() {
             </div>
           </aside>
         </motion.main>
+          )}
+        </>
       )}
 
       {/* Announcement History Modal (Live Backend Integration) */}

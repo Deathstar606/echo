@@ -24,6 +24,7 @@ import {
   getGoogleAuthUrlApi,
   type GoogleDriveFile,
 } from '../services/api';
+import { evictCachedDocumentChunks } from '../services/workspaceContextCache';
 import { getActiveBusinessId, getLoggedInUser, isDemoUserAccount } from '../config/constants';
 
 interface KnowledgeSourceBarProps {
@@ -215,6 +216,8 @@ export default function KnowledgeSourceBar({
     setDocImportError(null);
     try {
       const res = await importGoogleDocApi(targetId, resolvedBusinessId);
+      if (res?.doc_id) evictCachedDocumentChunks(resolvedBusinessId, res.doc_id);
+      if (res?.filename) evictCachedDocumentChunks(resolvedBusinessId, res.filename);
       setDocImportSuccess(
         `Successfully imported "${res.filename}" (${res.page_count} page(s), ${res.chunk_count} chunk(s)).`
       );
