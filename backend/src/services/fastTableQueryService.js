@@ -27,12 +27,17 @@ const {
   normalizeConversationHistory,
   getLatestActiveContext,
   hasFollowUpReference,
+  hasExplicitScopeReset,
 } = require('../utils/conversationHistory');
 
 const MUTATION_OR_ACTION_REGEX =
   /\b(?:update|set|change|modify|edit|alter|swap|replace|refund|reconcile|enforce|process|elevate|upgrade|downgrade|promote|freeze|cut|reduce|increase|decrease|adjust|add|insert|create|delete|remove|drop|allocate|deploy|assign|audit|review|email|e-mail|notify|message|alert|send|draft|dispatch|apply|mark|cancel|trigger|execute|clear|import|upload)\b/i;
 const DIRECT_MUTATION_LEAD_REGEX =
-  /^(?:please\s+)?(?:update|set|change|modify|edit|alter|swap|replace|increase|decrease|reduce|cut|adjust|add|subtract|multiply|mark|delete|remove|create)\b/i;
+  /^(?:please\s+)?(?:update|set|change|modify|edit|alter|swap|replace|increase|decrease|reduce|cut|adjust|add|subtract|multiply|mark|delete|remove|create|allocate|assign|deploy|issue|grant|deduct)\b/i;
+const FOLLOW_UP_MODIFICATION_LEAD_REGEX =
+  /^(?:actually|instead|no,?\s+|make\s+(?:it|that)|do\s+the\s+same|same\s+for)\b/i;
+const GREETING_OR_ACK_REGEX =
+  /^(?:hi|hello|hey|thanks|thank\s+you|bye|goodbye|yes|no|ok|okay|confirm|cancel)[.!\s]*$/i;
 const EXTERNAL_ACTION_REGEX =
   /\b(?:email|e-mail|notify|send|alert|draft|dispatch)\b/i;
 const MULTI_SOURCE_MUTATION_REGEX =
@@ -97,18 +102,31 @@ function isBasicTableQueryCandidate(prompt, history = []) {
   }
 
   if (NON_TABLE_WHY_HOW_REGEX.test(text)) return false;
-  if (!READ_LEAD_REGEX.test(text)) return false;
   if (MUTATION_OR_ACTION_REGEX.test(text)) return false;
   if (B2B_OR_DOC_REGEX.test(text) || SCOPED_POLICY_PREP_REGEX.test(text)) return false;
+
+  if (!READ_LEAD_REGEX.test(text)) {
+    if (GREETING_OR_ACK_REGEX.test(text) || hasExplicitScopeReset(text)) {
+      return false;
+    }
+    const normalizedHistory = normalizeConversationHistory(history);
+    const activeCtx = getLatestActiveContext(normalizedHistory);
+    if (activeCtx.pendingClarification?.baseIntent === 'SHEET_QUERY') {
+      return true;
+    }
+    if (activeCtx.activeTargetTable && hasFollowUpReference(text)) {
+      return true;
+    }
+    return false;
+  }
 
   return true;
 }
 
 /**
- * Identifies direct, table-local mutations that do not need document/RAG intent
- * classification. Interpretation and preview still use the existing Gemini and
- * validation pipeline; requests with history or external/document dependencies
- * are deliberately left to the normal router.
+ * Identifies direct, table-local mutations (including follow-up mutations and
+ * clarification replies across the 5-turn memory window) that do not need
+ * heavyweight document/RAG intent routing.
  *
  * @param {string} prompt
  * @param {Array<object>} [history=[]]
@@ -116,8 +134,8 @@ function isBasicTableQueryCandidate(prompt, history = []) {
  */
 function isBasicTableMutationCandidate(prompt, history = []) {
   const text = String(prompt || '').trim();
-  if (!text || (Array.isArray(history) && history.length > 0)) return false;
-  if (!DIRECT_MUTATION_LEAD_REGEX.test(text)) return false;
+  if (!text) return false;
+  if (GREETING_OR_ACK_REGEX.test(text)) return false;
   if (
     B2B_OR_DOC_REGEX.test(text) ||
     SCOPED_POLICY_PREP_REGEX.test(text) ||
@@ -126,7 +144,34 @@ function isBasicTableMutationCandidate(prompt, history = []) {
   ) {
     return false;
   }
-  return true;
+
+  if (DIRECT_MUTATION_LEAD_REGEX.test(text)) {
+    return true;
+  }
+
+  if (READ_LEAD_REGEX.test(text) || NON_TABLE_WHY_HOW_REGEX.test(text)) {
+    return false;
+  }
+
+  const normalizedHistory = normalizeConversationHistory(history);
+  if (normalizedHistory.length === 0) return false;
+
+  const activeCtx = getLatestActiveContext(normalizedHistory);
+  if (activeCtx.pendingClarification?.baseIntent === 'SHEET_MUTATION') {
+    return !hasExplicitScopeReset(text);
+  }
+
+  const lastIntent = String(activeCtx.lastTurn?.resolved_intent || '').toUpperCase();
+  if (lastIntent.includes('SHEET_MUTATION') && !hasExplicitScopeReset(text)) {
+    if (
+      FOLLOW_UP_MODIFICATION_LEAD_REGEX.test(text) ||
+      tokenizePromptWords(text).length <= 6
+    ) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function escapeRegex(str) {
@@ -318,8 +363,17 @@ function resolveSingleTableTarget(
     return { meta: explicitlyNamed[0].meta };
   }
 
-  // Follow-up narrowing/filtering with zero new table name inherits the prior turn's table
-  if (hasFollowUpReference(prompt) && activeCtx.activeTargetTable) {
+  // Follow-up narrowing, clarification replies, or post-mutation column/value follow-ups inherit the prior turn's active table
+  const isMutationFollowUp = String(activeCtx.lastTurn?.resolved_intent || '')
+    .toUpperCase()
+    .includes('SHEET_MUTATION');
+  if (
+    (hasFollowUpReference(prompt) ||
+      Boolean(activeCtx.pendingClarification) ||
+      isMutationFollowUp) &&
+    activeCtx.activeTargetTable &&
+    !hasExplicitScopeReset(prompt)
+  ) {
     const priorMeta = metadataRows.find(
       (m) =>
         normalizeEntityName(m.table_name) ===
@@ -541,6 +595,7 @@ async function tryExecuteFastTableQuery({
       `I could not map that query clearly onto columns in ${tableName}. Please clarify your filter criteria.`;
     return {
       status: 'SHEET_QUERY',
+      query_status: 'clarification_needed',
       intent: 'sheet_query',
       entity: schema.entity,
       prompt,
@@ -570,6 +625,7 @@ async function tryExecuteFastTableQuery({
       execution.message || `Please clarify your filter criteria for ${schema.entity}.`;
     return {
       status: 'SHEET_QUERY',
+      query_status: 'clarification_needed',
       intent: 'sheet_query',
       entity: schema.entity,
       prompt,
@@ -595,9 +651,18 @@ async function tryExecuteFastTableQuery({
   });
 
   const highlightedRows = buildHighlightedRows(schema.tableName, rows);
+  const executedFilters = Array.isArray(execution.interpretedQuery?.filters)
+    ? execution.interpretedQuery.filters
+    : Array.isArray(interpreted?.filters)
+      ? interpreted.filters
+      : [];
+  const appliedFilterSummary = executedFilters
+    .map((f) => `${f.field || f.column} ${f.operator} ${JSON.stringify(f.value)}`)
+    .join(` ${execution.interpretedQuery?.filter_logic || interpreted?.filter_logic || 'AND'} `);
 
   return {
     status: 'SHEET_QUERY',
+    query_status: 'ok',
     intent: 'sheet_query',
     entity: schema.entity,
     prompt,
@@ -608,6 +673,7 @@ async function tryExecuteFastTableQuery({
     matched_ids: highlightedRows.map((h) => h.row_identifier),
     highlighted_rows: highlightedRows,
     interpretedQuery: execution.interpretedQuery,
+    applied_filter_summary: appliedFilterSummary,
     fast_path: true,
     citations: rows.slice(0, 8).map((row, idx) =>
       buildTableRowCitation(schema.tableName, row, idx + 1)
@@ -633,6 +699,7 @@ async function tryRouteBasicTableMutation({
     return null;
   }
 
+  const normalizedHistory = normalizeConversationHistory(history);
   const metadataRows = await listWorkspaceTableMetadataCached(businessId);
   if (!Array.isArray(metadataRows) || metadataRows.length === 0) return null;
 
@@ -640,7 +707,7 @@ async function tryRouteBasicTableMutation({
     prompt,
     entity,
     metadataRows,
-    []
+    normalizedHistory
   );
   if (!targetMatch?.meta) return null;
 

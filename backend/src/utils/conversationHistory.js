@@ -9,6 +9,48 @@ const FOLLOW_UP_REFERENCE_REGEX =
 const SCOPE_RESET_REGEX =
   /\b(?:across\s+(?:all|the\s+(?:whole|entire)\s+(?:table|sheet|dataset))|in\s+the\s+(?:whole|entire)\s+(?:table|sheet|dataset)|from\s+the\s+(?:whole|entire)\s+(?:table|sheet|dataset)|all\s+rows\s+in\s+(?:the\s+)?(?:table|sheet)|ignore\s+previous|start\s+over)\b/i;
 
+const MUTATION_VERB_REGEX =
+  /\b(?:update|set|change|modify|edit|alter|swap|replace|increase|decrease|reduce|cut|adjust|add|subtract|multiply|mark|delete|remove|create|allocate|assign|deploy|issue|grant|deduct)\b/i;
+
+const RESOLVED_SUMMARY_PREFIX_REGEX =
+  /^(?:Found\s+\d+|Mutation\s+preview\s+ready|Drafted\s+\d+|Completed\s+the\s+approved|Query\s+complete|No\s+matching\s+rows)/i;
+
+const CLARIFICATION_SUMMARY_REGEX =
+  /(?:\bplease\s+(?:specify|clarify|indicate|confirm|provide|select|choose)|could\s+you\s+(?:please\s+)?(?:clarify|specify)|which\s+(?:column|field|table|record|row|unit|bed|value|action|operation|product|order|customer|patient)|specify\s+whether|what\s+action\s+would\s+you\s+like|\?\s*$)/i;
+
+function isClarificationTurn(turn) {
+  if (!turn || typeof turn !== 'object') return false;
+  const intent = String(turn.resolved_intent || '').trim().toUpperCase();
+  if (
+    intent === 'CONVERSATION' ||
+    intent === 'DOCUMENT_QUESTION' ||
+    intent === 'CROSS_SOURCE_READ'
+  ) {
+    return false;
+  }
+  if (intent.includes('CLARIFICATION')) {
+    return true;
+  }
+  const hasMatches =
+    Array.isArray(turn.matched_row_ids) && turn.matched_row_ids.length > 0;
+  if (hasMatches) return false;
+  const summary = String(turn.assistant_response_summary || '').trim();
+  if (!summary || RESOLVED_SUMMARY_PREFIX_REGEX.test(summary)) {
+    return false;
+  }
+  return CLARIFICATION_SUMMARY_REGEX.test(summary);
+}
+
+function inferBaseIntent(turn) {
+  const rawIntent = String(turn?.resolved_intent || '').trim().toUpperCase();
+  if (rawIntent.includes('MUTATION')) return 'SHEET_MUTATION';
+  if (rawIntent.includes('QUERY')) return 'SHEET_QUERY';
+  if (rawIntent.includes('CROSS_DOCUMENT')) return 'CROSS_DOCUMENT_OPERATION';
+  return MUTATION_VERB_REGEX.test(String(turn?.user_prompt || ''))
+    ? 'SHEET_MUTATION'
+    : 'SHEET_QUERY';
+}
+
 /**
  * Normalizes structured ConversationHistoryTurn[] or legacy { role, content }[]
  * into a 5-turn sliding window array.
@@ -114,6 +156,7 @@ function getLatestActiveContext(normalizedHistory = [], preferredTable = null) {
       matchedRowIds: [],
       appliedFilterSummary: '',
       fromTurnIndex: null,
+      pendingClarification: null,
     };
   }
 
@@ -136,6 +179,38 @@ function getLatestActiveContext(normalizedHistory = [], preferredTable = null) {
   let matchedRowIds = [];
   let appliedFilterSummary = '';
   let fromTurnIndex = null;
+
+  // Collect contiguous unresolved clarification turns from the tail on the active table
+  const clarificationTurns = [];
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const turn = list[i];
+    const turnTableNorm = turn.target_table ? turn.target_table.toLowerCase() : null;
+    if (targetNorm && turnTableNorm && turnTableNorm !== targetNorm) {
+      break;
+    }
+    if (!isClarificationTurn(turn)) {
+      break;
+    }
+    clarificationTurns.unshift(turn);
+  }
+
+  const pendingClarification =
+    clarificationTurns.length > 0
+      ? {
+          fromTurnIndex: clarificationTurns[0].turn_index,
+          lastTurnIndex:
+            clarificationTurns[clarificationTurns.length - 1].turn_index,
+          baseIntent: inferBaseIntent(clarificationTurns[0]),
+          combinedUserPrompt: clarificationTurns
+            .map((t) => String(t.user_prompt || '').trim())
+            .filter(Boolean)
+            .join(' -> '),
+          lastClarificationQuestion: String(
+            clarificationTurns[clarificationTurns.length - 1]
+              .assistant_response_summary || ''
+          ).trim(),
+        }
+      : null;
 
   for (let i = list.length - 1; i >= 0; i -= 1) {
     const turn = list[i];
@@ -165,6 +240,7 @@ function getLatestActiveContext(normalizedHistory = [], preferredTable = null) {
     matchedRowIds,
     appliedFilterSummary,
     fromTurnIndex,
+    pendingClarification,
   };
 }
 
@@ -190,22 +266,35 @@ function formatConversationHistoryForPrompt(normalizedHistory = []) {
   const list = Array.isArray(normalizedHistory) ? normalizedHistory.slice(-MAX_CONVERSATION_TURNS) : [];
   if (list.length === 0) return '';
 
-  return JSON.stringify(
-    list.map((t) => ({
-      turn_index: t.turn_index,
-      user_prompt: t.user_prompt,
-      resolved_intent: t.resolved_intent || undefined,
-      target_table: t.target_table || undefined,
-      matched_row_count: Array.isArray(t.matched_row_ids) ? t.matched_row_ids.length : 0,
-      matched_row_ids: Array.isArray(t.matched_row_ids) && t.matched_row_ids.length > 0
-        ? t.matched_row_ids.slice(0, 40)
-        : undefined,
-      applied_filter_summary: t.applied_filter_summary || undefined,
-      assistant_response_summary: t.assistant_response_summary || undefined,
-    })),
-    null,
-    2
-  );
+  let latestIdsIdx = -1;
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    if (Array.isArray(list[i].matched_row_ids) && list[i].matched_row_ids.length > 0) {
+      latestIdsIdx = i;
+      break;
+    }
+  }
+
+  return list
+    .map((t, idx) => {
+      const entry = {
+        turn: t.turn_index,
+        user: t.user_prompt,
+      };
+      if (t.resolved_intent) entry.intent = t.resolved_intent;
+      if (t.target_table) entry.table = t.target_table;
+      if (Array.isArray(t.matched_row_ids) && t.matched_row_ids.length > 0) {
+        entry.matched_count = t.matched_row_ids.length;
+        if (idx === latestIdsIdx) {
+          entry.matched_ids = t.matched_row_ids.slice(0, 15);
+        }
+      }
+      if (t.applied_filter_summary) entry.filter = t.applied_filter_summary;
+      if (t.assistant_response_summary) {
+        entry.assistant = t.assistant_response_summary.slice(0, 320);
+      }
+      return JSON.stringify(entry);
+    })
+    .join('\n');
 }
 
 /**
@@ -304,6 +393,7 @@ async function resolveIdentifierFilterForIds(
 module.exports = {
   MAX_CONVERSATION_TURNS,
   normalizeConversationHistory,
+  isClarificationTurn,
   getLatestActiveContext,
   hasFollowUpReference,
   hasExplicitScopeReset,

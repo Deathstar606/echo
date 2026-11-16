@@ -1280,7 +1280,10 @@ export default function SheetManagementPanel(): React.ReactElement {
               .filter(Boolean)
           : [];
     const proposedSummary = String(
-      result.message || result.approved_mutation?.update_description || ''
+      (result as any).applied_filter_summary ||
+        result.message ||
+        result.approved_mutation?.update_description ||
+        ''
     )
       .trim()
       .slice(0, 220);

@@ -113,22 +113,70 @@ function formatWorkspaceSources(tables, documents, chunks) {
   );
 }
 
-function enforceOperationalIntentPrecedence(routed, prompt, chunks) {
+function enforceOperationalIntentPrecedence(
+  routed,
+  prompt,
+  chunks,
+  activeHistoryContext = null
+) {
   const text = String(prompt || '').trim();
   const analyticalLead =
     /^(?:which|what|who|when|where|why|how|list|show|find|check|search|look up|identify|cross[- ]reference|evaluate|calculate|compute|compare|summari[sz]e)\b/i.test(
       text
     );
   const directAction =
-    /^(?:please\s+)?(?:update|set|change|swap|replace|refund|reconcile|enforce|allocate|notify|email|e-mail|send|modify|increase|reduce|decrease|delete|create|apply|mark)\b/i.test(
+    /^(?:please\s+)?(?:update|set|change|swap|replace|refund|reconcile|enforce|allocate|assign|deploy|issue|grant|deduct|notify|email|e-mail|send|modify|increase|reduce|decrease|delete|create|apply|mark)\b/i.test(
       text
     ) ||
-    /(?:,|\band\b|\bthen\b)\s*(?:please\s+)?(?:update|set|change|swap|replace|refund|reconcile|enforce|allocate|notify|email|e-mail|send|modify|increase|reduce|decrease|delete|create|apply|mark)\b/i.test(
+    /(?:,|\band\b|\bthen\b)\s*(?:please\s+)?(?:update|set|change|swap|replace|refund|reconcile|enforce|allocate|assign|deploy|issue|grant|deduct|notify|email|e-mail|send|modify|increase|reduce|decrease|delete|create|apply|mark)\b/i.test(
       text
     ) ||
-    /\b(?:i want|i need|please|can you|could you|would you)\s+(?:to\s+)?(?:update|set|change|swap|replace|refund|reconcile|enforce|allocate|notify|email|e-mail|send|modify|increase|reduce|decrease|delete|create|apply|mark)\b/i.test(
+    /\b(?:i want|i need|please|can you|could you|would you)\s+(?:to\s+)?(?:update|set|change|swap|replace|refund|reconcile|enforce|allocate|assign|deploy|issue|grant|deduct|notify|email|e-mail|send|modify|increase|reduce|decrease|delete|create|apply|mark)\b/i.test(
       text
     );
+
+  // Preserve the pending turn's intent when the user sends a short clarification reply (e.g., "occupied bed")
+  // or a short column/value follow-up immediately after a SHEET_MUTATION turn
+  const pendingIntent = activeHistoryContext?.pendingClarification?.baseIntent;
+  const resolvedEntity =
+    routed?.entity || activeHistoryContext?.activeTargetTable || null;
+  if (!analyticalLead && !directAction && pendingIntent) {
+    if (
+      pendingIntent === 'SHEET_MUTATION' &&
+      ['sheet_query', 'clarification_needed', 'conversation'].includes(routed?.intent)
+    ) {
+      return { ...routed, intent: 'sheet_mutation', entity: resolvedEntity };
+    }
+    if (
+      pendingIntent === 'SHEET_QUERY' &&
+      ['clarification_needed', 'conversation'].includes(routed?.intent)
+    ) {
+      return { ...routed, intent: 'sheet_query', entity: resolvedEntity };
+    }
+  }
+
+  const lastTurnIntent = String(
+    activeHistoryContext?.lastTurn?.resolved_intent || ''
+  ).toUpperCase();
+  const wordCount = text ? text.split(/\s+/).filter(Boolean).length : 0;
+  const nonDocNonConvFollowUp =
+    wordCount > 0 &&
+    wordCount <= 6 &&
+    !/^(?:hi|hello|hey|thanks|thank\s+you|bye|yes|no|ok|okay|confirm|cancel)[.!\s]*$/i.test(
+      text
+    ) &&
+    !/\b(?:policy|policies|sop|memo|brief|recall|protocol|guideline|pdf|document|email|e-mail|why|how)\b/i.test(
+      text
+    );
+  if (
+    !analyticalLead &&
+    !directAction &&
+    lastTurnIntent.includes('SHEET_MUTATION') &&
+    nonDocNonConvFollowUp &&
+    ['sheet_query', 'clarification_needed', 'conversation'].includes(routed?.intent)
+  ) {
+    return { ...routed, intent: 'sheet_mutation', entity: resolvedEntity };
+  }
   if (
     analyticalLead &&
     !directAction &&
@@ -234,7 +282,7 @@ Rules:
 - Never infer permission to mutate, send email, or other external actions from a pure question. Only classify the requested intent.
 - Never invent a table, column, document, rule, or answer.
 - Nested-map keys in metadata are examples observed in sampled records, not guarantees that each record contains those keys. Apply operations on existing entries per matching record; create missing keys only when the user explicitly asks for creation.
-- Use RECENT CONVERSATION (up to 5 prior turns) to resolve anaphoric/implicit follow-ups such as "those", "them", "only the ones...", "that unit", "increase the discount to 20%", or inherited target_table/scope; NEVER emit clarification_needed merely because the target table or row filter was specified in a prior turn in RECENT CONVERSATION.
+- Use RECENT CONVERSATION (up to 5 prior turns) to resolve anaphoric/implicit follow-ups ("those", "them", "only the ones...", "that unit", "increase the discount to 20%"), clarification replies (when the prior turn asked for clarification and the user supplies the missing column/value fragment like "occupied bed", inherit that prior turn's intent such as sheet_mutation and target_table), or inherited scope; NEVER emit clarification_needed merely because the target table, action, or filter was specified in a prior turn in RECENT CONVERSATION.
 - For document_question and conversation, provide a concise answer in "answer". For other intents, "answer" should be empty.
 - Return JSON matching the requested response schema only.
 
@@ -348,7 +396,7 @@ ${prompt.trim()}`;
     }
   );
 
-  return enforceOperationalIntentPrecedence(routed, prompt, chunks);
+  return enforceOperationalIntentPrecedence(routed, prompt, chunks, activeHistoryContext);
 }
 
 module.exports = {

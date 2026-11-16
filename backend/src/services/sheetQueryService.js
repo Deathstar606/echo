@@ -524,17 +524,19 @@ async function executeSpreadsheetQuery({
   // Read-to-Read Filter Chaining: when user narrows prior results ("those", "them", "only the ones...")
   // intersect deterministically with prior turn's matched_row_ids on this table unless reset.
   const normalizedHistory = normalizeConversationHistory(conversationHistory);
-  if (
-    normalizedHistory.length > 0 &&
-    filterLogic === 'AND' &&
-    hasFollowUpReference(sourcePrompt) &&
-    !hasExplicitScopeReset(sourcePrompt)
-  ) {
+  if (normalizedHistory.length > 0 && filterLogic === 'AND') {
     const activeCtx = getLatestActiveContext(
       normalizedHistory,
       schema.tableName || schema.entity
     );
-    if (activeCtx.matchedRowIds.length > 0) {
+    const effectiveSourcePrompt = activeCtx.pendingClarification?.combinedUserPrompt
+      ? `${activeCtx.pendingClarification.combinedUserPrompt} ${sourcePrompt || ''}`.trim()
+      : sourcePrompt;
+    if (
+      activeCtx.matchedRowIds.length > 0 &&
+      hasFollowUpReference(effectiveSourcePrompt) &&
+      !hasExplicitScopeReset(effectiveSourcePrompt)
+    ) {
       const idFilter = await resolveIdentifierFilterForIds(
         schema,
         businessId,

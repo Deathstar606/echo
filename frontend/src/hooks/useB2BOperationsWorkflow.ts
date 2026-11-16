@@ -263,15 +263,24 @@ export function useB2BOperationsWorkflow({
       if (res.status === 'SHEET_QUERY' && Array.isArray(res.rows)) {
         onApplySheetQueryResult?.(res);
         routedMessage = res.answer || res.message;
-        turnIntent = 'SHEET_QUERY';
+        turnIntent =
+          (res as any).query_status === 'clarification_needed'
+            ? 'SHEET_QUERY_CLARIFICATION'
+            : 'SHEET_QUERY';
         turnTable = res.entity || activeEntity || null;
         turnMatchedIds =
-          Array.isArray(res.highlighted_rows) && res.highlighted_rows.length > 0
-            ? res.highlighted_rows.map((h) => String(h.row_identifier || '').trim()).filter(Boolean)
-            : Array.isArray(res.matched_ids) && res.matched_ids.length > 0
-              ? res.matched_ids.map((id) => String(id).trim()).filter(Boolean)
-              : res.rows.map((r) => String(r?.id || '').trim()).filter(Boolean);
-        turnFilterSummary = summarizeInterpretedFilters(res.interpretedQuery);
+          (res as any).query_status === 'clarification_needed'
+            ? []
+            : Array.isArray(res.highlighted_rows) && res.highlighted_rows.length > 0
+              ? res.highlighted_rows.map((h) => String(h.row_identifier || '').trim()).filter(Boolean)
+              : Array.isArray(res.matched_ids) && res.matched_ids.length > 0
+                ? res.matched_ids.map((id) => String(id).trim()).filter(Boolean)
+                : res.rows.map((r) => String(r?.id || '').trim()).filter(Boolean);
+        turnFilterSummary =
+          (res as any).query_status === 'clarification_needed'
+            ? ''
+            : String((res as any).applied_filter_summary || '').trim() ||
+              summarizeInterpretedFilters(res.interpretedQuery);
 
         setConversationalData({
           status: 'CONVERSATIONAL',
@@ -296,13 +305,17 @@ export function useB2BOperationsWorkflow({
         if (typeof routedResult === 'string') {
           routedMessage = routedResult;
           turnTable = res.entity || activeEntity || null;
+          turnIntent = res.status;
         } else {
           routedMessage = routedResult.message;
           turnTable = routedResult.entity || res.entity || activeEntity || null;
           turnMatchedIds = routedResult.matched_row_ids || [];
           turnFilterSummary = routedResult.applied_filter_summary || '';
+          turnIntent =
+            routedResult.status === 'clarification_needed'
+              ? `${res.status}_CLARIFICATION`
+              : res.status;
         }
-        turnIntent = res.status;
         setConversationalData({
           status: 'CONVERSATIONAL',
           conversational: true,

@@ -805,16 +805,32 @@ async function previewMutation({
     };
   }
 
+  const normalizedHistory = normalizeConversationHistory(conversationHistory);
+  const activeCtx = getLatestActiveContext(
+    normalizedHistory,
+    schema.tableName || schema.entity
+  );
+  const priorMutationPrompt =
+    !activeCtx.pendingClarification &&
+    String(activeCtx.lastTurn?.resolved_intent || '').toUpperCase().includes('SHEET_MUTATION')
+      ? String(activeCtx.lastTurn?.user_prompt || '').trim()
+      : '';
+  const effectiveSourcePrompt = activeCtx.pendingClarification?.combinedUserPrompt
+    ? `${activeCtx.pendingClarification.combinedUserPrompt} ${sourcePrompt || ''}`.trim()
+    : priorMutationPrompt
+      ? `${priorMutationPrompt} ${sourcePrompt || ''}`.trim()
+      : sourcePrompt;
+
   const validatedRaw = await applyContextualScopeInheritance(
     validateMutation(schema, mutationJson),
-    sourcePrompt,
+    effectiveSourcePrompt,
     schema,
     businessId,
     conversationHistory
   );
   const scopeClarification = getMutationScopeClarification(
     validatedRaw,
-    sourcePrompt,
+    effectiveSourcePrompt,
     schema
   );
   if (scopeClarification) return scopeClarification;
@@ -889,6 +905,23 @@ async function previewMutation({
 
     const approvedMutation = createApprovedMutation(validated);
     const previewHash = computePreviewHash(diffPreview, validated);
+    const filterPart = (validated.target_filters || [])
+      .map((f) => `${f.field} ${f.operator} ${JSON.stringify(f.value)}`)
+      .join(` ${validated.filter_logic || 'AND'} `);
+    const updatePart = (validated.updates || [])
+      .map(
+        (u) =>
+          `${u.field} ${u.action} ${JSON.stringify(u.value)}${
+            u.unit && u.unit !== 'absolute' ? ` (${u.unit})` : ''
+          }`
+      )
+      .join(', ');
+    const appliedFilterSummary = [
+      filterPart ? `filters: ${filterPart}` : '',
+      updatePart ? `updates: ${updatePart}` : '',
+    ]
+      .filter(Boolean)
+      .join(' | ');
 
     return {
       status: 'preview',
@@ -896,6 +929,7 @@ async function previewMutation({
       entity: schema.entity,
       confirmation_required: true,
       message: `Found ${targetRows.length} record(s) matching criteria. Submit with "confirm": true to apply proposed changes.`,
+      applied_filter_summary: appliedFilterSummary,
       affected_count: targetRows.length,
       target_rows: targetRows,
       proposed_changes: validated.changes,
@@ -986,16 +1020,32 @@ async function executeMutation({
     };
   }
 
+  const normalizedHistory = normalizeConversationHistory(conversationHistory);
+  const activeCtx = getLatestActiveContext(
+    normalizedHistory,
+    schema.tableName || schema.entity
+  );
+  const priorMutationPrompt =
+    !activeCtx.pendingClarification &&
+    String(activeCtx.lastTurn?.resolved_intent || '').toUpperCase().includes('SHEET_MUTATION')
+      ? String(activeCtx.lastTurn?.user_prompt || '').trim()
+      : '';
+  const effectiveSourcePrompt = activeCtx.pendingClarification?.combinedUserPrompt
+    ? `${activeCtx.pendingClarification.combinedUserPrompt} ${sourcePrompt || ''}`.trim()
+    : priorMutationPrompt
+      ? `${priorMutationPrompt} ${sourcePrompt || ''}`.trim()
+      : sourcePrompt;
+
   const validatedRaw = await applyContextualScopeInheritance(
     validateMutation(schema, mutationJson),
-    sourcePrompt,
+    effectiveSourcePrompt,
     schema,
     businessId,
     conversationHistory
   );
   const scopeClarification = getMutationScopeClarification(
     validatedRaw,
-    sourcePrompt,
+    effectiveSourcePrompt,
     schema
   );
   if (scopeClarification) return scopeClarification;
