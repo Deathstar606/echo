@@ -7,10 +7,12 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
+import type { Citation } from '../../../shared/types/contracts';
 import type {
   ConversationChatMessage,
   WorkflowStatus,
 } from '../hooks/useB2BOperationsWorkflow';
+import CitationBadges from './CitationBadges';
 
 interface SocraticOperationsWorkbenchProps {
   activeEntity: string;
@@ -19,11 +21,13 @@ interface SocraticOperationsWorkbenchProps {
   executingStep: string;
   workflowError: string | null;
   conversationHistory: ConversationChatMessage[];
+  citations?: Citation[];
   isBusy: boolean;
   nlPrompt: string;
   onPromptChange: (prompt: string) => void;
   samplePrompts: Array<{ label: string; text: string }>;
   onExecuteOperation: (customPrompt?: string) => void;
+  onSelectCitation?: (citation: Citation) => void;
   onDismissError: () => void;
   onResetWorkflow: () => void;
 }
@@ -35,11 +39,13 @@ export default function SocraticOperationsWorkbench({
   executingStep,
   workflowError,
   conversationHistory,
+  citations = [],
   isBusy,
   nlPrompt,
   onPromptChange,
   samplePrompts,
   onExecuteOperation,
+  onSelectCitation,
   onDismissError,
   onResetWorkflow,
 }: SocraticOperationsWorkbenchProps): React.ReactElement {
@@ -251,8 +257,25 @@ export default function SocraticOperationsWorkbench({
         </div>
       </form>
 
-      {/* Quick Sample Suggestions always neatly below the chat box */}
-      {samplePrompts.length > 0 && (
+      {/* Provenance citations above Quick Suggestions */}
+      {Array.isArray(citations) && citations.length > 0 && (
+        <div
+          aria-label="Provenance citations"
+          style={{
+            padding: '4px 14px 10px 14px',
+            borderTop: '1px solid var(--border-subtle)',
+            backgroundColor: 'rgba(248, 250, 252, 0.85)',
+          }}
+        >
+          <CitationBadges
+            citations={citations}
+            onSelectCitation={onSelectCitation}
+          />
+        </div>
+      )}
+
+      {/* Quick Sample Suggestions (shown initially and after Reset) */}
+      {isEmptyThread && samplePrompts.length > 0 && (
         <div className="b2b-chat-suggestions-footer">
           <div className="b2b-chat-suggestions-label">Quick Suggestions</div>
           <div className="b2b-chat-suggestions-chips">

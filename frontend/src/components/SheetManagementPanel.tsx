@@ -1493,10 +1493,6 @@ export default function SheetManagementPanel(): React.ReactElement {
     },
   });
 
-  const aiResponseSummary =
-    b2bWorkflow.conversationalData?.answer ||
-    b2bWorkflow.conversationalData?.message ||
-    '';
   const aiResponseCitations = b2bWorkflow.conversationalData?.citations || [];
 
   const handleShowAllRows = () => {
@@ -2309,39 +2305,6 @@ export default function SheetManagementPanel(): React.ReactElement {
               </table>
             )}
           </div>
-
-          {/* AI Response Summary & Provenance below larger matched rows table */}
-          {aiResponseSummary && (
-            <section
-              aria-label="AI response summary and citations"
-              className="sheet-ai-summary-card"
-            >
-              <div className="sheet-ai-summary-header">
-                <span className="ai-badge">
-                  <Sparkles size={12} />
-                  AI Response Summary
-                </span>
-                {b2bWorkflow.conversationalData?.intent && (
-                  <span className="sheet-ai-intent-pill">
-                    {String(b2bWorkflow.conversationalData.intent)
-                      .replace(/_/g, ' ')
-                      .toUpperCase()}
-                  </span>
-                )}
-              </div>
-
-              <div className="sheet-ai-summary-text">{aiResponseSummary}</div>
-
-              {aiResponseCitations.length > 0 && (
-                <div className="sheet-ai-summary-citations">
-                  <CitationBadges
-                    citations={aiResponseCitations}
-                    onSelectCitation={(citation) => setActiveCitation(citation)}
-                  />
-                </div>
-              )}
-            </section>
-          )}
         </div>
       </div>
 
@@ -2353,11 +2316,13 @@ export default function SheetManagementPanel(): React.ReactElement {
         executingStep={b2bWorkflow.executingStep}
         workflowError={b2bWorkflow.workflowError}
         conversationHistory={b2bWorkflow.conversationHistory}
+        citations={aiResponseCitations}
         isBusy={isBusy}
         nlPrompt={nlPrompt}
         onPromptChange={(prompt) => dispatch(setSheetNlPrompt(prompt))}
         samplePrompts={samplePrompts}
         onExecuteOperation={b2bWorkflow.handleExecuteOperation}
+        onSelectCitation={(citation) => setActiveCitation(citation)}
         onDismissError={b2bWorkflow.handleDismissError}
         onResetWorkflow={b2bWorkflow.handleResetWorkflow}
       />
