@@ -234,7 +234,8 @@ async function callGeminiModelWithSchema(
   modelName,
   apiKey,
   promptText,
-  responseSchema
+  responseSchema,
+  options = {}
 ) {
   const normalizedModel = modelName.replace(/^models\//, '');
   const url = `${GEMINI_API_BASE_URL}/${normalizedModel}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -245,6 +246,13 @@ async function callGeminiModelWithSchema(
   };
   if (responseSchema) {
     generationConfig.responseSchema = responseSchema;
+  }
+  const isLiteModel = normalizedModel.toLowerCase().includes('lite');
+  const thinkingBudget = Number.isInteger(options?.thinkingBudget)
+    ? options.thinkingBudget
+    : 0;
+  if (!isLiteModel && thinkingBudget >= 0) {
+    generationConfig.thinkingConfig = { thinkingBudget };
   }
 
   const requestBody = JSON.stringify({
@@ -288,11 +296,6 @@ async function callGeminiModelWithSchema(
         : 'GEMINI_NETWORK_ERROR';
       throw networkError;
     }
-
-    if ((response.status === 429 || response.status === 503) && attempt === 0) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      continue;
-    }
     break;
   }
 
@@ -319,9 +322,11 @@ async function callGeminiModelWithSchema(
   }
 
   const promptTokenCount = data?.usageMetadata?.promptTokenCount;
+  const candidatesTokenCount = data?.usageMetadata?.candidatesTokenCount ?? 0;
+  const thoughtsTokenCount = data?.usageMetadata?.thoughtsTokenCount ?? 0;
   if (Number.isFinite(promptTokenCount)) {
     console.info(
-      `[Gemini] model=${normalizedModel} prompt_tokens=${promptTokenCount} duration_ms=${Date.now() - requestStartedAt}`
+      `[Gemini] model=${normalizedModel} prompt_tokens=${promptTokenCount} output_tokens=${candidatesTokenCount} thoughts_tokens=${thoughtsTokenCount} duration_ms=${Date.now() - requestStartedAt}`
     );
   } else {
     console.info(
@@ -346,6 +351,7 @@ async function callGeminiModelWithSchema(
 }
 
 const unavailableModels = new Set();
+const modelCooldownUntil = new Map();
 
 /**
  * Executes a prompt against the configured Gemini model with automatic fallback on transient errors.
@@ -354,7 +360,7 @@ const unavailableModels = new Set();
  * @param {object} responseSchema
  * @returns {Promise<string>}
  */
-async function executeGeminiWithFallback(promptText, responseSchema) {
+async function executeGeminiWithFallback(promptText, responseSchema, options = {}) {
   const apiKey = env.geminiApiKey;
   if (!apiKey) {
     throw new AppError(
@@ -363,7 +369,7 @@ async function executeGeminiWithFallback(promptText, responseSchema) {
     );
   }
 
-  const candidateModels = Array.from(
+  const allCandidates = Array.from(
     new Set([
       env.geminiModel || 'gemini-3.5-flash',
       'gemini-3.5-flash',
@@ -373,6 +379,13 @@ async function executeGeminiWithFallback(promptText, responseSchema) {
     ])
   ).filter((m) => !unavailableModels.has(m));
 
+  const now = Date.now();
+  const readyCandidates = allCandidates.filter(
+    (m) => (modelCooldownUntil.get(m) || 0) <= now
+  );
+  const candidateModels =
+    readyCandidates.length > 0 ? readyCandidates : allCandidates;
+
   let lastError = null;
   for (const modelName of candidateModels) {
     try {
@@ -380,7 +393,8 @@ async function executeGeminiWithFallback(promptText, responseSchema) {
         modelName,
         apiKey,
         promptText,
-        responseSchema
+        responseSchema,
+        options
       );
     } catch (error) {
       lastError = error;
@@ -393,6 +407,8 @@ async function executeGeminiWithFallback(promptText, responseSchema) {
         error.upstreamStatus === 429 ||
         error.code === 'GEMINI_TIMEOUT'
       ) {
+        const cooldownMs = error.upstreamStatus === 429 ? 45000 : 5000;
+        modelCooldownUntil.set(modelName, Date.now() + cooldownMs);
         continue;
       }
       throw error;
@@ -477,6 +493,12 @@ async function generateStructuredJsonWithRetry(
     ? Math.max(0, options.maxRetries)
     : 2;
   const responseSchema = options.responseSchema || null;
+  const stage = String(options.stage || 'default');
+  const defaultThinkingBudget =
+    stage === 'socratic_analysis' || stage === 'preview_compilation' ? 256 : 0;
+  const thinkingBudget = Number.isInteger(options.thinkingBudget)
+    ? options.thinkingBudget
+    : defaultThinkingBudget;
 
   let currentPrompt = String(promptText ?? '');
   let lastValidationError = null;
@@ -488,12 +510,13 @@ async function generateStructuredJsonWithRetry(
         rawOutput = await customWorkspaceGenerator(currentPrompt, {
           attempt,
           responseSchema,
-          stage: options.stage || 'default',
+          stage,
         });
       } else {
         rawOutput = await executeGeminiWithFallback(
           currentPrompt,
-          responseSchema
+          responseSchema,
+          { thinkingBudget }
         );
       }
 

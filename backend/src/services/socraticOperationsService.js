@@ -254,47 +254,18 @@ const DIRECT_TABLE_EMAIL_SCHEMA = {
     },
     email_subject_template: {
       type: 'STRING',
-      description: 'Reusable subject template summarizing the outreach.',
+      description:
+        'Reusable email subject template using {{Column_Name}} placeholders (e.g., "Important Update Regarding Order {{Order_ID}}").',
     },
     email_body_template: {
       type: 'STRING',
       description:
-        'Reusable plain-text email body template using {{customer_name}} when addressing recipients in bulk.',
+        'Reusable plain-text email body template using {{customer_name}} and exact {{Column_Name}} / {{before.Column_Name}} placeholders.',
     },
-    emails: {
-      type: 'ARRAY',
-      items: {
-        type: 'OBJECT',
-        properties: {
-          recipient_email: {
-            type: 'STRING',
-            description: 'Exact verified email address from the matched row.',
-          },
-          customer_identifier: {
-            type: 'STRING',
-            description:
-              'Recipient display identifier using exact customer/contact name and row ID (e.g., "Anisur Rahman (ORD-2026-1014)").',
-          },
-          subject: { type: 'STRING' },
-          body: { type: 'STRING' },
-          applied_rule: {
-            type: 'STRING',
-            description: 'Concise note describing why this recipient was selected or what update applies.',
-          },
-          row_identifier: {
-            type: 'STRING',
-            description: 'Exact _row_id of the associated row.',
-          },
-        },
-        required: [
-          'recipient_email',
-          'customer_identifier',
-          'subject',
-          'body',
-          'applied_rule',
-          'row_identifier',
-        ],
-      },
+    applied_rule: {
+      type: 'STRING',
+      description:
+        'Concise summary of why recipients were selected and what update/notification applies.',
     },
   },
   required: [
@@ -302,7 +273,7 @@ const DIRECT_TABLE_EMAIL_SCHEMA = {
     'mutations',
     'email_subject_template',
     'email_body_template',
-    'emails',
+    'applied_rule',
   ],
 };
 
@@ -330,29 +301,32 @@ async function ensureWorkflowTableExists() {
 
 async function saveWorkflowState(workflow) {
   WORKFLOW_STORE.set(workflow.workflow_id, workflow);
-  await ensureWorkflowTableExists();
-  try {
-    await query(
-      `
-        INSERT INTO socratic_workflows (workflow_id, business_id, status, prompt, payload, updated_at)
-        VALUES ($1, $2, $3, $4, $5::jsonb, NOW())
-        ON CONFLICT (workflow_id)
-        DO UPDATE SET
-          status = EXCLUDED.status,
-          payload = EXCLUDED.payload,
-          updated_at = NOW();
-      `,
-      [
-        workflow.workflow_id,
-        workflow.business_id || null,
-        workflow.status,
-        workflow.prompt || '',
-        JSON.stringify(workflow),
-      ]
-    );
-  } catch {
-    // In-memory store remains authoritative
-  }
+  const serialized = JSON.stringify(workflow);
+  void (async () => {
+    try {
+      await ensureWorkflowTableExists();
+      await query(
+        `
+          INSERT INTO socratic_workflows (workflow_id, business_id, status, prompt, payload, updated_at)
+          VALUES ($1, $2, $3, $4, $5::jsonb, NOW())
+          ON CONFLICT (workflow_id)
+          DO UPDATE SET
+            status = EXCLUDED.status,
+            payload = EXCLUDED.payload,
+            updated_at = NOW();
+        `,
+        [
+          workflow.workflow_id,
+          workflow.business_id || null,
+          workflow.status,
+          workflow.prompt || '',
+          serialized,
+        ]
+      );
+    } catch {
+      // In-memory store remains authoritative
+    }
+  })();
 }
 
 async function loadWorkflowState(workflowId) {
@@ -702,7 +676,7 @@ function explicitlyRequestsNotifications(prompt) {
 
   const negTarget =
     '(?:(?:the|all|each|any|affected)\\s+){0,3}(?:customers?|buyers?|clients?|recipients?|vendors?|suppliers?|leads?|managers?|account\\s+managers?|contacts?|contact_emails?|users?|patients?|staff|charge\\s+nurses?|nurses?|coordinators?|them|everyone)';
-  const negClauseItem = `(?:(?:send(?:ing)?|draft(?:ing)?|dispatch(?:ing)?)\\s+)?(?:any\\s+)?(?:e-?mail(?:ing|s)?|notif(?:ying|ications?|y)|messag(?:ing|es|e)|alerts?)\\b(?:\\s+(?:to\\s+)?${negTarget})?`;
+  const negClauseItem = `(?:(?:send(?:ing)?|draft(?:ing)?|dispatch(?:ing)?)\\s+)?(?:any\\s+)?(?:(?:e-?mail|mail)(?:ing|s)?|notif(?:ying|ications?|y)|messag(?:ing|es|e)|alerts?)\\b(?:\\s+(?:to\\s+)?${negTarget})?`;
   const text = rawText.replace(
     new RegExp(
       `\\b(?:do\\s+not|don't|never|without|avoid|skip)\\s+${negClauseItem}(?:\\s*(?:,|\\/|\\bor\\b|\\bnor\\b)\\s*${negClauseItem})*`,
@@ -715,20 +689,20 @@ function explicitlyRequestsNotifications(prompt) {
     /(?:customers?|buyers?|clients?|recipients?|vendors?|suppliers?|leads?|coordinators?|account\s+managers?|managers?|contacts?|contact_emails?|users?|patients?|staff|charge\s+nurses?|nurses?|teams?|members?|accounts?|them|everyone)/i;
 
   const actionBeforeRecipient = new RegExp(
-    `\\b(?:e-?mail(?:ing)?|notify(?:ing)?|messag(?:e|ing)|alert(?:ing)?)\\s+(?:[a-z0-9_'-]+\\s+){0,5}${recipientNounPattern.source}\\b`,
+    `\\b(?:(?:e-?mail|mail)(?:ing)?|notify(?:ing)?|messag(?:e|ing)|alert(?:ing)?)\\s+(?:to\\s+)?(?:[a-z0-9_'-]+\\s+){0,5}${recipientNounPattern.source}\\b`,
     'i'
   );
 
   const actionBeforeEmailAddress =
-    /\b(?:e-?mail(?:ing)?|notify(?:ing)?|messag(?:e|ing)|alert(?:ing)?|send(?:ing)?\b[^.?!;\n]{0,60}\bto)\s+[^\s,;]+@[^\s,;]+\.[^\s,;]+/i;
+    /\b(?:(?:e-?mail|mail)(?:ing)?|notify(?:ing)?|messag(?:e|ing)|alert(?:ing)?|send(?:ing)?\b[^.?!;\n]{0,60}\bto)\s+[^\s,;]+@[^\s,;]+\.[^\s,;]+/i;
 
   const actionBeforeProperName =
-    /\b(?:[Ee]-?[Mm]ail(?:ing)?|[Nn]otify(?:ing)?|[Mm]essag(?:e|ing)|[Aa]lert(?:ing)?)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3}\b/;
+    /\b(?:[Ee]-?[Mm]ail(?:ing)?|[Mm]ail(?:ing)?|[Nn]otify(?:ing)?|[Mm]essag(?:e|ing)|[Aa]lert(?:ing)?)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3}\b/;
 
   const sendEmailPhrase =
-    /\b(?:send(?:ing)?|draft(?:ing)?|dispatch(?:ing)?|deliver(?:ing)?)\s+(?:an?\s+)?(?:[a-z0-9_'-]+\s+){0,4}(?:e-?mails?|notifications?|messages?|alerts?)\b/i;
+    /\b(?:send(?:ing)?|draft(?:ing)?|dispatch(?:ing)?|deliver(?:ing)?)\s+(?:to\s+)?(?:an?\s+)?(?:[a-z0-9_'-]+\s+){0,4}(?:e-?mails?|mails?|notifications?|messages?|alerts?)\b/i;
 
-  const viaEmailPhrase = /\b(?:by|via)\s+e-?mail\b/i;
+  const viaEmailPhrase = /\b(?:by|via)\s+(?:e-?mail|mail)\b/i;
 
   return (
     actionBeforeRecipient.test(text) ||
@@ -2098,11 +2072,8 @@ async function tryExecuteDirectTableEmailOperation({
     skipSampleQuery: true,
   });
 
-  // Load live rows and optional light workspace doc chunks in parallel for zero extra latency
-  const [liveRows, docChunks] = await Promise.all([
-    loadRowsForTargetTable(businessId, schema),
-    retrieveHybridDocumentChunks(businessId, prompt, { topK: 3 }).catch(() => []),
-  ]);
+  // Load live rows directly without redundant RAG document chunk retrieval for pure table operations
+  const liveRows = await loadRowsForTargetTable(businessId, schema);
 
   const emailCol = findTableEmailColumn(schema, liveRows);
   const displayTable = schema.displayName || schema.tableName;
@@ -2186,62 +2157,101 @@ async function tryExecuteDirectTableEmailOperation({
 
   const {
     schemaColumns,
-    modifiableColumns,
     projectedRows,
     rowLookup,
   } = projectTableForLlm(targetTable);
 
   const formattedHistory = formatConversationHistoryForPrompt(normalizedHistory);
-  const relevantDocSnippets = (docChunks || [])
-    .filter((c) => Number(c.hybrid_score || 0) > 0 && c.raw_text)
-    .slice(0, 3)
-    .map((c) => ({
-      filename: c.filename,
-      page: c.page_number,
-      excerpt: String(c.raw_text).slice(0, 900),
-    }));
+  const compactColumnsLine = schemaColumns
+    .map((c) => `${c.name}:${c.type}[${c.modifiable ? 'modifiable' : 'read-only'}]`)
+    .join(', ');
+  const samplePlaceholderCols = schemaColumns
+    .map((c) => c.name)
+    .filter((n) => n !== emailCol)
+    .slice(0, 6);
+  const pendingClarificationPrompt =
+    !startsFreshSearch && activeCtx.pendingClarification?.combinedUserPrompt
+      ? activeCtx.pendingClarification.combinedUserPrompt
+      : '';
+  const effectiveUserInstruction = pendingClarificationPrompt
+    ? `Pending request from Turn ${activeCtx.pendingClarification.fromTurnIndex}: "${pendingClarificationPrompt}"\nFollow-up specification: "${prompt}"`
+    : prompt;
+
+  let compactCandidateRows = projectedRows;
+  if (projectedRows.length > 6 && schemaColumns.length > 6) {
+    const contextLower = `${effectiveUserInstruction} ${formattedHistory}`.toLowerCase();
+    const keepCols = new Set(
+      [emailCol, customerNameCol].filter(Boolean)
+    );
+    for (const colDesc of schemaColumns) {
+      const cName = colDesc.name;
+      const lower = cName.toLowerCase();
+      if (/(?:id|name|title|company|unit|tier|status|city)$/i.test(lower)) {
+        keepCols.add(cName);
+        continue;
+      }
+      const tokens = lower.split(/[^a-z0-9]+/).filter((t) => t.length >= 3);
+      if (
+        contextLower.includes(lower) ||
+        tokens.some((tok) => {
+          const stem = tok.endsWith('s') && tok.length > 4 ? tok.slice(0, -1) : tok;
+          return (
+            contextLower.includes(stem) ||
+            (stem === 'spend' && contextLower.includes('spent'))
+          );
+        })
+      ) {
+        keepCols.add(cName);
+      }
+    }
+    if (keepCols.size >= 3 && keepCols.size < schemaColumns.length) {
+      compactCandidateRows = projectedRows.map((r) => {
+        const slim = { _row_id: r._row_id };
+        for (const colName of keepCols) {
+          if (r[colName] !== undefined) slim[colName] = r[colName];
+        }
+        return slim;
+      });
+    }
+  }
 
   const compilerPrompt = `You are a precision B2B Operations & Email Drafting Assistant.
-Evaluate the USER_INSTRUCTION strictly against the active database table "${targetTable.tableName}" and draft personalized emails (plus any explicitly requested table column updates).
+Evaluate USER_INSTRUCTION strictly against active table "${targetTable.tableName}" and compile matched rows, requested column updates, and a personalized email template.
 
 CRITICAL RULES:
 1. ROW MATCHING ("matched_row_ids"):
    - ${
      inheritPriorSelection
-       ? `INHERITED SELECTION ACTIVE: CANDIDATE_ROWS already contains the ${projectedRows.length} matched record(s) from Turn ${activeCtx.fromTurnIndex || 'prior turn'}. Keep ALL of them unless USER_INSTRUCTION explicitly specifies a narrower filter.`
-       : `Filter CANDIDATE_ROWS strictly against any conditions in USER_INSTRUCTION (check exact numeric, boolean, and string values carefully). Return every matching "_row_id" in "matched_row_ids".`
+       ? `INHERITED SELECTION ACTIVE: CANDIDATE_ROWS contains the ${projectedRows.length} record(s) from Turn ${activeCtx.fromTurnIndex || 'prior turn'}. If USER_INSTRUCTION includes ANY condition, "if ..." clause, status check, or sub-filter (e.g., "if not already assigned", "if voucher is not issued", "only those with..."), filter CANDIDATE_ROWS strictly by that condition and return ONLY the qualifying "_row_id" values in "matched_row_ids" (and if mutating rows, "matched_row_ids" MUST contain ONLY the rows being mutated). Otherwise return all ${projectedRows.length} "_row_id" values.`
+       : `Filter CANDIDATE_ROWS strictly against ALL filter conditions in USER_INSTRUCTION${pendingClarificationPrompt ? ' (combining the pending request criteria with the follow-up specification)' : ' and RECENT_CONVERSATION'} (check exact numeric, boolean, and string values carefully). Return ONLY the qualifying "_row_id" values in "matched_row_ids".`
    }
    - Only return exact "_row_id" strings present in CANDIDATE_ROWS.
 
 2. TABLE MUTATIONS ("mutations"):
-   - ONLY include items in "mutations" if the latest USER_INSTRUCTION itself explicitly asks to update/change/issue/set column value(s) on rows (for example, setting SLA_Voucher_Issued = "true" when issuing an SLA voucher).
-   - If the latest USER_INSTRUCTION only asks to draft or send emails (e.g., "send emails to the customers"), return "mutations": [] (do not invent unrequested edits).
-   - Every "column" MUST come from MODIFIABLE_COLUMNS and use exact column spelling.
-   - Only emit updates where the proposed value differs from the current value in CANDIDATE_ROWS.
+   - ONLY include items in "mutations" if USER_INSTRUCTION explicitly asks to update/change/add/issue/set column value(s) on rows.
+   - If USER_INSTRUCTION only asks to draft or send emails (e.g., "send emails to the customers"), return "mutations": [].
+   - Every "column" MUST be marked [modifiable] in TABLE_COLUMNS and use exact column spelling.
+   - Compute exact arithmetic on each matched row's current value (e.g., adding 24 to Delay_Hours 18 -> "42"; adding 10000 to credit_limit 45000 -> "55000") and only emit updates where new_value differs from the current value.
 
-3. PERSONALIZED EMAIL DRAFTING ("emails", "email_subject_template", "email_body_template"):
-   - Draft ONE accurate, polite, professional email for EVERY matched row that has a valid email address in EMAIL_COLUMN ("${emailCol}").
-   - NEVER fabricate email addresses: copy "recipient_email" verbatim from "${emailCol}" on the matched row.
+3. PERSONALIZED EMAIL TEMPLATE ("email_subject_template", "email_body_template", "applied_rule"):
+   - Draft ONE polite, professional "email_subject_template" and "email_body_template" using dynamic {{Column_Name}} placeholders that will be rendered per matched recipient using their post-update row values.
    - ${
      customerNameCol
-       ? `CUSTOMER NAME AVAILABLE ("${customerNameCol}"): Address each recipient directly by their exact name from "${customerNameCol}" (e.g., "Dear Anisur Rahman,") and include a "{{customer_name}}" placeholder in "email_body_template".`
-       : 'No personal customer name column is present; use an appropriate professional salutation based on available row identifiers (company/unit/account) without inventing person names.'
+       ? `Include "{{customer_name}}" in the greeting (e.g., "Dear {{customer_name}},") which resolves to "${customerNameCol}".`
+       : 'Address the recipient using "{{customer_name}}" (resolves to unit/company/account identifier).'
    }
-   - Ground every email strictly in the row's exact facts (e.g., Order_ID / record ID, item/product, delay duration, status, and any voucher/update being issued in this instruction or confirmed/previewed in RECENT_CONVERSATION). Never invent unverified dollar/BDT amounts, tracking numbers, or dates not present in the row or workspace context.
+   - Reference concrete row facts using exact {{Column_Name}} placeholders from TABLE_COLUMNS (such as {{${samplePlaceholderCols.join('}}, {{')}}}) — which render the row's UPDATED (post-mutation) value — and {{before.Column_Name}} when referencing the value prior to the update. Never invent unverified numbers or dates.
 
 ACTIVE_TABLE_NAME: ${targetTable.tableName}
 EMAIL_COLUMN: ${emailCol}
 CUSTOMER_NAME_COLUMN: ${customerNameCol || 'none'}
-MODIFIABLE_COLUMNS:
-${JSON.stringify(modifiableColumns)}
-TABLE_SCHEMA:
-${JSON.stringify(schemaColumns)}
-${relevantDocSnippets.length > 0 ? `\nWORKSPACE_CONTEXT_DOCUMENTS:\n${JSON.stringify(relevantDocSnippets, null, 2)}\n` : ''}${formattedHistory ? `\nRECENT_CONVERSATION:\n${formattedHistory}\n` : ''}
-CANDIDATE_ROWS (${projectedRows.length} rows):
-${JSON.stringify(projectedRows)}
+TABLE_COLUMNS: ${compactColumnsLine}
+${formattedHistory ? `\nRECENT_CONVERSATION:\n${formattedHistory}\n` : ''}
+CANDIDATE_ROWS (${compactCandidateRows.length} rows):
+${JSON.stringify(compactCandidateRows)}
 
 USER_INSTRUCTION:
-${prompt}`;
+${effectiveUserInstruction}`;
 
   const compiled = await generateStructuredJsonWithRetry(
     compilerPrompt,
@@ -2277,6 +2287,7 @@ ${prompt}`;
       }
 
       const mutationsPreview = [];
+      const mutationsByIdentifier = new Map();
       const seenMutated = new Set();
       for (const item of Array.isArray(parsed.mutations) ? parsed.mutations : []) {
         const rawId = String(item?.row_identifier ?? '').trim();
@@ -2312,27 +2323,54 @@ ${prompt}`;
 
         if (Object.keys(after).length > 0) {
           seenMutated.add(hit.identifier);
-          mutationsPreview.push({
+          const mutEntry = {
             table_name: targetTable.tableName,
             row_identifier: hit.identifier,
             _internal_id: hit.row.id || null,
             _identifier_col: hit.identifierCol || 'id',
             before,
             after,
-          });
+          };
+          mutationsPreview.push(mutEntry);
+          mutationsByIdentifier.set(hit.identifier, mutEntry);
+        }
+      }
+
+      if (mutationsPreview.length > 0) {
+        const mutatedEntries = [];
+        const seenMutEntryIds = new Set();
+        for (const hit of matchedEntries) {
+          if (
+            mutationsByIdentifier.has(hit.identifier) &&
+            !seenMutEntryIds.has(hit.identifier)
+          ) {
+            seenMutEntryIds.add(hit.identifier);
+            mutatedEntries.push(hit);
+          }
+        }
+        for (const mut of mutationsPreview) {
+          if (!seenMutEntryIds.has(mut.row_identifier)) {
+            const hit =
+              rowLookup.get(mut.row_identifier) ||
+              rowLookup.get(String(mut.row_identifier).toLowerCase());
+            if (hit) {
+              seenMutEntryIds.add(hit.identifier);
+              mutatedEntries.push(hit);
+            }
+          }
+        }
+        if (mutatedEntries.length > 0) {
+          matchedEntries.length = 0;
+          matchedEntries.push(...mutatedEntries);
         }
       }
 
       const emailsPreview = [];
-      const matchedEmailsNeeded = new Set();
-      for (const hit of matchedEntries) {
-        const rowEmail = String(hit.row?.[emailCol] ?? '').trim();
-        if (isValidDeliverableEmail(rowEmail)) {
-          matchedEmailsNeeded.add(rowEmail.toLowerCase());
-        }
-      }
+      const matchedRowsNeedingEmail = matchedEntries.filter((hit) =>
+        isValidDeliverableEmail(String(hit.row?.[emailCol] ?? '').trim())
+      );
 
-      if (matchedEmailsNeeded.size === 0) {
+      if (matchedRowsNeedingEmail.length === 0) {
         return {
           noMatchedEmails: true,
           matchedEntries,
@@ -2342,6 +2380,12 @@ ${prompt}`;
           bodyTemplate: '',
         };
       }
+
+      const subjectTemplate = String(parsed.email_subject_template || '').trim();
+      const bodyTemplate = String(parsed.email_body_template || '').trim();
+      const topAppliedRule =
+        String(parsed.applied_rule || '').trim() || 'Direct table outreach';
+      const includedRowIds = new Set();
 
       for (const mail of Array.isArray(parsed.emails) ? parsed.emails : []) {
         const rawEmail = String(mail?.recipient_email ?? '').trim();
@@ -2358,11 +2402,24 @@ ${prompt}`;
           throw new Error('Each email draft must contain a non-empty subject and body.');
         }
 
-        const matchedRowHit = matchedEntries.find(
-          (e) =>
-            String(e.row?.[emailCol] ?? '').trim().toLowerCase() ===
-            allowedRec.email.toLowerCase()
-        );
+        const reqRowId = String(mail?.row_identifier ?? '').trim().toLowerCase();
+        const matchedRowHit =
+          (reqRowId &&
+            matchedEntries.find((e) => e.identifier.toLowerCase() === reqRowId)) ||
+          matchedEntries.find(
+            (e) =>
+              !includedRowIds.has(e.identifier) &&
+              String(e.row?.[emailCol] ?? '').trim().toLowerCase() ===
+                allowedRec.email.toLowerCase()
+          ) ||
+          matchedEntries.find(
+            (e) =>
+              String(e.row?.[emailCol] ?? '').trim().toLowerCase() ===
+              allowedRec.email.toLowerCase()
+          );
+        if (matchedRowHit) {
+          includedRowIds.add(matchedRowHit.identifier);
+        }
         const derivedName = customerNameCol && matchedRowHit?.row?.[customerNameCol]
           ? String(matchedRowHit.row[customerNameCol]).trim()
           : '';
@@ -2378,26 +2435,90 @@ ${prompt}`;
           body,
           metadata: {
             applied_rule:
-              String(mail?.applied_rule ?? '').trim() ||
-              'Direct table outreach',
+              String(mail?.applied_rule ?? '').trim() || topAppliedRule,
             row_identifier:
-              String(mail?.row_identifier ?? '').trim() ||
               matchedRowHit?.identifier ||
+              String(mail?.row_identifier ?? '').trim() ||
               allowedRec.row_id ||
               'row',
           },
         });
       }
 
-      const includedEmails = new Set(
-        emailsPreview.map((e) => e.recipient_email.toLowerCase())
+      // Deterministically render personalized emails from email_subject_template & email_body_template
+      // for every matched row not explicitly enumerated in parsed.emails (keyed by row_identifier so
+      // rows sharing a contact/coordinator email still each get their own targeted draft)
+      if (subjectTemplate && bodyTemplate) {
+        for (const hit of matchedRowsNeedingEmail) {
+          if (includedRowIds.has(hit.identifier)) continue;
+          const rowEmail = String(hit.row?.[emailCol] ?? '').trim();
+
+          const derivedName =
+            customerNameCol && hit.row?.[customerNameCol]
+              ? String(hit.row[customerNameCol]).trim()
+              : '';
+          const defaultIdentifier = derivedName
+            ? `${derivedName} (${hit.identifier})`
+            : hit.identifier;
+          const mutEntry = mutationsByIdentifier.get(hit.identifier) || null;
+
+          const vars = new Map();
+          vars.set('customer_name', derivedName || hit.identifier);
+          vars.set('recipient_name', derivedName || hit.identifier);
+          vars.set('row_id', hit.identifier);
+          vars.set('_row_id', hit.identifier);
+          vars.set('row_identifier', hit.identifier);
+
+          for (const [colKey, rawVal] of Object.entries(hit.row || {})) {
+            const lowerKey = colKey.toLowerCase();
+            const beforeVal =
+              mutEntry?.before?.[colKey] !== undefined
+                ? mutEntry.before[colKey]
+                : rawVal;
+            const afterVal =
+              mutEntry?.after?.[colKey] !== undefined
+                ? mutEntry.after[colKey]
+                : rawVal;
+            vars.set(lowerKey, afterVal ?? '');
+            vars.set(`after.${lowerKey}`, afterVal ?? '');
+            vars.set(`before.${lowerKey}`, beforeVal ?? '');
+            vars.set(`old_${lowerKey}`, beforeVal ?? '');
+            vars.set(`new_${lowerKey}`, afterVal ?? '');
+          }
+
+          const renderTpl = (tpl) =>
+            String(tpl || '').replace(
+              /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g,
+              (full, rawToken) => {
+                const key = String(rawToken || '').trim().toLowerCase();
+                if (vars.has(key)) {
+                  const val = vars.get(key);
+                  return val !== null && val !== undefined ? String(val) : '';
+                }
+                return full;
+              }
+            );
+
+          emailsPreview.push({
+            recipient_email: rowEmail,
+            customer_identifier: defaultIdentifier,
+            subject: renderTpl(subjectTemplate),
+            body: renderTpl(bodyTemplate),
+            metadata: {
+              applied_rule: topAppliedRule,
+              row_identifier: hit.identifier,
+            },
+          });
+          includedRowIds.add(hit.identifier);
+        }
+      }
+
+      const omittedRows = matchedRowsNeedingEmail.filter(
+        (hit) => !includedRowIds.has(hit.identifier)
       );
-      const omittedEmails = [...matchedEmailsNeeded].filter(
-        (reqEmail) => !includedEmails.has(reqEmail)
-      );
-      if (omittedEmails.length > 0) {
+      if (omittedRows.length > 0) {
         throw new Error(
-          `Drafted emails omitted matched recipient(s): ${omittedEmails.join(', ')}. Include an email draft for every matched recipient.`
+          `Drafted emails omitted matched row(s): ${omittedRows.map((h) => h.identifier).join(', ')}. Provide valid email_subject_template and email_body_template.`
         );
       }
 
@@ -2409,10 +2530,8 @@ ${prompt}`;
         matchedEntries,
         mutationsPreview,
         emailsPreview,
-        subjectTemplate:
-          String(parsed.email_subject_template || '').trim() || fallbackSubject,
-        bodyTemplate:
-          String(parsed.email_body_template || '').trim() || fallbackBody,
+        subjectTemplate: subjectTemplate || fallbackSubject,
+        bodyTemplate: bodyTemplate || fallbackBody,
       };
     },
     {
@@ -2450,18 +2569,9 @@ ${prompt}`;
   const matchedFullRows = compiled.matchedEntries.map((e) => e.row);
   const matchedRowIds = compiled.matchedEntries.map((e) => e.identifier);
   const highlightedRows = buildHighlightedRows(targetTable.tableName, matchedFullRows);
-  const citations = [
-    ...matchedFullRows.slice(0, 8).map((r, idx) =>
-      buildTableRowCitation(targetTable.tableName, r, idx + 1)
-    ),
-    ...relevantDocSnippets.map((d) =>
-      buildDocumentCitation({
-        filename: d.filename,
-        page_number: d.page,
-        raw_text: d.excerpt,
-      })
-    ),
-  ];
+  const citations = matchedFullRows.slice(0, 8).map((r, idx) =>
+    buildTableRowCitation(targetTable.tableName, r, idx + 1)
+  );
 
   const publicMutationsPreview = compiled.mutationsPreview.map(
     ({ table_name, row_identifier, before, after }) => ({
@@ -2889,11 +2999,15 @@ async function confirmWorkspaceOperation({
     for (const orig of emailsPreview) {
       const origEmail = String(orig.recipient_email || '').trim().toLowerCase();
       const origId = String(orig.customer_identifier || '').trim();
+      const origRowId = String(orig.metadata?.row_identifier || '').trim();
       if (origEmail && !allowedByRecipient.has(origEmail)) {
         allowedByRecipient.set(origEmail, orig);
       }
       if (origId && !allowedByIdentifier.has(origId)) {
         allowedByIdentifier.set(origId, orig);
+      }
+      if (origRowId && !allowedByIdentifier.has(origRowId)) {
+        allowedByIdentifier.set(origRowId, orig);
       }
     }
 
@@ -2902,10 +3016,15 @@ async function confirmWorkspaceOperation({
       if (!item || typeof item !== 'object') continue;
       const recipientEmail = String(item.recipient_email || item.to || '').trim();
       const lowerEmail = recipientEmail.toLowerCase();
-      const identifier = String(item.customer_identifier || '').trim();
+      const identifier = String(
+        item.row_identifier ||
+          item.metadata?.row_identifier ||
+          item.customer_identifier ||
+          ''
+      ).trim();
       const matchedOrig =
-        allowedByRecipient.get(lowerEmail) ||
-        (identifier ? allowedByIdentifier.get(identifier) : null);
+        (identifier ? allowedByIdentifier.get(identifier) : null) ||
+        allowedByRecipient.get(lowerEmail);
       if (!matchedOrig) {
         const err = new Error(
           `Edited email recipient "${recipientEmail || identifier}" is not in the verified preview recipients for this workflow.`
@@ -2952,53 +3071,35 @@ async function confirmWorkspaceOperation({
   let updatedRowsCount = 0;
 
   if (mutationsPreview.length > 0) {
+    const targetTablesList = getTargetTablesFromMultiHop(workflow.multiHopResult);
+    let anyGoogleSyncedTable = false;
+
     await withTransaction(async (client) => {
-      const targetTablesList = getTargetTablesFromMultiHop(workflow.multiHopResult);
+      const mutsByTable = new Map();
       for (const mut of mutationsPreview) {
+        const key = String(mut.table_name || '').toLowerCase();
+        if (!mutsByTable.has(key)) mutsByTable.set(key, []);
+        mutsByTable.get(key).push(mut);
+      }
+
+      for (const [, tableMuts] of mutsByTable.entries()) {
+        const sampleMut = tableMuts[0];
         const matchedTable = targetTablesList.find(
           (t) =>
             String(t.schema?.tableName || t.tableName).toLowerCase() ===
-            String(mut.table_name).toLowerCase()
+            String(sampleMut.table_name).toLowerCase()
         );
         const schema = matchedTable?.schema;
         if (!schema) {
           throw new AppError(
-            `The approved preview references an unknown table "${mut.table_name}".`,
+            `The approved preview references an unknown table "${sampleMut.table_name}".`,
             409
           );
         }
-        const safeTable = quoteIdentifier(schema.tableName || matchedTable.tableName);
-        const afterObj = mut.after || {};
-        const afterEntries = Object.entries(afterObj);
-        if (afterEntries.length === 0) continue;
-
-        const setClauses = [];
-        const values = [workflow.business_id];
-
-        for (const [colName, newVal] of afterEntries) {
-          const column = findColumnDef(schema, colName);
-          if (!column || !column.colDef.modifiable || column.colDef.virtual) {
-            throw new AppError(
-              `The approved preview references an invalid or read-only field "${colName}".`,
-              409
-            );
-          }
-          const coercedVal = coerceValueForColumn(
-            column.colDef,
-            column.exactName,
-            newVal
-          );
-          values.push(coercedVal);
-          const storageType = String(column.colDef.storageType || '').toLowerCase();
-          const valueCast =
-            storageType === 'jsonb' || storageType === 'json'
-              ? `::${storageType === 'json' ? 'json' : 'jsonb'}`
-              : '';
-          setClauses.push(
-            `${quoteIdentifier(column.exactName)} = $${values.length}${valueCast}`
-          );
+        if (schema.columns?._google_row_index) {
+          anyGoogleSyncedTable = true;
         }
-
+        const safeTable = quoteIdentifier(schema.tableName || matchedTable.tableName);
         const bizColExact = schema.columns.business_id?.exactName || 'business_id';
         const bizColSql =
           bizColExact === 'business_id' ? 'business_id' : quoteIdentifier(bizColExact);
@@ -3006,86 +3107,194 @@ async function confirmWorkspaceOperation({
           ? `(${bizColSql} = $1 OR workspace_id = $1)`
           : `${bizColSql} = $1`;
 
-        let rowUpdated = false;
-        if (mut._internal_id && schema.columns.id) {
-          const idColumn = schema.columns.id;
-          const idParams = [...values, mut._internal_id];
-          const sqlById = `UPDATE ${safeTable} SET ${setClauses.join(', ')} WHERE ${whereBizSql} AND ${quoteIdentifier(idColumn.exactName)} = $${idParams.length};`;
-          const resById = await client.query(sqlById, idParams);
-          if (resById && resById.rowCount > 0) {
-            updatedRowsCount += resById.rowCount;
-            rowUpdated = true;
+        // Fast batch path: single SQL UPDATE with CASE expressions when >1 rows share a table and have _internal_id
+        let batchSucceeded = false;
+        if (
+          tableMuts.length > 1 &&
+          schema.columns.id &&
+          tableMuts.every((m) => m._internal_id && Object.keys(m.after || {}).length > 0)
+        ) {
+          const idColSql = quoteIdentifier(schema.columns.id.exactName);
+          const allCols = new Set();
+          for (const m of tableMuts) {
+            for (const c of Object.keys(m.after || {})) allCols.add(c);
+          }
+
+          const batchValues = [
+            workflow.business_id,
+            tableMuts.map((m) => String(m._internal_id)),
+          ];
+          const batchSetClauses = [];
+
+          for (const colName of allCols) {
+            const column = findColumnDef(schema, colName);
+            if (!column || !column.colDef.modifiable || column.colDef.virtual) {
+              throw new AppError(
+                `The approved preview references an invalid or read-only field "${colName}".`,
+                409
+              );
+            }
+            const exactColSql = quoteIdentifier(column.exactName);
+            const storageType = String(column.colDef.storageType || '').toLowerCase();
+            const valueCast =
+              storageType === 'jsonb' || storageType === 'json'
+                ? `::${storageType === 'json' ? 'json' : 'jsonb'}`
+                : '';
+
+            const whenParts = [];
+            for (const m of tableMuts) {
+              if (!Object.prototype.hasOwnProperty.call(m.after || {}, colName)) {
+                continue;
+              }
+              const coercedVal = coerceValueForColumn(
+                column.colDef,
+                column.exactName,
+                m.after[colName]
+              );
+              batchValues.push(String(m._internal_id));
+              const idIdx = batchValues.length;
+              batchValues.push(coercedVal);
+              const valIdx = batchValues.length;
+              whenParts.push(`WHEN $${idIdx} THEN $${valIdx}${valueCast}`);
+            }
+
+            if (whenParts.length > 0) {
+              batchSetClauses.push(
+                `${exactColSql} = CASE ${idColSql}::text ${whenParts.join(' ')} ELSE ${exactColSql} END`
+              );
+            }
+          }
+
+          if (batchSetClauses.length > 0) {
+            const batchSql = `UPDATE ${safeTable} SET ${batchSetClauses.join(', ')} WHERE ${whereBizSql} AND ${idColSql}::text = ANY($2::text[]);`;
+            const resBatch = await client.query(batchSql, batchValues);
+            if (resBatch && resBatch.rowCount === tableMuts.length) {
+              updatedRowsCount += resBatch.rowCount;
+              batchSucceeded = true;
+            }
           }
         }
 
-        if (!rowUpdated && mut._identifier_col && mut.row_identifier !== undefined) {
-          const identifierColumn = findColumnDef(schema, mut._identifier_col);
-          if (!identifierColumn) {
-            throw new AppError('The approved preview references an invalid row identifier.', 409);
+        if (batchSucceeded) continue;
+
+        for (const mut of tableMuts) {
+          const afterObj = mut.after || {};
+          const afterEntries = Object.entries(afterObj);
+          if (afterEntries.length === 0) continue;
+
+          const setClauses = [];
+          const values = [workflow.business_id];
+
+          for (const [colName, newVal] of afterEntries) {
+            const column = findColumnDef(schema, colName);
+            if (!column || !column.colDef.modifiable || column.colDef.virtual) {
+              throw new AppError(
+                `The approved preview references an invalid or read-only field "${colName}".`,
+                409
+              );
+            }
+            const coercedVal = coerceValueForColumn(
+              column.colDef,
+              column.exactName,
+              newVal
+            );
+            values.push(coercedVal);
+            const storageType = String(column.colDef.storageType || '').toLowerCase();
+            const valueCast =
+              storageType === 'jsonb' || storageType === 'json'
+                ? `::${storageType === 'json' ? 'json' : 'jsonb'}`
+                : '';
+            setClauses.push(
+              `${quoteIdentifier(column.exactName)} = $${values.length}${valueCast}`
+            );
           }
-          const identParams = [...values, String(mut.row_identifier)];
-          const sqlByIdent = `UPDATE ${safeTable} SET ${setClauses.join(', ')} WHERE ${whereBizSql} AND ${quoteIdentifier(identifierColumn.exactName)}::text = $${identParams.length};`;
-          const resByIdent = await client.query(sqlByIdent, identParams);
-          if (resByIdent && resByIdent.rowCount > 0) {
-            updatedRowsCount += resByIdent.rowCount;
-            rowUpdated = true;
+
+          let rowUpdated = false;
+          if (mut._internal_id && schema.columns.id) {
+            const idColumn = schema.columns.id;
+            const idParams = [...values, mut._internal_id];
+            const sqlById = `UPDATE ${safeTable} SET ${setClauses.join(', ')} WHERE ${whereBizSql} AND ${quoteIdentifier(idColumn.exactName)} = $${idParams.length};`;
+            const resById = await client.query(sqlById, idParams);
+            if (resById && resById.rowCount > 0) {
+              updatedRowsCount += resById.rowCount;
+              rowUpdated = true;
+            }
           }
-        }
-        if (!rowUpdated) {
-          throw new AppError(
-            `The approved row "${mut.row_identifier}" no longer exists in this business workspace.`,
-            409
-          );
+
+          if (!rowUpdated && mut._identifier_col && mut.row_identifier !== undefined) {
+            const identifierColumn = findColumnDef(schema, mut._identifier_col);
+            if (!identifierColumn) {
+              throw new AppError('The approved preview references an invalid row identifier.', 409);
+            }
+            const identParams = [...values, String(mut.row_identifier)];
+            const sqlByIdent = `UPDATE ${safeTable} SET ${setClauses.join(', ')} WHERE ${whereBizSql} AND ${quoteIdentifier(identifierColumn.exactName)}::text = $${identParams.length};`;
+            const resByIdent = await client.query(sqlByIdent, identParams);
+            if (resByIdent && resByIdent.rowCount > 0) {
+              updatedRowsCount += resByIdent.rowCount;
+              rowUpdated = true;
+            }
+          }
+          if (!rowUpdated) {
+            throw new AppError(
+              `The approved row "${mut.row_identifier}" no longer exists in this business workspace.`,
+              409
+            );
+          }
         }
       }
     });
 
     invalidateWorkspaceMetadataCache(workflow.business_id);
 
-    // Write-back sync to Google Sheets if any mutated table is a tracked Google Sheet
-    try {
-      const { syncMutationsToGoogleSheet } = require('./googleSheetsSyncService');
-      const tableMap = new Map();
-      for (const m of mutationsPreview) {
-        const tbl = m.table_name || m.tableName;
-        if (!tableMap.has(tbl)) tableMap.set(tbl, []);
-        tableMap.get(tbl).push(m);
-      }
-      for (const [tbl, muts] of tableMap.entries()) {
-        await syncMutationsToGoogleSheet(workflow.business_id, tbl, muts);
-      }
-    } catch (gSyncErr) {
-      console.warn('[ConfirmWorkspaceOperation] Google Sheets write-back error:', gSyncErr.message);
-    }
-  }
-
-  const dispatchedEmails = [];
-  for (const emailItem of emailsPreview) {
-    const payload = {
-      to: emailItem.recipient_email,
-      customer_identifier: emailItem.customer_identifier,
-      subject: emailItem.subject,
-      text: emailItem.body,
-      metadata: emailItem.metadata || {},
-      dispatched_at: new Date().toISOString(),
-      delivery_mode: dryRun ? 'dry_run' : 'smtp_or_test_transport',
-    };
-
-    if (!dryRun) {
+    // Write-back sync to Google Sheets only if any mutated table has a _google_row_index column
+    if (anyGoogleSyncedTable) {
       try {
-        const info = await sendIndividualEmail({
-          to: emailItem.recipient_email,
-          subject: emailItem.subject,
-          text: emailItem.body,
-        });
-        payload.message_id = info?.messageId || null;
-      } catch {
-        payload.delivery_mode = 'recorded_fallback';
+        const { syncMutationsToGoogleSheet } = require('./googleSheetsSyncService');
+        const tableMap = new Map();
+        for (const m of mutationsPreview) {
+          const tbl = m.table_name || m.tableName;
+          if (!tableMap.has(tbl)) tableMap.set(tbl, []);
+          tableMap.get(tbl).push(m);
+        }
+        await Promise.all(
+          [...tableMap.entries()].map(([tbl, muts]) =>
+            syncMutationsToGoogleSheet(workflow.business_id, tbl, muts)
+          )
+        );
+      } catch (gSyncErr) {
+        console.warn('[ConfirmWorkspaceOperation] Google Sheets write-back error:', gSyncErr.message);
       }
     }
-
-    dispatchedEmails.push(payload);
   }
+
+  const dispatchedEmails = await Promise.all(
+    emailsPreview.map(async (emailItem) => {
+      const payload = {
+        to: emailItem.recipient_email,
+        customer_identifier: emailItem.customer_identifier,
+        subject: emailItem.subject,
+        text: emailItem.body,
+        metadata: emailItem.metadata || {},
+        dispatched_at: new Date().toISOString(),
+        delivery_mode: dryRun ? 'dry_run' : 'smtp_or_test_transport',
+      };
+
+      if (!dryRun) {
+        try {
+          const info = await sendIndividualEmail({
+            to: emailItem.recipient_email,
+            subject: emailItem.subject,
+            text: emailItem.body,
+          });
+          payload.message_id = info?.messageId || null;
+        } catch {
+          payload.delivery_mode = 'recorded_fallback';
+        }
+      }
+
+      return payload;
+    })
+  );
 
   DISPATCHED_EMAILS_BY_WORKFLOW.set(workflowId, dispatchedEmails);
 

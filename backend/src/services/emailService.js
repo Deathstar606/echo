@@ -4,6 +4,16 @@ const AppError = require('../utils/AppError');
 
 let customTransporter = null;
 let cachedSmtpTransporter = null;
+let cachedJsonTestTransporter = null;
+
+function isSmtpTestModeActive() {
+  return (
+    Boolean(env.smtpTestMode) ||
+    ['true', '1', 'yes', 'on'].includes(
+      String(process.env.SMTP_TEST_MODE || '').trim().toLowerCase()
+    )
+  );
+}
 
 /**
  * Allows injecting a mock or test Nodemailer transporter (e.g. for automated tests).
@@ -53,7 +63,7 @@ function personalizeAnnouncementBody(bodyTemplate, customerName) {
  * Never logs or exposes credentials in error messages.
  */
 function validateSmtpConfig() {
-  if (customTransporter || env.smtpTestMode) {
+  if (customTransporter || isSmtpTestModeActive()) {
     return;
   }
 
@@ -95,10 +105,13 @@ function getMailTransporter() {
     return customTransporter;
   }
 
-  if (env.smtpTestMode) {
-    return nodemailer.createTransport({
-      jsonTransport: true,
-    });
+  if (isSmtpTestModeActive()) {
+    if (!cachedJsonTestTransporter) {
+      cachedJsonTestTransporter = nodemailer.createTransport({
+        jsonTransport: true,
+      });
+    }
+    return cachedJsonTestTransporter;
   }
 
   validateSmtpConfig();

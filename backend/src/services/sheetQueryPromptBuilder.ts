@@ -254,7 +254,7 @@ RULES
 - Default filter logic to AND; use OR only when explicitly requested. Use only modifiable columns for updates.
 - For nested maps, explicit keys use dotted fields. Apply to every key present in each row only with the existing-values actions and key_policy "existing_keys_only"; never create missing keys unless explicitly requested.
 - For create, include only explicitly supplied fields. For delete/update, require a safe target scope; set match_all:true only on an explicit request to affect all rows.
-- COLUMN DISAMBIGUATION: If a generic noun in USER REQUEST (e.g. "beds", "stock", "price") could refer to multiple distinct modifiable columns in this table (such as total_beds, staffed_beds, occupied_beds, clean_beds, or total_stock vs size) and neither USER REQUEST nor CONVERSATION CONTEXT specifies which column, you MUST return {"status":"clarification_needed","message":"..."} listing the candidate columns instead of guessing one. Ask for clarification if target, action, field, or scope remains unclear after checking CONVERSATION CONTEXT and PENDING CLARIFICATION TO RESOLVE.
+- COLUMN DISAMBIGUATION: If a generic noun in USER REQUEST (e.g. "beds", "stock", "price") could refer to multiple distinct modifiable columns in this table (such as total_beds, staffed_beds, occupied_beds, clean_beds, or total_stock vs size) and neither USER REQUEST nor CONVERSATION CONTEXT specifies which column, you MUST return {"status":"clarification_needed","message":"..."} listing the candidate columns instead of guessing one. Ask for clarification if target, action, field, or scope remains unclear after checking CONVERSATION CONTEXT and PENDING CLARIFICATION TO RESOLVE (if the row filter criteria ARE clear in the request, include "target_filters" on the clarification JSON so the matching rows are pre-selected).
 - CONVERSATION MEMORY (SLOT-FILLING, SCOPE INHERITANCE & OVERRIDES): (1) If PENDING CLARIFICATION TO RESOLVE is present and USER REQUEST supplies the missing field, value, action, or target (even as a short fragment like "occupied bed" or "total_stock"), combine the pending request with USER REQUEST into one complete plan. (2) If the previous turn in CONVERSATION CONTEXT was a mutation (SHEET_MUTATION) and USER REQUEST is a short column name or value override (e.g. "occupied bed", "clean beds", "total_stock", "make it 5"), reuse the previous mutation's target scope, action, and numeric value while substituting the newly specified column or value. (3) If CONVERSATION CONTEXT has prior matched_row_ids or filters on this table and the user updates without restating a WHERE clause (or says "those", "them", "that unit"), scope "target_filters" using ${pkHint} operator "in" (with those matched_row_ids) or the prior filter, with match_all:false.
 - Return JSON only. Read: {"status":"ok","entity":"${schema.entity}","operation":"filter","filter_logic":"AND","filters":[{"field":"...","operator":"equals","value":"..."}],"sort":[],"limit":null}. Mutation: {"status":"ok","entity":"${schema.entity}","operation":"update","filter_logic":"AND","match_all":false,"target_filters":[{"field":"...","operator":"equals","value":"..."}],"updates":[{"field":"...","action":"add","value":1,"unit":"absolute"}]}. Clarification: {"status":"clarification_needed","message":"..."}.
 Reference date: ${currentDate}
@@ -346,12 +346,25 @@ export function normalizeInterpretedQuery(
   const parsed = validateRawGeminiInterpretation(raw);
 
   if (parsed.status === 'clarification_needed' || !parsed.operation) {
+    const rawCandidateFilters = Array.isArray((parsed as any).target_filters)
+      ? (parsed as any).target_filters
+      : Array.isArray(parsed.filters)
+        ? parsed.filters
+        : [];
+    const safeFilters: QueryFilter[] = [];
+    for (const f of rawCandidateFilters) {
+      try {
+        safeFilters.push(validateFilter(schema, f));
+      } catch {
+        // Ignore invalid filter on clarification response
+      }
+    }
     return {
       status: 'clarification_needed',
       message: String(parsed.message || 'Could not interpret request into a structured spreadsheet query.').trim(),
       entity: normalizedEntity,
       operation: null,
-      filters: [],
+      filters: safeFilters,
       sort: [],
       limit: null,
     };

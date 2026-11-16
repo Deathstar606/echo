@@ -1225,10 +1225,26 @@ export default function SheetManagementPanel(): React.ReactElement {
       })
     ).unwrap();
     if (result.status === 'clarification_needed') {
+      const clarifyIds =
+        Array.isArray(result.target_rows) && result.target_rows.length > 0
+          ? result.target_rows
+              .map((r: any) => {
+                if (!r || typeof r !== 'object') return '';
+                const bKey = Object.keys(r).find(
+                  (k) =>
+                    !/^(?:business_id|workspace_id|user_id)$/i.test(k) &&
+                    /_id$/i.test(k) &&
+                    k.toLowerCase() !== 'id' &&
+                    r[k] != null
+                );
+                return String((bKey ? r[bKey] : r.id) || '').trim();
+              })
+              .filter(Boolean)
+          : [];
       return {
         message: result.message || 'Please clarify the requested spreadsheet update.',
         entity: result.entity || entity,
-        matched_row_ids: [],
+        matched_row_ids: clarifyIds,
         applied_filter_summary: '',
         status: result.status,
       };

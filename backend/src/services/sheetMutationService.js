@@ -795,13 +795,35 @@ async function previewMutation({
   await ensureTableExists(schema);
 
   if (mutationJson.status === 'clarification_needed') {
+    let clarifyTargetRows = [];
+    const candidateFilters =
+      Array.isArray(mutationJson.target_filters) && mutationJson.target_filters.length > 0
+        ? mutationJson.target_filters
+        : Array.isArray(mutationJson.filters) && mutationJson.filters.length > 0
+          ? mutationJson.filters
+          : [];
+    if (candidateFilters.length > 0) {
+      try {
+        const validFilters = candidateFilters.map((f) => validateFilter(schema, f));
+        const { sql, params: sqlParams } = buildParameterizedSelectQuery({
+          entity: schema,
+          businessId,
+          filters: validFilters,
+          filterLogic: mutationJson.filter_logic || 'AND',
+        });
+        const selectRes = await query(sql, sqlParams);
+        clarifyTargetRows = (selectRes.rows || []).map((r) => normalizeProductRow(r, schema));
+      } catch {
+        clarifyTargetRows = [];
+      }
+    }
     return {
       status: 'clarification_needed',
       message: mutationJson.message,
       entity: schema.entity,
       operation: null,
       affected_count: 0,
-      target_rows: [],
+      target_rows: clarifyTargetRows,
     };
   }
 
