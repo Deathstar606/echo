@@ -20,7 +20,7 @@ const {
   resolveRowIdentifier,
 } = require('./crossRagService');
 const {
-  listWorkspaceTableMetadata,
+  listWorkspaceTableMetadataCached,
 } = require('./workspaceTableMetadataService');
 
 const SYSTEM_TABLES = new Set([
@@ -216,58 +216,50 @@ function classifyTableColumns(schema, sampleRows = []) {
  * @returns {Promise<{ tables: Array<object>, documents: Array<object> }>}
  */
 async function discoverWorkspaceSources(businessId, options = {}) {
-  const allTableMetadata = await listWorkspaceTableMetadata(businessId);
+  const allTableMetadata = await listWorkspaceTableMetadataCached(businessId);
   const requestedTargets = (Array.isArray(options.targetEntities) ? options.targetEntities : [])
     .map((name) => normalizeEntityName(String(name || '').replace(/\.(csv|xlsx?|tsv)$/i, '')))
     .filter(Boolean);
-  const tableMetadata = requestedTargets.length > 0
-    ? allTableMetadata.filter((metadata) =>
-        requestedTargets.includes(normalizeEntityName(metadata.table_name))
-      )
-    : allTableMetadata;
+  let tableMetadata =
+    requestedTargets.length > 0
+      ? allTableMetadata.filter((metadata) =>
+          requestedTargets.includes(normalizeEntityName(metadata.table_name))
+        )
+      : allTableMetadata;
+  if (allTableMetadata.length > 0 && tableMetadata.length === 0) {
+    tableMetadata = allTableMetadata;
+  }
   const candidateSchemas = [];
   if (tableMetadata.length > 0) {
-    for (const metadata of tableMetadata) {
-      const schema = await discoverTableSchema(metadata.table_name, businessId);
-      if (!schema) continue;
-      const representativeValues = {};
-      for (const column of metadata.columns_profile || []) {
-        if (column.semantic_role === 'email') continue;
-        if (Array.isArray(column.categorical_values) && column.categorical_values.length > 0) {
-          representativeValues[column.column_name] = column.categorical_values.slice(0, 25);
+    const resolvedSchemas = await Promise.all(
+      tableMetadata.map(async (metadata) => {
+        const schema = await discoverTableSchema(metadata.table_name, businessId, {
+          useCache: true,
+          prefetchedMetadata: metadata,
+          skipSampleQuery: true,
+        });
+        if (!schema) return null;
+        const representativeValues = {};
+        for (const column of metadata.columns_profile || []) {
+          if (column.semantic_role === 'email') continue;
+          if (
+            Array.isArray(column.categorical_values) &&
+            column.categorical_values.length > 0
+          ) {
+            representativeValues[column.column_name] = column.categorical_values.slice(0, 25);
+          }
         }
-      }
-      schema.representativeValues = {
-        ...(schema.representativeValues || {}),
-        ...representativeValues,
-      };
-      schema.workspaceMetadata = metadata;
-      candidateSchemas.push(schema);
-    }
-    const profiledTables = new Set(
-      tableMetadata.map((metadata) => String(metadata.table_name).toLowerCase())
+        return {
+          ...schema,
+          representativeValues: {
+            ...(schema.representativeValues || {}),
+            ...representativeValues,
+          },
+          workspaceMetadata: metadata,
+        };
+      })
     );
-    const scopedTables = await query(
-      `SELECT table_name
-       FROM information_schema.columns
-       WHERE table_schema = 'public'
-         AND LOWER(column_name) IN ('business_id', 'workspace_id')
-       GROUP BY table_name
-       ORDER BY table_name;`
-    );
-    for (const row of scopedTables.rows || []) {
-      const tableName = String(row.table_name || '');
-      const lowerName = tableName.toLowerCase();
-      if (
-        !tableName ||
-        SYSTEM_TABLES.has(lowerName) ||
-        profiledTables.has(lowerName) ||
-        (requestedTargets.length > 0 &&
-          !requestedTargets.includes(normalizeEntityName(tableName)))
-      ) {
-        continue;
-      }
-      const schema = await discoverTableSchema(tableName, businessId);
+    for (const schema of resolvedSchemas) {
       if (schema) candidateSchemas.push(schema);
     }
   } else {

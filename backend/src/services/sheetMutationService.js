@@ -352,9 +352,29 @@ function computeRowUpdates(row, validatedUpdates, schema) {
         : (nextRow[colName] !== undefined ? nextRow[colName] : nextRow[exactCol.toLowerCase()]);
 
     let proposedVal = currentVal;
+    let resolvedOperand = u.value;
+
+    if (u.source_field) {
+      const srcMatch = findColumnDef(schema, u.source_field);
+      const srcColName = srcMatch ? srcMatch.exactName : u.source_field;
+      const rawSrcVal = nextRow[srcColName] ?? nextRow[u.source_field];
+      const srcNum = Number(rawSrcVal);
+      if (
+        rawSrcVal === null ||
+        rawSrcVal === undefined ||
+        rawSrcVal === '' ||
+        !Number.isFinite(srcNum)
+      ) {
+        throw new AppError(
+          `Cannot apply "${u.action}" on "${exactCol}" for item "${rowName}" because source column "${srcColName}" is not numeric.`,
+          400
+        );
+      }
+      resolvedOperand = colDef.type === 'integer' ? Math.round(srcNum) : Number(srcNum.toFixed(2));
+    }
 
     if (u.action === 'set') {
-      proposedVal = u.value;
+      proposedVal = resolvedOperand;
     } else {
       const baseNum = Number(currentVal ?? 0);
       if (!Number.isFinite(baseNum)) {
@@ -368,15 +388,15 @@ function computeRowUpdates(row, validatedUpdates, schema) {
       if (u.action === 'add') {
         rawResult =
           u.unit === 'percentage'
-            ? baseNum * (1 + u.value / 100)
-            : baseNum + u.value;
+            ? baseNum * (1 + resolvedOperand / 100)
+            : baseNum + resolvedOperand;
       } else if (u.action === 'subtract') {
         rawResult =
           u.unit === 'percentage'
-            ? baseNum * (1 - u.value / 100)
-            : baseNum - u.value;
+            ? baseNum * (1 - resolvedOperand / 100)
+            : baseNum - resolvedOperand;
       } else if (u.action === 'multiply') {
-        rawResult = baseNum * u.value;
+        rawResult = baseNum * resolvedOperand;
       }
 
       if (!Number.isFinite(rawResult)) {
@@ -569,6 +589,38 @@ function buildParameterizedUpdateStatement({
     const colDef = match ? match.colDef : { type: 'string' };
     const exactCol = match ? match.exactName : col;
     const colSql = quoteIdentifier(exactCol);
+
+    if (u.source_field) {
+      const srcMatch = findColumnDef(schema, u.source_field);
+      const srcExactCol = srcMatch ? srcMatch.exactName : u.source_field;
+      const srcSql = `COALESCE(${quoteIdentifier(srcExactCol)}, 0)`;
+      if (u.action === 'set') {
+        setClauses.push(
+          colDef.type === 'integer'
+            ? `${colSql} = ROUND(${srcSql}::numeric)::integer`
+            : `${colSql} = ${quoteIdentifier(srcExactCol)}`
+        );
+      } else if (u.action === 'add') {
+        setClauses.push(
+          colDef.type === 'integer'
+            ? `${colSql} = ${colSql} + ROUND(${srcSql}::numeric)::integer`
+            : `${colSql} = ROUND((${colSql} + ${srcSql})::numeric, 2)`
+        );
+      } else if (u.action === 'subtract') {
+        setClauses.push(
+          colDef.type === 'integer'
+            ? `${colSql} = ${colSql} - ROUND(${srcSql}::numeric)::integer`
+            : `${colSql} = ROUND((${colSql} - ${srcSql})::numeric, 2)`
+        );
+      } else if (u.action === 'multiply') {
+        setClauses.push(
+          colDef.type === 'integer'
+            ? `${colSql} = ROUND(${colSql} * ${srcSql}::numeric)::integer`
+            : `${colSql} = ROUND((${colSql} * ${srcSql})::numeric, 2)`
+        );
+      }
+      continue;
+    }
 
     updateParams.push(u.value);
     const paramRef = `$${updateParams.length}`;

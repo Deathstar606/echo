@@ -256,6 +256,9 @@ export function validateMutationTransformation(input: unknown): MutationTransfor
   if (isNonEmptyString(input.field)) {
     transformation.field = input.field.trim();
   }
+  if (isNonEmptyString(input.source_field)) {
+    transformation.source_field = input.source_field.trim();
+  }
   if (isNonEmptyString(input.expression)) {
     transformation.expression = input.expression.trim();
   }

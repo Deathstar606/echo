@@ -214,6 +214,7 @@ export interface MutationTransformation {
   unit?: string;
   nested_key?: string;
   field?: string;
+  source_field?: string;
   expression?: string;
 }
 

@@ -133,9 +133,34 @@ function buildDocumentCitation(chunk) {
  * @param {number} [fallbackIdx=1]
  * @returns {{ identifier: string, column: string | null }}
  */
-function resolveRowIdentifierInfo(row, fallbackIdx = 1) {
+function resolveRowIdentifierInfo(row, fallbackIdx = 1, schema = null) {
   if (!row || typeof row !== 'object') {
     return { identifier: `Row ${fallbackIdx}`, column: null };
+  }
+  const systemCols = new Set([
+    'business_id',
+    'workspace_id',
+    'user_id',
+    'workspace_document_id',
+    'created_at',
+    'updated_at',
+  ]);
+  const explicitPk =
+    schema && typeof schema.primaryKey === 'string' && schema.primaryKey.trim()
+      ? schema.primaryKey.trim()
+      : null;
+  if (explicitPk && explicitPk.toLowerCase() !== 'id' && !systemCols.has(explicitPk.toLowerCase())) {
+    const matchedPkCol = Object.keys(row).find(
+      (k) => k.toLowerCase() === explicitPk.toLowerCase()
+    );
+    if (
+      matchedPkCol &&
+      row[matchedPkCol] !== null &&
+      row[matchedPkCol] !== undefined &&
+      String(row[matchedPkCol]).trim() !== ''
+    ) {
+      return { identifier: String(row[matchedPkCol]).trim(), column: matchedPkCol };
+    }
   }
 
   // 1. Primary record ID / reference number columns (excluding batch_id / sku which may repeat across rows)
@@ -151,10 +176,16 @@ function resolveRowIdentifierInfo(row, fallbackIdx = 1) {
   ]);
   for (const [k, v] of Object.entries(row)) {
     const lower = k.toLowerCase();
+    const isGenericBatchGrouping =
+      lower === 'batch' ||
+      lower === 'batch_id' ||
+      lower === 'batch_code' ||
+      lower === 'batch_no' ||
+      lower === 'batch_number';
     if (
       !ignoredSystemCols.has(lower) &&
-      !lower.includes('batch') &&
-      /(?:^|_)(?:order_id|account_id|backorder_id|customer_id|invoice_id|ticket_id|shipment_id|record_id|row_id|id|ref|reference|number|no)(?:$|_)/i.test(
+      !isGenericBatchGrouping &&
+      /(?:^|_)(?:batch_record_id|order_id|account_id|backorder_id|customer_id|invoice_id|ticket_id|shipment_id|unit_id|nurse_id|po_id|record_id|row_id|id|ref|reference|number|no)(?:$|_)/i.test(
         lower
       ) &&
       v !== null &&
@@ -205,8 +236,8 @@ function resolveRowIdentifierInfo(row, fallbackIdx = 1) {
  * @param {number} [fallbackIdx=1]
  * @returns {string}
  */
-function resolveRowIdentifier(row, fallbackIdx = 1) {
-  return resolveRowIdentifierInfo(row, fallbackIdx).identifier;
+function resolveRowIdentifier(row, fallbackIdx = 1, schema = null) {
+  return resolveRowIdentifierInfo(row, fallbackIdx, schema).identifier;
 }
 
 /**
@@ -336,7 +367,39 @@ async function retrieveHybridDocumentChunks(
     return a.chunk_index - b.chunk_index;
   });
 
-  return scored.slice(0, topK);
+  if (scored.length <= topK) {
+    return scored;
+  }
+
+  // Ensure multi-page / multi-document sections with positive signal aren't crowded out by page 1
+  const selected = [];
+  const selectedIds = new Set();
+  const seenBuckets = new Set();
+  const topScore = scored[0]?.hybrid_score || 0;
+  const minDiverseScore = topScore > 0 ? topScore * 0.2 : -Infinity;
+  const diversityPool = scored.slice(0, Math.max(topK * 3, 24));
+
+  for (const chunk of diversityPool) {
+    if (selected.length >= topK) break;
+    if ((chunk.hybrid_score || 0) < minDiverseScore) continue;
+    const bucket = `${chunk.filename || 'doc'}::${chunk.page_number || 1}`;
+    if (!seenBuckets.has(bucket)) {
+      seenBuckets.add(bucket);
+      selected.push(chunk);
+      selectedIds.add(chunk.id ?? `${bucket}::${chunk.chunk_index}`);
+    }
+  }
+
+  for (const chunk of scored) {
+    if (selected.length >= topK) break;
+    const key = chunk.id ?? `${chunk.filename || 'doc'}::${chunk.page_number || 1}::${chunk.chunk_index}`;
+    if (!selectedIds.has(key)) {
+      selectedIds.add(key);
+      selected.push(chunk);
+    }
+  }
+
+  return selected;
 }
 
 /**

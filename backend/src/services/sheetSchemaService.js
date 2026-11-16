@@ -868,6 +868,9 @@ async function discoverTableSchema(tableName, businessId, options = {}) {
     }
     hydratedFromMetadata = true;
     dynamicSchema.workspaceMetadata = prefetchedMeta;
+    if (prefetchedMeta.primary_key_column && !dynamicSchema.primaryKey) {
+      dynamicSchema.primaryKey = prefetchedMeta.primary_key_column;
+    }
   }
 
   // If businessId is provided and representative values were not hydrated from metadata, sample up to 5 rows
@@ -1362,6 +1365,9 @@ function normalizeUpdateUnit(unit = 'absolute') {
     throw new AppError('Update unit must be a string.', 400);
   }
   const clean = unit.trim().toLowerCase();
+  if (clean === 'column_reference' || clean === 'field_reference') {
+    return 'column_reference';
+  }
   const mapped = UNIT_ALIASES[clean];
   if (!mapped) {
     throw new AppError(
@@ -1969,8 +1975,44 @@ function validateSingleUpdateTransformation(schema, rawUpdate) {
   }
 
   // Numeric / Integer field validation
+  const explicitSourceField =
+    typeof rawUpdate.source_field === 'string' && rawUpdate.source_field.trim()
+      ? rawUpdate.source_field.trim()
+      : null;
+  if (explicitSourceField) {
+    const refMatch = findColumnDef(schema, explicitSourceField);
+    if (
+      refMatch &&
+      !refMatch.colDef.virtual &&
+      (refMatch.colDef.type === 'number' || refMatch.colDef.type === 'integer')
+    ) {
+      return {
+        field: exactName,
+        action,
+        value: refMatch.exactName,
+        source_field: refMatch.exactName,
+        unit: 'column_reference',
+      };
+    }
+  }
   const num = parseCleanNumber(rawUpdate.value);
   if (!Number.isFinite(num)) {
+    if (typeof rawUpdate.value === 'string' && rawUpdate.value.trim()) {
+      const refMatch = findColumnDef(schema, rawUpdate.value.trim());
+      if (
+        refMatch &&
+        !refMatch.colDef.virtual &&
+        (refMatch.colDef.type === 'number' || refMatch.colDef.type === 'integer')
+      ) {
+        return {
+          field: exactName,
+          action,
+          value: refMatch.exactName,
+          source_field: refMatch.exactName,
+          unit: 'column_reference',
+        };
+      }
+    }
     throw new AppError(
       `Value for "${exactName}" must be a valid number, got "${rawUpdate.value}".`,
       400

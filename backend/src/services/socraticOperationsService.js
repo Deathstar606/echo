@@ -466,9 +466,18 @@ function projectTableForLlm(targetTable) {
   rows.slice(0, 200).forEach((row, idx) => {
     const { identifier, column: identifierCol } = resolveRowIdentifierInfo(
       row,
-      idx + 1
+      idx + 1,
+      targetTable.schema
     );
-    const entry = { _row_id: identifier };
+    let uniqueIdentifier = identifier;
+    if (rowLookup.has(uniqueIdentifier) || rowLookup.has(uniqueIdentifier.toLowerCase())) {
+      const fallbackSuffix =
+        row.id !== undefined && row.id !== null && String(row.id).trim() !== ''
+          ? String(row.id).trim()
+          : String(idx + 1);
+      uniqueIdentifier = `${identifier}#${fallbackSuffix}`;
+    }
+    const entry = { _row_id: uniqueIdentifier };
 
     const computedMapSum = nestedMapCol
       ? sumNestedMapValues(row[nestedMapCol.exactName])
@@ -524,12 +533,12 @@ function projectTableForLlm(targetTable) {
     projectedRows.push(entry);
     const lookupRecord = {
       row,
-      identifier,
+      identifier: uniqueIdentifier,
       identifierCol: identifierCol || 'id',
       projected: entry,
     };
-    rowLookup.set(identifier, lookupRecord);
-    rowLookup.set(identifier.toLowerCase(), lookupRecord);
+    rowLookup.set(uniqueIdentifier, lookupRecord);
+    rowLookup.set(uniqueIdentifier.toLowerCase(), lookupRecord);
   });
 
   return {
@@ -1936,6 +1945,53 @@ function findTableCustomerNameColumn(schema) {
   return null;
 }
 
+function resolveEmailRecipientNaming(schema, emailCol = null) {
+  const rowLabelCol = findTableCustomerNameColumn(schema);
+  const cols = schema?.columns ? Object.values(schema.columns) : [];
+  const names = cols
+    .map((c) => c?.exactName || c?.name)
+    .filter((n) => n && !SYSTEM_EMAIL_EXCLUSION_COLS.has(n.toLowerCase()));
+
+  const lowerEmail = String(emailCol || '').trim().toLowerCase();
+  const roleMatch = lowerEmail.match(
+    /^(coordinator|hub_lead|supervisor|manager|lead|director)_e?mail$/i
+  );
+  if (!roleMatch) {
+    return {
+      rowLabelCol,
+      salutationCol: rowLabelCol,
+      recipientRoleLabel: null,
+    };
+  }
+
+  const rawRole = roleMatch[1].toLowerCase();
+  const matchingRoleNameCol = names.find((n) =>
+    new RegExp(`^${rawRole}_(?:name|person)$`, 'i').test(n)
+  );
+  if (matchingRoleNameCol) {
+    return {
+      rowLabelCol: rowLabelCol || matchingRoleNameCol,
+      salutationCol: matchingRoleNameCol,
+      recipientRoleLabel: null,
+    };
+  }
+
+  let recipientRoleLabel = rawRole
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+  const tableLower = String(schema?.tableName || '').toLowerCase();
+  if (rawRole === 'coordinator' && tableLower.includes('nursing')) {
+    recipientRoleLabel = 'Nursing Coordinator';
+  }
+
+  return {
+    rowLabelCol,
+    salutationCol: null,
+    recipientRoleLabel,
+  };
+}
+
 /**
  * Returns true if the instruction requests drafting/sending emails to table rows
  * without citing external policy/SOP/governance documents that require Socratic conflict resolution.
@@ -2091,7 +2147,11 @@ async function tryExecuteDirectTableEmailOperation({
     };
   }
 
-  const customerNameCol = findTableCustomerNameColumn(schema);
+  const {
+    rowLabelCol: customerNameCol,
+    salutationCol,
+    recipientRoleLabel,
+  } = resolveEmailRecipientNaming(schema, emailCol);
   const activeCtx = getLatestActiveContext(normalizedHistory, schema.tableName);
   const startsFreshSearch =
     hasExplicitScopeReset(prompt) ||
@@ -2109,7 +2169,7 @@ async function tryExecuteDirectTableEmailOperation({
       activeCtx.matchedRowIds.map((id) => String(id || '').trim().toLowerCase()).filter(Boolean)
     );
     const narrowed = liveRows.filter((row, idx) => {
-      const { identifier } = resolveRowIdentifierInfo(row, idx + 1);
+      const { identifier } = resolveRowIdentifierInfo(row, idx + 1, schema);
       if (priorSet.has(String(identifier || '').toLowerCase())) return true;
       if (row.id && priorSet.has(String(row.id).toLowerCase())) return true;
       return Object.entries(row).some(
@@ -2215,6 +2275,26 @@ async function tryExecuteDirectTableEmailOperation({
     }
   }
 
+  const priorUsedDocuments =
+    ['CROSS_SOURCE_READ', 'CROSS_DOCUMENT_OPERATION', 'DOCUMENT_QUESTION'].includes(
+      String(activeCtx.lastTurn?.resolved_intent || '').toUpperCase()
+    ) ||
+    /\b(?:policy|policies|rule|rules|protocol|eligibility|bulletin|recall|manifest|sop|cap|section|addendum|replenishment|replacement|audit)\b/i.test(
+      `${activeCtx.lastTurn?.user_prompt || ''} ${prompt}`
+    );
+  const docChunks = priorUsedDocuments
+    ? await retrieveHybridDocumentChunks(
+        businessId,
+        `${activeCtx.lastTurn?.user_prompt || ''} ${prompt}`.trim(),
+        { topK: 3 }
+      )
+    : [];
+  const docExcerpts = docChunks.slice(0, 3).map((chunk) => ({
+    filename: chunk.filename,
+    section: chunk.section_title || undefined,
+    excerpt: String(chunk.raw_text || '').slice(0, 350),
+  }));
+
   const compilerPrompt = `You are a precision B2B Operations & Email Drafting Assistant.
 Evaluate USER_INSTRUCTION strictly against active table "${targetTable.tableName}" and compile matched rows, requested column updates, and a personalized email template.
 
@@ -2236,18 +2316,25 @@ CRITICAL RULES:
 3. PERSONALIZED EMAIL TEMPLATE ("email_subject_template", "email_body_template", "applied_rule"):
    - Draft ONE polite, professional "email_subject_template" and "email_body_template" using dynamic {{Column_Name}} placeholders that will be rendered per matched recipient using their post-update row values.
    - ${
-     customerNameCol
-       ? `Include "{{customer_name}}" in the greeting (e.g., "Dear {{customer_name}},") which resolves to "${customerNameCol}".`
-       : 'Address the recipient using "{{customer_name}}" (resolves to unit/company/account identifier).'
+     recipientRoleLabel
+       ? `EMAIL_COLUMN "${emailCol}" addresses the ${recipientRoleLabel} (NOT "${customerNameCol || 'the row subject'}"). ALWAYS write literal "Dear {{customer_name}}," in the greeting (do NOT invent placeholders like "{{Hub_Lead}}" — "{{customer_name}}" automatically renders "${recipientRoleLabel}"), and refer to the subject record using {{${customerNameCol || samplePlaceholderCols[0] || '_row_id'}}} and {{_row_id}}.`
+       : salutationCol
+         ? `Include "{{customer_name}}" in the greeting (e.g., "Dear {{customer_name}},") which resolves to "${salutationCol}".`
+         : 'Address the recipient using "{{customer_name}}" (resolves to unit/company/account identifier).'
    }
-   - Reference concrete row facts using exact {{Column_Name}} placeholders from TABLE_COLUMNS (such as {{${samplePlaceholderCols.join('}}, {{')}}}) — which render the row's UPDATED (post-mutation) value — and {{before.Column_Name}} when referencing the value prior to the update. Never invent unverified numbers or dates.
+   - Reference concrete row facts using exact {{Column_Name}} placeholders from TABLE_COLUMNS (such as {{${samplePlaceholderCols.join('}}, {{')}}}) — which render the row's UPDATED (post-mutation) value — and {{before.Column_Name}} when referencing the value prior to the update. Never invent unverified numbers or dates.${
+     docExcerpts.length > 0
+       ? '\n   - Cite relevant policy/protocol details (caps, section codes, PO/replacement numbers) from DOCUMENT_EXCERPTS where applicable.'
+       : ''
+   }
 
 ACTIVE_TABLE_NAME: ${targetTable.tableName}
 EMAIL_COLUMN: ${emailCol}
-CUSTOMER_NAME_COLUMN: ${customerNameCol || 'none'}
+CUSTOMER_NAME_COLUMN: ${salutationCol || recipientRoleLabel || 'none'}
 TABLE_COLUMNS: ${compactColumnsLine}
-${formattedHistory ? `\nRECENT_CONVERSATION:\n${formattedHistory}\n` : ''}
-CANDIDATE_ROWS (${compactCandidateRows.length} rows):
+${formattedHistory ? `\nRECENT_CONVERSATION:\n${formattedHistory}\n` : ''}${
+    docExcerpts.length > 0 ? `\nDOCUMENT_EXCERPTS:\n${JSON.stringify(docExcerpts)}\n` : ''
+  }CANDIDATE_ROWS (${compactCandidateRows.length} rows):
 ${JSON.stringify(compactCandidateRows)}
 
 USER_INSTRUCTION:
@@ -2457,14 +2544,27 @@ ${effectiveUserInstruction}`;
             customerNameCol && hit.row?.[customerNameCol]
               ? String(hit.row[customerNameCol]).trim()
               : '';
+          const salutationValue =
+            (salutationCol && hit.row?.[salutationCol]
+              ? String(hit.row[salutationCol]).trim()
+              : '') ||
+            recipientRoleLabel ||
+            derivedName;
           const defaultIdentifier = derivedName
             ? `${derivedName} (${hit.identifier})`
             : hit.identifier;
           const mutEntry = mutationsByIdentifier.get(hit.identifier) || null;
 
           const vars = new Map();
-          vars.set('customer_name', derivedName || hit.identifier);
-          vars.set('recipient_name', derivedName || hit.identifier);
+          vars.set('customer_name', salutationValue || hit.identifier);
+          vars.set('recipient_name', salutationValue || hit.identifier);
+          if (recipientRoleLabel) {
+            vars.set(recipientRoleLabel.toLowerCase(), recipientRoleLabel);
+            vars.set(
+              recipientRoleLabel.toLowerCase().replace(/\s+/g, '_'),
+              recipientRoleLabel
+            );
+          }
           vars.set('row_id', hit.identifier);
           vars.set('_row_id', hit.identifier);
           vars.set('row_identifier', hit.identifier);
@@ -2569,9 +2669,12 @@ ${effectiveUserInstruction}`;
   const matchedFullRows = compiled.matchedEntries.map((e) => e.row);
   const matchedRowIds = compiled.matchedEntries.map((e) => e.identifier);
   const highlightedRows = buildHighlightedRows(targetTable.tableName, matchedFullRows);
-  const citations = matchedFullRows.slice(0, 8).map((r, idx) =>
-    buildTableRowCitation(targetTable.tableName, r, idx + 1)
-  );
+  const citations = [
+    ...docChunks.slice(0, 3).map(buildDocumentCitation),
+    ...matchedFullRows.slice(0, 8).map((r, idx) =>
+      buildTableRowCitation(targetTable.tableName, r, idx + 1)
+    ),
+  ];
 
   const publicMutationsPreview = compiled.mutationsPreview.map(
     ({ table_name, row_identifier, before, after }) => ({
@@ -2589,7 +2692,7 @@ ${effectiveUserInstruction}`;
       targetTable,
       targetTables: [targetTable],
     },
-    retrievedChunks: [],
+    retrievedChunks: docChunks,
   };
 
   const workflow = {
@@ -2702,6 +2805,9 @@ async function executeWorkspaceOperation({
       prompt,
       targetEntities: routed.target_entities || [],
       conversationHistory: normalizedHistory,
+      prefetchedTables: routed.context?.tables || null,
+      prefetchedChunks: routed.context?.chunks || null,
+      preferredEntity: routed.entity || entity || null,
     });
     return {
       status: 'CONVERSATIONAL',

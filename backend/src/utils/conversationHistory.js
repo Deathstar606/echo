@@ -345,11 +345,17 @@ async function resolveIdentifierFilterForIds(
 
   for (const col of cols) {
     const lower = col.exactName.toLowerCase();
+    const isGenericBatchGrouping =
+      lower === 'batch' ||
+      lower === 'batch_id' ||
+      lower === 'batch_code' ||
+      lower === 'batch_no' ||
+      lower === 'batch_number';
     if (
       lower !== 'id' &&
       !['business_id', 'workspace_id', 'user_id', 'workspace_document_id'].includes(lower) &&
-      !lower.includes('batch') &&
-      /(?:^|_)(?:order_id|account_id|backorder_id|customer_id|invoice_id|unit_id|ticket_id|shipment_id|record_id|row_id|id|sku|code|ref|reference|name|title)(?:$|_)/i.test(
+      !isGenericBatchGrouping &&
+      /(?:^|_)(?:batch_record_id|order_id|account_id|backorder_id|customer_id|invoice_id|unit_id|nurse_id|po_id|ticket_id|shipment_id|record_id|row_id|id|sku|code|ref|reference|name|title)(?:$|_)/i.test(
         lower
       )
     ) {

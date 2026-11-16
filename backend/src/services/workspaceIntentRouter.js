@@ -1,5 +1,6 @@
 const {
   generateStructuredJsonWithRetry,
+  hasCustomWorkspaceGeminiGenerator,
 } = require('./geminiService');
 const {
   discoverWorkspaceSources,
@@ -60,57 +61,51 @@ const WORKSPACE_INTENT_SCHEMA = {
 };
 
 function formatWorkspaceSources(tables, documents, chunks) {
-  const tableContext = tables.map(({ tableName, displayName, rowCount, schema, metadata }) => ({
-    table: tableName,
-    display_name: displayName,
-    row_count: typeof rowCount === 'number' ? rowCount : undefined,
-    source_filename: metadata?.source_filename,
-    primary_key_column: metadata?.primary_key_column,
-    table_summary: String(metadata?.table_summary || '').slice(0, 320) || undefined,
-    sample_rows: Array.isArray(metadata?.sample_rows)
-      ? metadata.sample_rows.slice(0, 2)
-      : undefined,
-    columns_profile: Array.isArray(metadata?.columns_profile)
-      ? metadata.columns_profile.map((column) => ({
-          column_name: column.column_name,
-          data_type: column.data_type,
-          semantic_role: column.semantic_role,
-          categorical_values: Array.isArray(column.categorical_values)
-            ? column.categorical_values.slice(0, 5)
-            : undefined,
-          nested_structure: column.nested_structure || undefined,
-        }))
-      : undefined,
-    columns: Object.values(schema.columns || {}).map((column) => ({
-      name: column.exactName,
-      type: column.type,
-      mutable: Boolean(column.modifiable && !column.virtual),
-      description: column.description || undefined,
-    })),
-  }));
+  const tableContext = tables.map(({ tableName, displayName, rowCount, schema, metadata }) => {
+    const profileByCol = new Map();
+    for (const colProfile of metadata?.columns_profile || []) {
+      if (colProfile?.column_name) {
+        profileByCol.set(String(colProfile.column_name).toLowerCase(), colProfile);
+      }
+    }
+    return {
+      table: tableName,
+      display_name: displayName,
+      row_count: typeof rowCount === 'number' ? rowCount : undefined,
+      primary_key: metadata?.primary_key_column || undefined,
+      columns: Object.values(schema.columns || {}).map((column) => {
+        const prof = profileByCol.get(String(column.exactName).toLowerCase());
+        const isEmail = prof?.semantic_role === 'email';
+        return {
+          name: column.exactName,
+          type: column.type,
+          mutable: Boolean(column.modifiable && !column.virtual),
+          role: prof?.semantic_role || undefined,
+          values:
+            !isEmail && Array.isArray(prof?.categorical_values) && prof.categorical_values.length > 0
+              ? prof.categorical_values.slice(0, 4)
+              : undefined,
+          nested_keys: prof?.nested_structure || undefined,
+        };
+      }),
+    };
+  });
   const documentContext = documents.map((document) => ({
     filename: document.filename,
     page_count: document.page_count,
-    chunk_count: document.chunk_count,
   }));
-  const retrievedContext = chunks.map((chunk) => ({
+  const retrievedContext = (chunks || []).slice(0, 4).map((chunk) => ({
     filename: chunk.filename,
     page: chunk.page_number,
     section: chunk.section_title || undefined,
-    locator: chunk.locator || undefined,
-    breadcrumb: chunk.breadcrumb_header || undefined,
-    excerpt: String(chunk.raw_text || '').slice(0, 1200),
+    excerpt: String(chunk.raw_text || '').slice(0, 450),
   }));
 
-  return JSON.stringify(
-    {
-      tables: tableContext,
-      documents: documentContext,
-      relevant_document_excerpts: retrievedContext,
-    },
-    null,
-    2
-  );
+  return JSON.stringify({
+    tables: tableContext,
+    documents: documentContext,
+    relevant_document_excerpts: retrievedContext,
+  });
 }
 
 function enforceOperationalIntentPrecedence(
@@ -212,6 +207,68 @@ function enforceOperationalIntentPrecedence(
   return { ...routed, intent };
 }
 
+function isUnambiguousCrossSourceReadCandidate(prompt, tables = [], chunks = []) {
+  if (hasCustomWorkspaceGeminiGenerator()) return false;
+  if (!Array.isArray(tables) || tables.length === 0) return false;
+  if (!Array.isArray(chunks) || !chunks.some((c) => Number(c.hybrid_score) > 0)) {
+    return false;
+  }
+
+  const text = String(prompt || '').trim();
+  if (!text) return false;
+
+  // Reject pure policy/document explanations ("what does the policy say...", "explain...", "summarize...")
+  if (
+    /^\s*(?:what\s+(?:does|do|did)\s+.*\b(?:say|state|mean|define|specify|require)|(?:can|could|would)\s+you\s+(?:explain|summarize)|explain|summari[sz]e)\b/i.test(
+      text
+    )
+  ) {
+    return false;
+  }
+
+  // Must start cleanly with a read/question lead (optionally after "According to/Per/Under/Based on ...")
+  const leadPattern =
+    /^(?:(?:according\s+to|per|under|based\s+on|in)\s+(?:the\s+|our\s+)?[^,?.!]{2,90}[,:]\s*)?(?:which|what\s+(?:rows|records|orders|accounts|backorders|invoices|batches|units|icus|nurses|staff|items|products|shipments)|who|list|show|find|identify|determine|cross[- ]reference|check\s+(?:which|what|all))\b/i;
+  if (!leadPattern.test(text)) {
+    return false;
+  }
+
+  // Reject any mutation, write, or email/notification action instruction
+  const actionVerbRegex =
+    /(?:^|(?:please|to|and|then|,)\s+)\b(?:update|set|change|swap|replace|refund|reconcile|enforce|allocate|assign|deploy|issue|grant|deduct|notify|email|e-mail|send|modify|increase|reduce|decrease|delete|create|apply|mark|cut|slash|adjust|draft)\b/i;
+  const emailInstructionRegex =
+    /\b(?:send\s+(?:an?\s+)?e?-?mails?|e?-?mail\s+(?:the|them|all|every|each)|draft\s+(?:an?\s+)?e?-?mails?|notify\s+(?:the|them|all|every|each))\b/i;
+  if (actionVerbRegex.test(text) || emailInstructionRegex.test(text)) {
+    return false;
+  }
+
+  // Must explicitly cite a governing document or policy source
+  const citesDocument =
+    /\b(?:policy|policies|procedure|sop|manifest|memo|brief|bulletin|recall|protocol|guideline|addendum|notice|document|handbook|manual|rulebook)\b/i.test(
+      text
+    ) || /^(?:according\s+to|per|under|based\s+on)\s+/i.test(text);
+  if (!citesDocument) {
+    return false;
+  }
+
+  // Ensure the question references structured record nouns or workspace table/column names
+  const mentionsRecordNoun =
+    /\b(?:orders?|accounts?|customers?|backorders?|invoices?|batches|batch|records?|rows?|entries|units?|icus?|nurses?|rns?|staff|roster|shipments?|inventory|skus?|products?|items?|vendors?|suppliers?|tickets?|slas?|vouchers?)\b/i.test(
+      text
+    );
+  if (mentionsRecordNoun) return true;
+
+  const lowerPrompt = text.toLowerCase();
+  return tables.some((t) => {
+    const tName = String(t.tableName || '').toLowerCase();
+    const dName = String(t.displayName || '').toLowerCase();
+    const nameTokens = [...tName.split(/[^a-z0-9]+/), ...dName.split(/[^a-z0-9]+/)].filter(
+      (tok) => tok.length >= 4
+    );
+    return nameTokens.some((tok) => lowerPrompt.includes(tok));
+  });
+}
+
 /**
  * Routes a workspace instruction using the active business's available tables,
  * indexed documents, and the current in-memory conversation thread.
@@ -257,9 +314,24 @@ async function routeWorkspaceIntent({
     topK: 8,
     includeAllIfOperational: true,
   });
-  const sourceContext = formatWorkspaceSources(tables, documents, chunks);
   const normalizedHistory = normalizeConversationHistory(history);
   const activeHistoryContext = getLatestActiveContext(normalizedHistory, entity || null);
+
+  if (isUnambiguousCrossSourceReadCandidate(prompt, tables, chunks)) {
+    const fallbackEntity =
+      entity || activeHistoryContext.activeTargetTable || (tables.length === 1 ? tables[0].tableName : null);
+    return {
+      intent: 'cross_source_read',
+      entity: fallbackEntity,
+      target_entities: [],
+      answer: '',
+      clarification: '',
+      citations: chunks.map((chunk) => chunk.citation).filter(Boolean),
+      context: { tables, documents, chunks },
+    };
+  }
+
+  const sourceContext = formatWorkspaceSources(tables, documents, chunks);
   const formattedHistory = formatConversationHistoryForPrompt(normalizedHistory);
 
   const promptText = `Route the latest user request in this business workspace.
@@ -403,5 +475,6 @@ module.exports = {
   WORKSPACE_INTENTS,
   formatWorkspaceSources,
   enforceOperationalIntentPrecedence,
+  isUnambiguousCrossSourceReadCandidate,
   routeWorkspaceIntent,
 };

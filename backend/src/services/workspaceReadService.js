@@ -8,7 +8,7 @@ const {
   resolveRowIdentifier,
 } = require('./crossRagService');
 const { retrieveHybridDocumentChunks } = require('./crossRagService');
-const { findColumnDef, quoteIdentifier, validateFilter, validateSort } = require('./sheetSchemaService');
+const { findColumnDef, normalizeEntityName, quoteIdentifier, validateFilter, validateSort } = require('./sheetSchemaService');
 const {
   normalizeConversationHistory,
   getLatestActiveContext,
@@ -553,6 +553,9 @@ async function generateCrossSourceReadAnswer({
   prompt,
   targetEntities = [],
   conversationHistory = [],
+  prefetchedTables = null,
+  prefetchedChunks = null,
+  preferredEntity = null,
 }) {
   const normalizedHistory = normalizeConversationHistory(conversationHistory);
   const activeCtx = getLatestActiveContext(
@@ -565,13 +568,32 @@ async function generateCrossSourceReadAnswer({
       : activeCtx.activeTargetTable
         ? [activeCtx.activeTargetTable]
         : [];
-  const { tables } = await discoverWorkspaceSources(businessId, {
-    targetEntities: effectiveTargetEntities,
-    includeRows: false,
-  });
-  const chunks = await retrieveHybridDocumentChunks(businessId, prompt, {
-    topK: 10,
-  });
+  let tables = [];
+  if (Array.isArray(prefetchedTables) && prefetchedTables.length > 0) {
+    if (effectiveTargetEntities.length > 0) {
+      const normalizedTargets = effectiveTargetEntities.map((t) =>
+        normalizeEntityName(String(t || '').replace(/\.(csv|xlsx?|tsv)$/i, '')).toLowerCase()
+      );
+      const filtered = prefetchedTables.filter((t) =>
+        normalizedTargets.includes(normalizeEntityName(t.tableName).toLowerCase())
+      );
+      tables = filtered.length > 0 ? filtered : prefetchedTables;
+    } else {
+      tables = prefetchedTables;
+    }
+  } else {
+    const discovered = await discoverWorkspaceSources(businessId, {
+      targetEntities: effectiveTargetEntities,
+      includeRows: false,
+    });
+    tables = discovered.tables;
+  }
+  const chunks =
+    Array.isArray(prefetchedChunks) && prefetchedChunks.length > 0
+      ? prefetchedChunks
+      : await retrieveHybridDocumentChunks(businessId, prompt, {
+          topK: 8,
+        });
   if (tables.length === 0 && chunks.length === 0) {
     return {
       message: 'No matching workspace table or document source was found. Please select or upload the relevant source.',
@@ -582,24 +604,13 @@ async function generateCrossSourceReadAnswer({
     };
   }
 
+  const currentDateIso = new Date().toISOString().slice(0, 10);
   const formattedHistory = formatConversationHistoryForPrompt(normalizedHistory);
   const historySection = formattedHistory
     ? `\nCONVERSATION CONTEXT (last ${normalizedHistory.length} turn(s); prior active table: ${activeCtx.activeTargetTable || 'none'}; prior matched_row_ids: ${JSON.stringify((activeCtx.matchedRowIds || []).slice(0, 40))}; prior filter summary: ${JSON.stringify(activeCtx.appliedFilterSummary || '')}):\n${formattedHistory}\n- FOLLOW-UP CHAINING RULE: If LATEST USER REQUEST uses pronouns/narrowing cues ("those", "them", "these", "of those", "only the ones...") referring to prior results on ${activeCtx.activeTargetTable || 'a prior table'}, chain the prior active filters/matched_row_ids with any new filter conditions.\n`
     : '';
 
-  const planPrompt = `Create a read-only query plan for the latest user request using only these active workspace sources.
-Return structured JSON only. Never return SQL.
-- Select only tables needed to answer the request.
-- Use exact column names and supported filter operators from the schema.
-- Apply document-derived eligibility criteria as filters and use AND/OR only as requested by the documents or user.
-- If the request asks multiple distinct sub-questions or cohorts on the same table (for example, specific unit IDs plus a department cohort, or breaching POs plus in-transit/sea rows linked to backorders), emit separate entries in table_queries or combine criteria with filter_logic: "OR" so no requested cohort is dropped.
-- Filter strictly on selection conditions, never on display attributes (for example, when asked which products have discount >= 35% with their Best-Seller flag, filter ONLY discount >= 35, not best = true).
-- Numeric summaries must use aggregates; row formulas must list exact numeric columns and an arithmetic operation. Derived numeric thresholds (for example, column A minus column B >= a policy threshold) must be emitted as calculation_filters so PostgreSQL applies them before returning rows.
-- Do not infer fields absent from the schemas. If no safe query can be formed, return an empty table_queries array.
-- A query with no filters is allowed only when the user explicitly asks for a full-table listing or a whole-table aggregate.
-
-ACTIVE TABLE SCHEMAS:
-${JSON.stringify(tables.map((table) => ({
+  const compactSchemas = tables.map((table) => ({
     table_name: table.tableName,
     row_count: table.rowCount,
     columns: Object.values(table.schema.columns || {}).map((column) => ({
@@ -607,17 +618,36 @@ ${JSON.stringify(tables.map((table) => ({
       type: column.type,
       queryable: Boolean(column.queryable),
       description: column.description || undefined,
-      representative_values: table.schema.representativeValues?.[column.exactName]?.slice(0, 5),
+      values: table.schema.representativeValues?.[column.exactName]?.slice(0, 5),
     })),
-  })))}
+  }));
+  const compactPassages = chunks.slice(0, 8).map((chunk) => ({
+    filename: chunk.filename,
+    page: chunk.page_number,
+    section: chunk.section_title || undefined,
+    locator: chunk.locator || undefined,
+    text: String(chunk.raw_text || '').slice(0, 950),
+  }));
+
+  const planPrompt = `Create a read-only query plan for the latest user request using only these active workspace sources.
+Return structured JSON only. Never return SQL.
+CURRENT_DATE (UTC): ${currentDateIso}
+- Select only tables needed to answer the request.
+- Use exact column names and supported filter operators from the schema.
+- Apply document-derived eligibility criteria as filters and use AND/OR only as requested by the documents or user.
+- DOCUMENT-ENUMERATED CODES / EXCLUSIONS RULE: When the documents list specific batch codes, SKUs, unit IDs, or identifiers as qualifying/recalled (check ALL pages/addendums in RELEVANT DOCUMENT PASSAGES) and exclude others, filter explicitly on those qualifying codes (e.g., "in" filter) rather than running an unfiltered full-table scan.
+- DATE / DORMANCY DIRECTION RULE: When checking "inactive for > N days", "no payment in N+ days", or "older than N days" against CURRENT_DATE (${currentDateIso}), a date column MUST be EARLIER (use "less_than_or_equal" or "less_than" with YYYY-MM-DD = CURRENT_DATE minus N days, never "greater_than").
+- If the request asks multiple distinct sub-questions or cohorts on the same table (for example, specific unit IDs plus a department cohort, or breaching POs plus in-transit/sea rows linked to backorders), emit separate entries in table_queries or combine criteria with filter_logic: "OR" so no requested cohort is dropped.
+- Filter strictly on selection conditions, never on display attributes (for example, when asked which products have discount >= 35% with their Best-Seller flag, filter ONLY discount >= 35, not best = true).
+- Numeric summaries must use aggregates; row formulas must list exact numeric columns and an arithmetic operation. Derived numeric thresholds (for example, column A minus column B >= a policy threshold) must be emitted as calculation_filters so PostgreSQL applies them before returning rows.
+- Do not infer fields absent from the schemas. If no safe query can be formed, return an empty table_queries array.
+- A query with no filters is allowed only when the user explicitly asks for a full-table listing or a whole-table aggregate.
+
+ACTIVE TABLE SCHEMAS:
+${JSON.stringify(compactSchemas)}
 
 RELEVANT DOCUMENT PASSAGES:
-${JSON.stringify(chunks.map((chunk) => ({
-    filename: chunk.filename,
-    section: chunk.section_title,
-    breadcrumb: chunk.breadcrumb_header,
-    text: String(chunk.raw_text || '').slice(0, 1500),
-  })))}
+${JSON.stringify(compactPassages)}
 ${historySection}
 LATEST USER REQUEST:
 ${prompt}`;
@@ -670,6 +700,7 @@ ${prompt}`;
     const execution = await executeReadQuery(businessId, tablePlan);
     results.push({
       table_name: tablePlan.table.tableName,
+      schema: tablePlan.table.schema,
       rows: execution.rows,
       row_count: execution.summary._row_count,
       aggregates: tablePlan.aggregates.map((aggregate, index) => ({
@@ -691,23 +722,49 @@ ${prompt}`;
     });
   }
 
-  const highlightedRows = results.flatMap((result) =>
+  const compactRowForSynthesis = (row, idx, schema) => {
+    const out = { _row_id: resolveRowIdentifier(row, idx + 1, schema) };
+    const skipCols = new Set([
+      'business_id',
+      'workspace_id',
+      'user_id',
+      'workspace_document_id',
+      'created_at',
+      'updated_at',
+      'images',
+    ]);
+    for (const [k, v] of Object.entries(row || {})) {
+      if (skipCols.has(k.toLowerCase())) continue;
+      if (typeof v === 'string' && v.length > 180) {
+        out[k] = `${v.slice(0, 177)}...`;
+      } else {
+        out[k] = v;
+      }
+    }
+    return out;
+  };
+
+  let highlightedRows = results.flatMap((result) =>
     result.rows.slice(0, 100).map((row, index) => ({
       table_name: result.table_name,
-      row_identifier: resolveRowIdentifier(row, index + 1),
+      schema: result.schema,
+      row_identifier: resolveRowIdentifier(row, index + 1, result.schema),
       row_data: row,
     }))
   );
-  const rowCitations = results.flatMap((result) =>
-    result.rows.slice(0, 8).map((row, index) =>
-      buildTableRowCitation(result.table_name, row, index + 1)
-    )
-  );
-  const currentDateIso = new Date().toISOString().slice(0, 10);
+  const synthesisSqlOutput = results.map((result) => ({
+    table_name: result.table_name,
+    row_count: result.row_count,
+    aggregates: result.aggregates,
+    calculations: result.calculations,
+    rows: result.rows.slice(0, 40).map((row, index) => compactRowForSynthesis(row, index, result.schema)),
+  }));
   const synthesisPrompt = `Answer the user's read-only workspace question using only the verified query output and retrieved document passages.
 Never propose or execute mutations. Do not invent missing facts. Use exact counts, values, units, and negative signs from the SQL results. Explain uncertainty when the retrieved data cannot answer.
-Check EVERY row in VERIFIED SQL OUTPUT against EVERY sub-question and policy rule (comparing date columns such as last_payment_date against CURRENT_DATE for > 90 day dormancy checks, and linking SKUs/items across tables) before stating any category is empty.
-Return JSON only with one concise "answer" string.
+Check EVERY row in VERIFIED SQL OUTPUT against EVERY sub-question and policy rule (comparing date columns such as last_payment_date against CURRENT_DATE for > 90 day dormancy checks, checking exclusions/addendums, and linking SKUs/items across tables) before stating any category is empty.
+Return JSON with:
+1. "answer": concise grounded factual answer.
+2. "matched_row_ids": array of exact "_row_id" strings from VERIFIED SQL OUTPUT whose rows ACTUALLY qualify and satisfy the user question and ALL governing document criteria (return [] if zero rows qualify or if excluded; never include rejected or merely contextual rows).
 
 CURRENT_DATE (UTC): ${currentDateIso}
 
@@ -715,42 +772,83 @@ USER QUESTION:
 ${prompt}
 
 VERIFIED SQL OUTPUT:
-${JSON.stringify(results.map((result) => ({
-    table_name: result.table_name,
-    row_count: result.row_count,
-    aggregates: result.aggregates,
-    calculations: result.calculations,
-    rows: result.rows.slice(0, 30),
-  })))}
+${JSON.stringify(synthesisSqlOutput)}
 
 RELEVANT DOCUMENT PASSAGES:
-${JSON.stringify(chunks.slice(0, 10).map((chunk) => ({
-    filename: chunk.filename,
-    locator: chunk.locator,
-    text: String(chunk.raw_text || '').slice(0, 1200),
-  })))}`;
-  const answer = await generateStructuredJsonWithRetry(
+${JSON.stringify(compactPassages)}`;
+  const synthesisResult = await generateStructuredJsonWithRetry(
     synthesisPrompt,
     (parsed) => {
       const text = String(parsed?.answer || '').trim();
       if (!text) throw new AppError('The read answer was empty.', 502);
-      return text;
+      const rawMatchedIds = Array.isArray(parsed?.matched_row_ids) ? parsed.matched_row_ids : null;
+      return { answer: text, matchedRowIds: rawMatchedIds };
     },
     {
       maxRetries: 1,
       responseSchema: {
         type: 'OBJECT',
-        properties: { answer: { type: 'STRING' } },
-        required: ['answer'],
+        properties: {
+          answer: { type: 'STRING' },
+          matched_row_ids: {
+            type: 'ARRAY',
+            items: { type: 'STRING' },
+            description:
+              'Exact _row_id values from VERIFIED SQL OUTPUT that satisfy the user question and document rules. Return [] if zero rows qualify.',
+          },
+        },
+        required: ['answer', 'matched_row_ids'],
       },
       stage: 'cross_source_read_synthesis',
     }
   );
+  const answer = synthesisResult.answer;
+  if (Array.isArray(synthesisResult.matchedRowIds)) {
+    const allowedNormalized = new Set(
+      synthesisResult.matchedRowIds
+        .map((id) => String(id || '').trim().toLowerCase())
+        .filter(Boolean)
+    );
+    highlightedRows = highlightedRows.filter((entry) =>
+      allowedNormalized.has(String(entry.row_identifier || '').trim().toLowerCase())
+    );
+  }
+  const dedupedHighlightedRows = [];
+  const seenRowKeys = new Set();
+  for (const entry of highlightedRows) {
+    const key = `${String(entry.table_name || '').toLowerCase()}::${String(entry.row_identifier || '').trim().toLowerCase()}`;
+    if (!seenRowKeys.has(key)) {
+      seenRowKeys.add(key);
+      dedupedHighlightedRows.push(entry);
+    }
+  }
+  highlightedRows = dedupedHighlightedRows;
+  if (preferredEntity && highlightedRows.length > 1) {
+    const normalizedPreferred = normalizeEntityName(
+      String(preferredEntity).replace(/\.(csv|xlsx?|tsv)$/i, '')
+    ).toLowerCase();
+    highlightedRows = [
+      ...highlightedRows.filter(
+        (entry) => normalizeEntityName(entry.table_name).toLowerCase() === normalizedPreferred
+      ),
+      ...highlightedRows.filter(
+        (entry) => normalizeEntityName(entry.table_name).toLowerCase() !== normalizedPreferred
+      ),
+    ];
+  }
+  const cleanHighlightedRows = highlightedRows.map(({ table_name, row_identifier, row_data }) => ({
+    table_name,
+    row_identifier,
+    row_data,
+  }));
+  const rowCitations = cleanHighlightedRows
+    .slice(0, 8)
+    .map((entry, index) => buildTableRowCitation(entry.table_name, entry.row_data, index + 1));
   return {
     message: answer,
     answer,
-    rows: highlightedRows.map((entry) => ({ table_name: entry.table_name, ...entry.row_data })),
-    highlighted_rows: highlightedRows,
+    rows: cleanHighlightedRows.map((entry) => ({ table_name: entry.table_name, ...entry.row_data })),
+    highlighted_rows: cleanHighlightedRows,
     citations: [
       ...chunks.slice(0, 8).map(buildDocumentCitation),
       ...rowCitations,
