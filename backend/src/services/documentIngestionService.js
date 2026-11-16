@@ -969,6 +969,211 @@ async function getChunksForBusiness(businessId) {
 }
 
 /**
+ * Updates the full text of an existing workspace document and re-indexes its semantic chunks
+ * in both PostgreSQL and in-memory caches without touching conversation state.
+ *
+ * @param {{ businessId: string, docId: string, content: string }} params
+ * @returns {Promise<object>}
+ */
+async function updateDocumentContentById({ businessId, docId, content }) {
+  const cleanBizId = String(businessId || '').trim();
+  const cleanDocIdentifier = String(docId || '').trim();
+  const nextText = typeof content === 'string' ? content.replace(/\r\n/g, '\n').trim() : '';
+
+  if (!cleanBizId || !cleanDocIdentifier) {
+    throw new AppError('Both workspace_id and docIdentifier are required to update a document.', 400);
+  }
+  if (!nextText) {
+    throw new AppError('Document content cannot be empty.', 400);
+  }
+
+  let docRow = null;
+  const isUuid = DOC_UUID_RE.test(cleanDocIdentifier);
+
+  try {
+    const docQuery = isUuid
+      ? `SELECT doc_id, workspace_id, user_id, filename, mime_type, page_count, chunk_count, full_text, created_at
+         FROM workspace_documents
+         WHERE workspace_id = $1 AND (doc_id = $2 OR LOWER(filename) = LOWER($3))
+         LIMIT 1;`
+      : `SELECT doc_id, workspace_id, user_id, filename, mime_type, page_count, chunk_count, full_text, created_at
+         FROM workspace_documents
+         WHERE workspace_id = $1 AND (LOWER(filename) = LOWER($2) OR LOWER(filename) = LOWER($3))
+         LIMIT 1;`;
+    const docParams = isUuid
+      ? [cleanBizId, cleanDocIdentifier, cleanDocIdentifier]
+      : [cleanBizId, cleanDocIdentifier, path.basename(cleanDocIdentifier)];
+    const docRes = await query(docQuery, docParams);
+    if (docRes?.rows?.length > 0) {
+      docRow = docRes.rows[0];
+    }
+  } catch (dbErr) {
+    console.warn('[updateDocumentContentById] DB lookup warning:', dbErr.message);
+  }
+
+  if (!docRow) {
+    const memDocs = await listDocumentsForBusiness(cleanBizId);
+    const matchedMem = memDocs.find(
+      (d) =>
+        String(d.doc_id || d.id || '') === cleanDocIdentifier ||
+        String(d.filename || '').toLowerCase() === cleanDocIdentifier.toLowerCase() ||
+        path.basename(String(d.filename || '')).toLowerCase() === path.basename(cleanDocIdentifier).toLowerCase()
+    );
+    if (matchedMem) {
+      docRow = {
+        doc_id: matchedMem.doc_id || matchedMem.id,
+        workspace_id: cleanBizId,
+        user_id: matchedMem.user_id || null,
+        filename: matchedMem.filename,
+        mime_type: matchedMem.mime_type || 'text/plain',
+        page_count: matchedMem.page_count || 1,
+        created_at: matchedMem.created_at,
+      };
+    }
+  }
+
+  if (!docRow) {
+    throw new AppError(`Document "${cleanDocIdentifier}" was not found in this workspace.`, 404);
+  }
+
+  const resolvedDocId = docRow.doc_id;
+  const resolvedFilename = docRow.filename;
+  const resolvedPageCount = Number(docRow.page_count || 1) || 1;
+  const pages = [{ page_number: 1, text: nextText }];
+  const nextChunks = chunkDocumentPages(pages, {
+    docId: resolvedDocId,
+    businessId: cleanBizId,
+    filename: resolvedFilename,
+  });
+
+  await ensureDocumentTablesExist();
+
+  const persistUpdate = async (execQuery) => {
+    let resolvedUserId = docRow.user_id || null;
+    if (!resolvedUserId) {
+      const wsUserRes = await execQuery('SELECT user_id FROM workspaces WHERE id = $1;', [cleanBizId]);
+      resolvedUserId = wsUserRes?.rows?.[0]?.user_id || null;
+    }
+
+    await execQuery(
+      `UPDATE workspace_documents
+       SET full_text = $1, chunk_count = $2, updated_at = NOW()
+       WHERE workspace_id = $3 AND doc_id = $4;`,
+      [nextText, nextChunks.length, cleanBizId, resolvedDocId]
+    );
+
+    await execQuery(
+      `DELETE FROM workspace_document_chunks
+       WHERE workspace_id = $1 AND (doc_id = $2 OR workspace_document_id = $2);`,
+      [cleanBizId, resolvedDocId]
+    );
+
+    for (const chunk of nextChunks) {
+      await execQuery(
+        `INSERT INTO workspace_document_chunks
+           (chunk_id, doc_id, workspace_document_id, workspace_id, user_id, filename,
+            page_number, chunk_index, section_title, raw_text, locator, breadcrumb_header,
+            enriched_text, extracted_entities)
+         VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb);`,
+        [
+          chunk.chunk_id,
+          resolvedDocId,
+          cleanBizId,
+          resolvedUserId,
+          resolvedFilename,
+          chunk.page_number,
+          chunk.chunk_index,
+          chunk.section_title,
+          chunk.raw_text,
+          chunk.locator,
+          chunk.breadcrumb_header,
+          chunk.enriched_text,
+          JSON.stringify(chunk.extracted_entities),
+        ]
+      );
+    }
+  };
+
+  if (typeof withTransaction === 'function') {
+    try {
+      await withTransaction((client) =>
+        persistUpdate((sql, params) => client.query(sql, params))
+      );
+    } catch (err) {
+      if (!/DATABASE_URL is not set|connect is not a function/i.test(String(err?.message || ''))) {
+        throw err;
+      }
+      await persistUpdate(query);
+    }
+  } else {
+    await persistUpdate(query);
+  }
+
+  // Keep in-memory document & chunk stores synchronized
+  const priorDocs = await listDocumentsForBusiness(cleanBizId);
+  const updatedDocRecord = {
+    doc_id: resolvedDocId,
+    workspace_document_id: resolvedDocId,
+    workspace_id: cleanBizId,
+    business_id: cleanBizId,
+    filename: resolvedFilename,
+    mime_type: docRow.mime_type || 'text/plain',
+    page_count: resolvedPageCount,
+    chunk_count: nextChunks.length,
+    full_text: nextText,
+    created_at: docRow.created_at || new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  DOCUMENTS_BY_BUSINESS.set(cleanBizId, [
+    ...priorDocs.filter((d) => String(d.doc_id || d.id || '') !== String(resolvedDocId)),
+    updatedDocRecord,
+  ]);
+
+  const priorChunks = await getChunksForBusiness(cleanBizId);
+  CHUNKS_BY_BUSINESS.set(cleanBizId, [
+    ...priorChunks.filter(
+      (c) =>
+        String(c.doc_id || '') !== String(resolvedDocId) &&
+        String(c.workspace_document_id || '') !== String(resolvedDocId) &&
+        String(c.filename || '').toLowerCase() !== resolvedFilename.toLowerCase()
+    ),
+    ...nextChunks,
+  ]);
+
+  const entitySet = new Set();
+  const formattedChunks = nextChunks.map((c, index) => {
+    for (const ent of c.extracted_entities || []) {
+      if (ent && typeof ent === 'string' && ent.trim()) entitySet.add(ent.trim());
+    }
+    return {
+      id: c.chunk_id || `chunk-${index}`,
+      chunk_index: Number(c.chunk_index ?? index),
+      locator: c.locator || `Page ${c.page_number || 1} / Chunk ${index + 1}`,
+      breadcrumb_header: c.breadcrumb_header || null,
+      raw_text: c.raw_text || '',
+      enriched_text: c.enriched_text || null,
+      extracted_entities: c.extracted_entities || [],
+    };
+  });
+
+  return {
+    document: {
+      id: resolvedDocId,
+      workspace_id: cleanBizId,
+      filename: resolvedFilename,
+      mime_type: updatedDocRecord.mime_type,
+      page_count: resolvedPageCount,
+      total_chunks: formattedChunks.length,
+      full_text: nextText,
+      all_extracted_entities: Array.from(entitySet),
+      created_at: updatedDocRecord.created_at,
+      updated_at: updatedDocRecord.updated_at,
+    },
+    chunks: formattedChunks,
+  };
+}
+
+/**
  * Deletes a single workspace document and all of its indexed chunks
  * from both PostgreSQL and the in-memory caches.
  *
@@ -1139,6 +1344,7 @@ module.exports = {
   listDocumentsForBusiness,
   getChunksForBusiness,
   getInMemoryChunksForBusiness,
+  updateDocumentContentById,
   deleteDocumentById,
   clearDocumentsForBusiness,
   clearAllDocumentsGlobal,

@@ -11,6 +11,7 @@ const {
 } = require('../services/authService');
 const {
   getDocumentChunks,
+  updateDocument,
   deleteDocument,
 } = require('../controllers/workspaceController');
 const AppError = require('../utils/AppError');
@@ -205,6 +206,9 @@ router.put('/:workspaceId', async (req, res, next) => {
 
 // GET /api/workspaces/:workspaceId/documents/:docIdentifier/chunks
 router.get('/:workspaceId/documents/:docIdentifier/chunks', getDocumentChunks);
+
+// PATCH /api/workspaces/:workspaceId/documents/:docIdentifier
+router.patch('/:workspaceId/documents/:docIdentifier', updateDocument);
 
 // DELETE /api/workspaces/:workspaceId/documents/:docIdentifier
 router.delete('/:workspaceId/documents/:docIdentifier', deleteDocument);

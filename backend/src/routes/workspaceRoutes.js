@@ -4,6 +4,7 @@ const {
   uploadDocuments,
   getDocuments,
   getDocumentChunks,
+  updateDocument,
   deleteDocument,
   clearDocuments,
   seedDemoWorkspace,
@@ -17,6 +18,7 @@ const router = express.Router({ mergeParams: true });
 router.post('/documents/upload', uploadWorkspaceFiles, uploadDocuments);
 router.get('/documents', getDocuments);
 router.get('/documents/:docIdentifier/chunks', getDocumentChunks);
+router.patch('/documents/:docIdentifier', updateDocument);
 router.delete('/documents/:docIdentifier', deleteDocument);
 router.delete('/documents', clearDocuments);
 router.post('/demo/seed', seedDemoWorkspace);

@@ -8,6 +8,7 @@ const {
   ingestDocument,
   listDocumentsForBusiness,
   getChunksForBusiness,
+  updateDocumentContentById,
   deleteDocumentById,
   clearDocumentsForBusiness,
 } = require('../services/documentIngestionService');
@@ -427,7 +428,7 @@ async function getDocumentChunks(req, res, next) {
       let docParams;
       if (isUuid) {
         docQuery = `
-          SELECT doc_id, workspace_id, filename, mime_type, page_count, chunk_count, created_at, updated_at
+          SELECT doc_id, workspace_id, filename, mime_type, page_count, chunk_count, full_text, created_at, updated_at
           FROM workspace_documents
           WHERE workspace_id = $1 AND (doc_id = $2 OR LOWER(filename) = LOWER($3))
           LIMIT 1;
@@ -435,7 +436,7 @@ async function getDocumentChunks(req, res, next) {
         docParams = [businessId, docIdentifier, docIdentifier];
       } else {
         docQuery = `
-          SELECT doc_id, workspace_id, filename, mime_type, page_count, chunk_count, created_at, updated_at
+          SELECT doc_id, workspace_id, filename, mime_type, page_count, chunk_count, full_text, created_at, updated_at
           FROM workspace_documents
           WHERE workspace_id = $1 AND (LOWER(filename) = LOWER($2) OR LOWER(filename) = LOWER($3))
           LIMIT 1;
@@ -469,6 +470,7 @@ async function getDocumentChunks(req, res, next) {
           mime_type: matchedMem.mime_type,
           page_count: matchedMem.page_count,
           chunk_count: matchedMem.chunk_count,
+          full_text: matchedMem.full_text || null,
           created_at: matchedMem.created_at,
         };
       }
@@ -543,17 +545,55 @@ async function getDocumentChunks(req, res, next) {
     });
 
     const allExtractedEntities = Array.from(entitySet);
+    const fullText =
+      docRow.full_text && String(docRow.full_text).trim()
+        ? docRow.full_text
+        : formattedChunks.map((c) => c.raw_text).filter(Boolean).join('\n\n');
 
     return res.status(200).json({
       document: {
         id: docRow.doc_id,
         workspace_id: docRow.workspace_id || businessId,
         filename: docRow.filename,
+        mime_type: docRow.mime_type || null,
+        page_count: docRow.page_count || 1,
         total_chunks: formattedChunks.length || docRow.chunk_count || 0,
+        full_text: fullText,
         all_extracted_entities: allExtractedEntities,
         created_at: docRow.created_at,
       },
       chunks: formattedChunks,
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+/**
+ * PATCH /api/workspaces/:workspaceId/documents/:docIdentifier
+ * PATCH /api/workspace/documents/:docIdentifier
+ * Saves edited full text of an unstructured document and re-indexes its chunks.
+ */
+async function updateDocument(req, res, next) {
+  try {
+    const businessId = await requireBusinessId(req);
+    const rawIdentifier = req.params.docIdentifier || req.params.docId;
+    if (!rawIdentifier || !String(rawIdentifier).trim()) {
+      throw new AppError('Document identifier (ID or filename) is required.', 400);
+    }
+
+    const docIdentifier = decodeURIComponent(String(rawIdentifier).trim());
+    const content = req.body?.content ?? req.body?.full_text ?? '';
+    const updated = await updateDocumentContentById({
+      businessId,
+      docId: docIdentifier,
+      content,
+    });
+
+    return res.status(200).json({
+      status: 'success',
+      message: `Saved edits to "${updated.document.filename}".`,
+      ...updated,
     });
   } catch (err) {
     return next(err);
@@ -629,6 +669,7 @@ module.exports = {
   uploadDocuments,
   getDocuments,
   getDocumentChunks,
+  updateDocument,
   deleteDocument,
   clearDocuments,
   seedDemoWorkspace,

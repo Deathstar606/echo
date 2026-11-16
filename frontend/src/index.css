@@ -2329,12 +2329,14 @@ button:disabled {
   color: var(--primary-indigo-dark);
 }
 
-.ksb-table-pill.is-active {
-  background-color: var(--primary-indigo);
-  border-color: var(--primary-indigo-dark);
+.ksb-table-pill.is-active,
+.ksb-table-pill.is-active:hover {
+  background-color: #059669;
+  border-color: #047857;
   color: #ffffff;
   font-weight: 700;
-  box-shadow: 0 2px 6px rgba(57, 70, 211, 0.24);
+  box-shadow: 0 2px 6px rgba(5, 150, 105, 0.24);
+  transition: none;
 }
 
 .ksb-doc-pill {
@@ -2348,10 +2350,20 @@ button:disabled {
   cursor: pointer;
 }
 
-.ksb-doc-pill.is-clickable:hover {
+.ksb-doc-pill.is-clickable:hover:not(.is-active) {
   background-color: #e8f0fe;
   border-color: #93c5fd;
   box-shadow: 0 1px 4px rgba(37, 99, 235, 0.12);
+}
+
+.ksb-doc-pill.is-active,
+.ksb-doc-pill.is-active:hover {
+  background-color: #2563eb;
+  border-color: #1d4ed8;
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.24);
+  transition: none;
 }
 
 .ksb-doc-pill.is-gdoc {

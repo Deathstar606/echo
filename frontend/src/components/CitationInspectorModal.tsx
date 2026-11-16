@@ -51,6 +51,8 @@ export interface DocumentMetadata {
 interface CitationInspectorModalProps {
   citation: Citation | null;
   workspaceId?: string;
+  selectedChunkId?: string | null;
+  badgeLabel?: string;
   onClose: () => void;
   onHighlightRow?: (locator: string) => void;
   onAskAboutSection?: (prompt: string) => void;
@@ -154,6 +156,8 @@ function sanitizeEntities(entities: string[]): string[] {
 export default function CitationInspectorModal({
   citation,
   workspaceId,
+  selectedChunkId = null,
+  badgeLabel = '★ Cited in AI Response',
   onClose,
   onHighlightRow,
   onAskAboutSection,
@@ -768,15 +772,17 @@ export default function CitationInspectorModal({
                 ) : filteredChunks.length > 0 ? (
                   filteredChunks.map((chunk) => {
                     const isCited = Boolean(
-                      citation &&
-                        citation.locator &&
-                        !citation.locator.startsWith('Doc:') &&
-                        (chunk.locator.toLowerCase() === citation.locator.toLowerCase() ||
-                          chunk.locator.toLowerCase().includes(citation.locator.toLowerCase()) ||
-                          (citation.locator.includes('Chunk') && chunk.locator.includes(citation.locator)) ||
-                          (citation.excerpt &&
-                            citation.excerpt.length > 25 &&
-                            chunk.raw_text.includes(citation.excerpt.slice(0, 35))))
+                      selectedChunkId
+                        ? String(chunk.id) === String(selectedChunkId)
+                        : citation &&
+                            citation.locator &&
+                            !citation.locator.startsWith('Doc:') &&
+                            (chunk.locator.toLowerCase() === citation.locator.toLowerCase() ||
+                              chunk.locator.toLowerCase().includes(citation.locator.toLowerCase()) ||
+                              (citation.locator.includes('Chunk') && chunk.locator.includes(citation.locator)) ||
+                              (citation.excerpt &&
+                                citation.excerpt.length > 25 &&
+                                chunk.raw_text.includes(citation.excerpt.slice(0, 35))))
                     );
 
                     return (
@@ -854,7 +860,7 @@ export default function CitationInspectorModal({
                                   flexShrink: 0,
                                 }}
                               >
-                                ★ Cited in AI Response
+                                {badgeLabel}
                               </span>
                             )}
                           </div>

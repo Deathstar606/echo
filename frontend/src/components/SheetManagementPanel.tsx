@@ -23,6 +23,8 @@ import {
   ExternalLink,
   Cloud,
   Link2,
+  FileText,
+  Table2,
 } from 'lucide-react';
 
 import type {
@@ -63,6 +65,8 @@ import {
   setWorkspaceLastActiveEntity,
   removeCachedDocument,
   evictCachedDocumentChunks,
+  getCachedDocumentChunks,
+  setCachedDocumentChunks,
   runDeduplicatedWorkspaceRequest,
 } from '../services/workspaceContextCache';
 
@@ -70,6 +74,8 @@ import { getActiveBusinessId, getLoggedInUser, isDemoUserAccount } from '../conf
 
 import {
   fetchWorkspaceDocuments,
+  fetchDocumentChunks,
+  updateDocumentContentApi,
   uploadWorkspaceDocument,
   deleteWorkspaceDocument,
   seedWorkspaceDemo,
@@ -79,6 +85,7 @@ import {
   getGoogleAuthStatusApi,
   getGoogleAuthUrlApi,
   type GoogleDriveFile,
+  type DocumentInspectionResponse,
 } from '../services/api';
 
 import KnowledgeSourceBar from './KnowledgeSourceBar';
@@ -530,6 +537,26 @@ export default function SheetManagementPanel(): React.ReactElement {
   const [isUploadingDoc, setIsUploadingDoc] = useState<boolean>(false);
   const [isSeedingDemo, setIsSeedingDemo] = useState<boolean>(false);
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
+  const [selectedChunkId, setSelectedChunkId] = useState<string | null>(null);
+  const [selectedDoc, setSelectedDoc] = useState<WorkspaceDocument | null>(null);
+  const [docInspection, setDocInspection] = useState<DocumentInspectionResponse | null>(null);
+  const [docLoading, setDocLoading] = useState<boolean>(false);
+  const [docLoadError, setDocLoadError] = useState<string | null>(null);
+  const [isEditingDoc, setIsEditingDoc] = useState<boolean>(false);
+  const [docDraftText, setDocDraftText] = useState<string>('');
+  const [isSavingDoc, setIsSavingDoc] = useState<boolean>(false);
+  const [docSaveError, setDocSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedDoc(null);
+    setDocInspection(null);
+    setDocLoading(false);
+    setDocLoadError(null);
+    setIsEditingDoc(false);
+    setDocDraftText('');
+    setDocSaveError(null);
+    setSelectedChunkId(null);
+  }, [activeBusinessId]);
   const [flashHighlightedLocator, setFlashHighlightedLocator] = useState<string | null>(null);
   const [pendingMutations, setPendingMutations] = useState<WorkspaceMutationDiff[]>([]);
 
@@ -1088,6 +1115,95 @@ export default function SheetManagementPanel(): React.ReactElement {
     setTimeout(() => setAddRowSuccessToast(null), 4000);
   };
 
+  // Load full (non-chunked) document + designated chunks into main/top panels
+  const handleSelectDocument = async (doc: WorkspaceDocument) => {
+    const docIdentifier = doc.doc_id || doc.filename;
+    if (!docIdentifier || !activeBusinessId) return;
+
+    setIsEditingSheet(false);
+    setEditedCellsByRowId({});
+    setManualSaveError(null);
+
+    setSelectedDoc(doc);
+    setIsEditingDoc(false);
+    setDocSaveError(null);
+    setDocLoadError(null);
+
+    const cached = getCachedDocumentChunks(activeBusinessId, docIdentifier);
+    if (cached && cached.document && cached.document.full_text !== undefined) {
+      setDocInspection(cached);
+      setDocLoading(false);
+      return;
+    }
+
+    setDocLoading(true);
+    try {
+      const data = await runDeduplicatedWorkspaceRequest(
+        `docChunks:${String(docIdentifier).trim().toLowerCase()}`,
+        activeBusinessId,
+        () => fetchDocumentChunks(activeBusinessId, docIdentifier)
+      );
+      setCachedDocumentChunks(activeBusinessId, docIdentifier, data);
+      setDocInspection(data);
+    } catch (err: any) {
+      setDocInspection(null);
+      setDocLoadError(err?.message || 'Could not load document contents.');
+    } finally {
+      setDocLoading(false);
+    }
+  };
+
+  // Save edited full document text & re-index its chunks
+  const handleSaveDocEdit = async () => {
+    if (!selectedDoc || !activeBusinessId || isSavingDoc) return;
+    const docIdentifier =
+      docInspection?.document?.id || selectedDoc.doc_id || selectedDoc.filename;
+    if (!docIdentifier) return;
+    if (!docDraftText.trim()) {
+      setDocSaveError('Document content cannot be empty.');
+      return;
+    }
+
+    setDocSaveError(null);
+    setIsSavingDoc(true);
+    try {
+      const res = await updateDocumentContentApi(
+        activeBusinessId,
+        docIdentifier,
+        docDraftText
+      );
+      const nextInspection: DocumentInspectionResponse = {
+        document: res.document,
+        chunks: res.chunks,
+      };
+      setDocInspection(nextInspection);
+      setCachedDocumentChunks(activeBusinessId, docIdentifier, nextInspection);
+      if (res.document?.filename) {
+        setCachedDocumentChunks(activeBusinessId, res.document.filename, nextInspection);
+      }
+      setDocuments((prev) =>
+        prev.map((d) =>
+          d.doc_id === res.document?.id ||
+          d.filename.toLowerCase() === String(res.document?.filename || '').toLowerCase()
+            ? {
+                ...d,
+                chunk_count: res.document.total_chunks,
+                total_chunks: res.document.total_chunks,
+                full_text: res.document.full_text,
+              }
+            : d
+        )
+      );
+      setIsEditingDoc(false);
+      setAddRowSuccessToast(res?.message || `Saved edits to "${res.document.filename}".`);
+      setTimeout(() => setAddRowSuccessToast(null), 4000);
+    } catch (err: any) {
+      setDocSaveError(err?.message || 'Failed to save document changes.');
+    } finally {
+      setIsSavingDoc(false);
+    }
+  };
+
   // Remove an unstructured policy/notice document and all of its chunks
   const handleRemoveDocument = async (doc: WorkspaceDocument) => {
     if (!activeBusinessId || !doc?.doc_id) {
@@ -1099,6 +1215,17 @@ export default function SheetManagementPanel(): React.ReactElement {
     await loadDocuments(activeBusinessId, { forceRefresh: true });
     if (activeCitation && activeCitation.source_id === doc.doc_id) {
       setActiveCitation(null);
+      setSelectedChunkId(null);
+    }
+    if (
+      selectedDoc &&
+      (selectedDoc.doc_id === doc.doc_id ||
+        selectedDoc.filename.toLowerCase() === doc.filename.toLowerCase())
+    ) {
+      setSelectedDoc(null);
+      setDocInspection(null);
+      setIsEditingDoc(false);
+      setDocDraftText('');
     }
     setAddRowSuccessToast(
       res?.message || `Removed "${doc.filename}" and its indexed chunks.`
@@ -1544,7 +1671,8 @@ export default function SheetManagementPanel(): React.ReactElement {
     csvAppendStatus === 'loading' ||
     rowInsertStatus === 'loading' ||
     sheetDeleteStatus === 'loading' ||
-    isSavingManualEdits;
+    isSavingManualEdits ||
+    isSavingDoc;
 
   const pendingMutationMap = useMemo(() => {
     const map = new Map<string, WorkspaceMutationDiff>();
@@ -1618,6 +1746,10 @@ export default function SheetManagementPanel(): React.ReactElement {
           activeFileName={activeFileName}
           tableList={tableList}
           onSelectTable={(entity) => {
+            setSelectedDoc(null);
+            setDocInspection(null);
+            setIsEditingDoc(false);
+            setDocSaveError(null);
             dispatch(setActiveSheetEntity(entity));
             setWorkspaceLastActiveEntity(activeBusinessId, entity);
             const existingRows = rowsByEntity[entity];
@@ -1640,6 +1772,10 @@ export default function SheetManagementPanel(): React.ReactElement {
           }}
           onRemoveTable={handleRemoveTable}
           onUploadCsv={(file) => {
+            setSelectedDoc(null);
+            setDocInspection(null);
+            setIsEditingDoc(false);
+            setDocSaveError(null);
             setClientAppendError(null);
             dispatch(importSheetCsvFile({ entity: '', file }));
           }}
@@ -1667,15 +1803,27 @@ export default function SheetManagementPanel(): React.ReactElement {
           documents={documents}
           onUploadDocument={handleUploadDocument}
           onRemoveDocument={handleRemoveDocument}
-          onSelectDocument={(doc) => {
+          onSelectDocument={handleSelectDocument}
+          selectedDocumentId={selectedDoc?.doc_id || null}
+          selectedDocumentName={
+            selectedDoc
+              ? docInspection?.document?.filename || selectedDoc.filename
+              : null
+          }
+          selectedDocChunks={selectedDoc ? docInspection?.chunks || [] : []}
+          isLoadingDocChunks={docLoading}
+          onSelectDocChunk={(chunk) => {
+            const docName =
+              docInspection?.document?.filename || selectedDoc?.filename || 'Document';
+            const docId =
+              docInspection?.document?.id || selectedDoc?.doc_id || docName;
+            setSelectedChunkId(chunk.id || null);
             setActiveCitation({
               source_type: 'document',
-              source_id: doc.doc_id,
-              source_name: doc.filename,
-              locator: `Doc: ${doc.filename}`,
-              excerpt:
-                doc.excerpt ||
-                `Document ${doc.filename} indexed (${doc.chunk_count || doc.total_chunks || 1} chunk(s)).`,
+              source_id: docId,
+              source_name: docName,
+              locator: chunk.locator,
+              excerpt: chunk.raw_text,
             });
           }}
           isUploadingDoc={isUploadingDoc}
@@ -2011,9 +2159,235 @@ export default function SheetManagementPanel(): React.ReactElement {
             }}
             onBackToClarification={b2bWorkflow.handleBackToClarification}
             onResetWorkflow={b2bWorkflow.handleResetWorkflow}
-            onSelectCitation={(citation) => setActiveCitation(citation)}
+            onSelectCitation={(citation) => {
+              setSelectedChunkId(null);
+              setActiveCitation(citation);
+            }}
           />
 
+          {selectedDoc ? (
+            /* Full (Non-Chunked) Document View & Inline Editor */
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {/* Top Bar with Doc Info & Edit / Save Controls */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '8px',
+                  padding: '10px 14px',
+                  backgroundColor: '#f8fafc',
+                  borderRadius: '8px',
+                  border: '1px solid #bfdbfe',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', minWidth: 0 }}>
+                  <FileText size={15} color="#2563eb" style={{ flexShrink: 0 }} />
+                  <span style={{ fontWeight: 700, fontSize: '13.5px', color: 'var(--text-primary)' }}>
+                    {docInspection?.document?.filename || selectedDoc.filename}
+                  </span>
+                  <span
+                    style={{
+                      padding: '2px 8px',
+                      borderRadius: '999px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      backgroundColor: '#eff6ff',
+                      color: '#1d4ed8',
+                      border: '1px solid #bfdbfe',
+                    }}
+                  >
+                    Full Document (Non-Chunked)
+                  </span>
+                  {docInspection?.document && (
+                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                      {docInspection.document.total_chunks} chunk(s)
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  {!isEditingDoc ? (
+                    <button
+                      type="button"
+                      className="btn-warm-outlined"
+                      disabled={docLoading || Boolean(docLoadError) || isSavingDoc}
+                      onClick={() => {
+                        setDocSaveError(null);
+                        setDocDraftText(docInspection?.document?.full_text || '');
+                        setIsEditingDoc(true);
+                      }}
+                      title="Edit full document text"
+                      style={{
+                        fontSize: '11.5px',
+                        padding: '3px 10px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                      }}
+                    >
+                      <Edit3 size={12} />
+                      <span>Edit</span>
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="btn-primary-indigo"
+                        disabled={isSavingDoc}
+                        onClick={handleSaveDocEdit}
+                        title="Save document changes and update chunks"
+                        style={{
+                          fontSize: '11.5px',
+                          padding: '4px 10px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                        }}
+                      >
+                        {isSavingDoc ? (
+                          <Loader2 size={12} className="spin" />
+                        ) : (
+                          <Save size={12} />
+                        )}
+                        <span>{isSavingDoc ? 'Saving…' : 'Save'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-warm-outlined"
+                        disabled={isSavingDoc}
+                        onClick={() => {
+                          setIsEditingDoc(false);
+                          setDocDraftText(docInspection?.document?.full_text || '');
+                          setDocSaveError(null);
+                        }}
+                        title="Discard document edits"
+                        style={{
+                          fontSize: '11.5px',
+                          padding: '3px 9px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        <X size={12} />
+                        <span>Cancel</span>
+                      </button>
+                    </>
+                  )}
+
+                  {activeEntity && (
+                    <button
+                      type="button"
+                      className="btn-warm-outlined"
+                      disabled={isSavingDoc}
+                      onClick={() => {
+                        setSelectedDoc(null);
+                        setDocInspection(null);
+                        setIsEditingDoc(false);
+                        setDocSaveError(null);
+                      }}
+                      title={`Return to ${activeDisplayName || activeEntity} table`}
+                      style={{
+                        fontSize: '11.5px',
+                        padding: '3px 10px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                      }}
+                    >
+                      <Table2 size={12} />
+                      <span>Back to Table</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {docSaveError && (
+                <div className="alert-banner error" role="alert">
+                  <AlertCircle size={16} style={{ flexShrink: 0 }} />
+                  <span style={{ flex: 1 }}>{docSaveError}</span>
+                  <button
+                    type="button"
+                    className="btn-warm-outlined"
+                    onClick={() => setDocSaveError(null)}
+                    style={{ padding: '2px 6px' }}
+                    aria-label="Dismiss document save error"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              )}
+
+              {/* Document Full Body */}
+              <div
+                style={{
+                  border: '1px solid var(--border-warm)',
+                  borderRadius: '8px',
+                  backgroundColor: '#ffffff',
+                  overflow: 'hidden',
+                }}
+              >
+                {docLoading ? (
+                  <div
+                    style={{
+                      padding: '48px 20px',
+                      textAlign: 'center',
+                      color: 'var(--text-secondary)',
+                      fontSize: '13.5px',
+                    }}
+                  >
+                    <Loader2 size={22} className="spin" style={{ margin: '0 auto 8px auto' }} />
+                    <div>Loading full document...</div>
+                  </div>
+                ) : docLoadError ? (
+                  <div className="alert-banner error" style={{ margin: '16px' }}>
+                    <AlertCircle size={16} style={{ flexShrink: 0 }} />
+                    <span>{docLoadError}</span>
+                  </div>
+                ) : isEditingDoc ? (
+                  <textarea
+                    value={docDraftText}
+                    onChange={(e) => setDocDraftText(e.target.value)}
+                    disabled={isSavingDoc}
+                    aria-label="Edit full document content"
+                    style={{
+                      width: '100%',
+                      minHeight: '420px',
+                      maxHeight: '560px',
+                      padding: '16px 18px',
+                      fontSize: '13px',
+                      lineHeight: 1.65,
+                      border: 'none',
+                      outline: 'none',
+                      resize: 'vertical',
+                      fontFamily: 'inherit',
+                      color: 'var(--text-primary)',
+                      backgroundColor: '#fffdf9',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      maxHeight: '560px',
+                      overflowY: 'auto',
+                      padding: '18px 20px',
+                      fontSize: '13.5px',
+                      lineHeight: 1.7,
+                      color: 'var(--text-primary)',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {docInspection?.document?.full_text || 'No readable text available for this document.'}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <>
           {/* Query / Match Status Bar */}
           <div
             style={{
@@ -2551,6 +2925,8 @@ export default function SheetManagementPanel(): React.ReactElement {
               </table>
             )}
           </div>
+            </>
+          )}
 
           {/* Provenance citations below larger matched rows table */}
           {aiResponseCitations.length > 0 && (
@@ -2560,7 +2936,10 @@ export default function SheetManagementPanel(): React.ReactElement {
             >
               <CitationBadges
                 citations={aiResponseCitations}
-                onSelectCitation={(citation) => setActiveCitation(citation)}
+                onSelectCitation={(citation) => {
+                  setSelectedChunkId(null);
+                  setActiveCitation(citation);
+                }}
               />
             </section>
           )}
@@ -2588,10 +2967,19 @@ export default function SheetManagementPanel(): React.ReactElement {
       <CitationInspectorModal
         citation={activeCitation}
         workspaceId={activeBusinessId}
-        onClose={() => setActiveCitation(null)}
+        selectedChunkId={selectedChunkId}
+        badgeLabel={selectedChunkId ? 'Selected Chunk' : '★ Cited in AI Response'}
+        onClose={() => {
+          setActiveCitation(null);
+          setSelectedChunkId(null);
+        }}
         onHighlightRow={(locator) => {
+          setSelectedDoc(null);
+          setDocInspection(null);
+          setIsEditingDoc(false);
           setFlashHighlightedLocator(locator);
           setActiveCitation(null);
+          setSelectedChunkId(null);
           setTimeout(() => setFlashHighlightedLocator(null), 3500);
         }}
         onAskAboutSection={(promptText) => {
@@ -2608,6 +2996,16 @@ export default function SheetManagementPanel(): React.ReactElement {
         onDocumentDeleted={async (deletedIdentifier) => {
           if (deletedIdentifier) {
             removeCachedDocument(activeBusinessId, deletedIdentifier);
+          }
+          if (
+            selectedDoc &&
+            (selectedDoc.doc_id === deletedIdentifier ||
+              selectedDoc.filename.toLowerCase() === String(deletedIdentifier || '').toLowerCase())
+          ) {
+            setSelectedDoc(null);
+            setDocInspection(null);
+            setIsEditingDoc(false);
+            setDocDraftText('');
           }
           await loadDocuments(activeBusinessId, { forceRefresh: true });
           setAddRowSuccessToast('Document successfully removed from workspace.');

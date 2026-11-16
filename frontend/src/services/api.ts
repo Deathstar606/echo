@@ -713,7 +713,10 @@ export interface DocumentInspectionMetadata {
   id: string;
   workspace_id: string;
   filename: string;
+  mime_type?: string | null;
+  page_count?: number;
   total_chunks: number;
+  full_text?: string;
   all_extracted_entities: string[];
   created_at?: string;
 }
@@ -736,6 +739,24 @@ export async function fetchDocumentChunks(
     ? `/api/workspaces/${encodeURIComponent(workspaceId)}/documents/${encodeURIComponent(docIdentifier)}/chunks`
     : `/api/workspace/documents/${encodeURIComponent(docIdentifier)}/chunks`;
   return request<DocumentInspectionResponse>(targetPath, { method: 'GET' });
+}
+
+/**
+ * Saves updated full text for a workspace document and re-indexes its chunks.
+ * PATCH /api/workspaces/{workspaceId}/documents/{docIdentifier}
+ */
+export async function updateDocumentContentApi(
+  workspaceId: string,
+  docIdentifier: string,
+  content: string
+): Promise<DocumentInspectionResponse & { status: string; message: string }> {
+  const targetPath = workspaceId
+    ? `/api/workspaces/${encodeURIComponent(workspaceId)}/documents/${encodeURIComponent(docIdentifier)}`
+    : `/api/workspace/documents/${encodeURIComponent(docIdentifier)}`;
+  return request(targetPath, {
+    method: 'PATCH',
+    body: JSON.stringify({ content }),
+  });
 }
 
 /**

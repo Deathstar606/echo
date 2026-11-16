@@ -23,6 +23,7 @@ import {
   getGoogleAuthStatusApi,
   getGoogleAuthUrlApi,
   type GoogleDriveFile,
+  type DocumentInspectionChunk,
 } from '../services/api';
 import { evictCachedDocumentChunks } from '../services/workspaceContextCache';
 import { getActiveBusinessId, getLoggedInUser, isDemoUserAccount } from '../config/constants';
@@ -43,6 +44,11 @@ interface KnowledgeSourceBarProps {
   onUploadDocument: (file: File) => void;
   onSelectDocument?: (doc: WorkspaceDocument) => void;
   onRemoveDocument?: (doc: WorkspaceDocument) => Promise<void> | void;
+  selectedDocumentId?: string | null;
+  selectedDocumentName?: string | null;
+  selectedDocChunks?: DocumentInspectionChunk[];
+  isLoadingDocChunks?: boolean;
+  onSelectDocChunk?: (chunk: DocumentInspectionChunk) => void;
   onLoadDemoScenario?: () => void;
   isSeedingDemo?: boolean;
   isUploadingDoc: boolean;
@@ -70,6 +76,11 @@ export default function KnowledgeSourceBar({
   onUploadDocument,
   onSelectDocument,
   onRemoveDocument,
+  selectedDocumentId,
+  selectedDocumentName,
+  selectedDocChunks = [],
+  isLoadingDocChunks = false,
+  onSelectDocChunk,
   isUploadingDoc,
   isBusy,
   onRefreshDocuments,
@@ -111,6 +122,8 @@ export default function KnowledgeSourceBar({
     setPendingRemoval(null);
     setRemoveSourceError(null);
   }, [resolvedBusinessId]);
+
+  const hasActiveDocument = Boolean(selectedDocumentId || selectedDocumentName);
 
   const syncedTableMap = React.useMemo(() => {
     const map = new Map<string, { google_spreadsheet_id?: string; last_synced_at?: string }>();
@@ -339,6 +352,7 @@ export default function KnowledgeSourceBar({
             ) : (
               tableList.map((t) => {
                 const isActive =
+                  !hasActiveDocument &&
                   Boolean(activeEntity) &&
                   t.entity.toLowerCase() === activeEntity.toLowerCase();
                 const isSynced = syncedTableMap.has(t.entity.toLowerCase());
@@ -447,26 +461,33 @@ export default function KnowledgeSourceBar({
                 const isGDoc =
                   doc.filename.endsWith('.gdoc') ||
                   (doc as any).mime_type === 'application/vnd.google-apps.document';
+                const isDocActive = Boolean(
+                  (selectedDocumentId && doc.doc_id === selectedDocumentId) ||
+                    (selectedDocumentName &&
+                      doc.filename.toLowerCase() === selectedDocumentName.toLowerCase())
+                );
                 return (
                   <div
                     key={doc.doc_id || doc.filename}
-                    className={`ksb-source-pill ksb-doc-pill ${isGDoc ? 'is-gdoc' : ''} ${onSelectDocument ? 'is-clickable' : ''}`}
+                    className={`ksb-source-pill ksb-doc-pill ${isGDoc && !isDocActive ? 'is-gdoc' : ''} ${onSelectDocument ? 'is-clickable' : ''} ${isDocActive ? 'is-active' : ''}`}
                   >
                     <button
                       type="button"
                       className="ksb-pill-main-btn"
                       onClick={() => onSelectDocument?.(doc)}
-                      title={`Indexed document "${doc.filename}" (${doc.page_count} page(s), ${doc.chunk_count} chunk(s))${isGDoc ? ' [Google Docs RAG Ingested]' : ''}`}
+                      title={`View full document "${doc.filename}" (${doc.page_count} page(s), ${doc.chunk_count} chunk(s))${isGDoc ? ' [Google Docs RAG Ingested]' : ''}`}
                     >
                       <FileText size={13} className="ksb-pill-icon" />
                       <span className="ksb-pill-label ksb-doc-name">{doc.filename}</span>
                       {isGDoc && <span className="ksb-pill-gdoc-tag">GDOC</span>}
-                      <span className="ksb-pill-count is-doc">{doc.chunk_count} chunks</span>
+                      <span className={`ksb-pill-count ${isDocActive ? 'is-active' : 'is-doc'}`}>
+                        {doc.chunk_count} chunks
+                      </span>
                     </button>
                     {onRemoveDocument && doc.doc_id && (
                       <button
                         type="button"
-                        className="ksb-pill-remove-btn is-doc"
+                        className={`ksb-pill-remove-btn ${isDocActive ? 'is-active' : 'is-doc'}`}
                         disabled={isBusy || isRemovingSource}
                         onClick={() => {
                           setRemoveSourceError(null);
@@ -490,6 +511,77 @@ export default function KnowledgeSourceBar({
           </div>
         </section>
       </div>
+
+      {/* Active Document Designated Chunks Strip (Pill-Shaped) */}
+      {hasActiveDocument && onSelectDocChunk && (
+        <div
+          aria-label="Selected document chunks"
+          style={{
+            backgroundColor: '#ffffff',
+            border: '1px solid var(--border-warm)',
+            borderRadius: '10px',
+            padding: '8px 12px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)' }}>
+              <FileText size={13} color="#2563eb" />
+              <span>
+                Document Chunks{selectedDocumentName ? `: ${selectedDocumentName}` : ''}
+              </span>
+              <span className="ksb-pill-count is-doc">
+                {selectedDocChunks.length} chunk{selectedDocChunks.length === 1 ? '' : 's'}
+              </span>
+            </div>
+            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+              Click any chunk pill to inspect its contents
+            </span>
+          </div>
+
+          {isLoadingDocChunks ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-secondary)', padding: '2px 0' }}>
+              <Loader2 size={13} className="spin" />
+              <span>Loading document chunks...</span>
+            </div>
+          ) : selectedDocChunks.length === 0 ? (
+            <span className="ksb-empty-hint">
+              No chunks indexed for this document.
+            </span>
+          ) : (
+            <div
+              className="ksb-pills-row"
+              style={{ maxHeight: '110px', overflowY: 'auto', paddingRight: '2px' }}
+            >
+              {selectedDocChunks.map((chunk) => (
+                <button
+                  key={chunk.id || chunk.chunk_index}
+                  type="button"
+                  className="ksb-source-pill ksb-doc-pill is-clickable"
+                  style={{ padding: '4px 10px', gap: '6px' }}
+                  onClick={() => onSelectDocChunk(chunk)}
+                  title={`${chunk.locator}\nClick to view chunk popup`}
+                >
+                  <span className="ksb-pill-count is-doc">#{chunk.chunk_index + 1}</span>
+                  <span className="ksb-pill-label" style={{ maxWidth: '220px' }}>
+                    {chunk.locator}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Google Docs Import Modal */}
       {showGoogleDocModal && (
