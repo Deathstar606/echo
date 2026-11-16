@@ -131,6 +131,13 @@ button:disabled {
   z-index: 40;
 }
 
+.header-left-cluster {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
 .brand-cluster {
   display: flex;
   align-items: center;
@@ -1368,7 +1375,8 @@ button:disabled {
 
 .mobile-thread-back-btn,
 .ksb-mobile-active-chip,
-.ksb-mobile-tabs-bar {
+.ksb-mobile-tabs-bar,
+.mobile-copilot-fab {
   display: none;
 }
 
@@ -1395,20 +1403,30 @@ button:disabled {
 }
 
 @media (max-width: 768px) {
-  /* Top Header Compact Mobile Arrangement */
+  /* Top Header Clean Multi-Row Mobile Layout */
   .top-header {
     padding: 10px 12px;
     display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
+    flex-direction: column;
+    align-items: stretch;
     gap: 8px;
   }
 
-  .header-left-cluster,
+  .header-left-cluster {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
   .header-right-cluster {
-    display: contents;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
   }
 
   .header-divider {
@@ -1416,53 +1434,51 @@ button:disabled {
   }
 
   .brand-cluster {
-    order: 1;
-    flex: 1 1 auto;
+    width: 100%;
     min-width: 0;
-    gap: 8px;
+    gap: 9px;
   }
 
   .brand-logo-box {
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
     font-size: 16px;
     border-radius: 8px;
   }
 
   .brand-title {
-    font-size: 15.5px;
+    font-size: 16px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .brand-subtitle {
-    font-size: 10px;
+    font-size: 10.5px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .api-status-indicator {
-    order: 2;
     flex-shrink: 0;
-    padding: 4px 8px;
-    font-size: 10.5px;
+    padding: 4px 9px;
+    font-size: 11px;
     gap: 5px;
   }
 
+  /* Full-width readable workspace bar + screen-safe dropdown */
   .ws-selector-wrap {
-    order: 3;
-    flex: 1 1 0;
+    width: 100%;
     min-width: 0;
   }
 
   .ws-selector-btn {
     width: 100%;
     justify-content: space-between;
-    padding: 6px 9px !important;
-    font-size: 11.5px !important;
-    gap: 6px !important;
+    padding: 7px 11px !important;
+    font-size: 12.5px !important;
+    gap: 8px !important;
     min-width: 0;
   }
 
@@ -1473,20 +1489,23 @@ button:disabled {
   }
 
   .ws-dropdown-menu {
-    min-width: 250px !important;
-    max-width: calc(100vw - 24px) !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
   }
 
   .user-menu-wrap {
-    order: 4;
-    flex: 0 1 auto;
-    max-width: 48%;
+    flex: 1 1 auto;
+    display: flex;
+    justify-content: flex-end;
     min-width: 0;
   }
 
   .user-menu-btn {
-    width: 100%;
-    padding: 3px 8px 3px 5px !important;
+    max-width: 100%;
+    padding: 4px 10px 4px 5px !important;
     gap: 6px !important;
     min-width: 0;
   }
@@ -1495,6 +1514,11 @@ button:disabled {
     width: 24px !important;
     height: 24px !important;
     font-size: 10px !important;
+  }
+
+  .user-menu-text {
+    min-width: 0;
+    overflow: hidden;
   }
 
   .user-menu-name {
@@ -1514,7 +1538,10 @@ button:disabled {
   }
 
   .user-dropdown-menu {
-    min-width: 225px !important;
+    right: 0 !important;
+    left: auto !important;
+    width: min(320px, calc(100vw - 24px)) !important;
+    min-width: 0 !important;
     max-width: calc(100vw - 24px) !important;
   }
 
@@ -2834,6 +2861,49 @@ button:disabled {
   .b2b-chat-thread {
     max-height: 260px;
   }
+
+  .mobile-copilot-fab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    right: 16px;
+    bottom: 20px;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--primary-indigo) 0%, #4338ca 100%);
+    color: #ffffff;
+    border: 1.5px solid rgba(255, 255, 255, 0.35);
+    box-shadow: 0 10px 24px rgba(45, 56, 181, 0.36);
+    z-index: 95;
+    cursor: pointer;
+    overflow: visible;
+  }
+
+  .mobile-copilot-fab-pulse {
+    position: absolute;
+    inset: -5px;
+    border-radius: 50%;
+    border: 2px solid rgba(57, 70, 211, 0.5);
+    animation: copilotFabPulse 2s ease-out infinite;
+    pointer-events: none;
+  }
+}
+
+@keyframes copilotFabPulse {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.75;
+  }
+  70% {
+    transform: scale(1.24);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.24);
+    opacity: 0;
+  }
 }
 
 /* =========================================================================
@@ -3770,7 +3840,14 @@ button:disabled {
 
 @media (max-width: 1040px) {
   .landing-hero-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 26px;
+  }
+
+  .landing-hero-copy,
+  .landing-auth-card {
+    min-width: 0;
+    max-width: 100%;
   }
 
   .landing-capabilities-grid {
@@ -3782,7 +3859,8 @@ button:disabled {
   }
 
   .landing-tutorial-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 22px;
   }
 
   .landing-footer-grid {
@@ -3792,20 +3870,63 @@ button:disabled {
 
 @media (max-width: 680px) {
   .landing-main-container {
-    padding: 24px 14px 48px 14px;
-    gap: 40px;
+    padding: 20px 14px 44px 14px;
+    gap: 36px;
+  }
+
+  .landing-hero-copy {
+    gap: 14px;
+  }
+
+  .landing-eyebrow-pill {
+    font-size: 9.5px;
+    line-height: 1.35;
+    letter-spacing: 0.03em;
+    padding: 5px 11px;
+    gap: 6px;
+    white-space: normal;
+    max-width: 100%;
+  }
+
+  .landing-eyebrow-pill > svg {
+    flex-shrink: 0;
+  }
+
+  .landing-eyebrow-pill > span {
+    min-width: 0;
+    overflow-wrap: break-word;
+  }
+
+  .landing-hero-title {
+    font-size: clamp(25px, 6.8vw, 32px);
+    line-height: 1.18;
+    letter-spacing: -0.02em;
+    max-width: 100%;
+    overflow-wrap: break-word;
+  }
+
+  .landing-hero-subtitle {
+    font-size: 14px;
+    line-height: 1.55;
+    max-width: 100%;
+  }
+
+  .landing-section-title,
+  .landing-tutorial-heading {
+    font-size: clamp(20px, 5.4vw, 25px);
+    line-height: 1.24;
   }
 
   .landing-proof-metrics,
   .landing-capabilities-grid,
   .landing-pipeline-grid,
   .landing-footer-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .landing-pipeline-surface,
   .landing-tutorial-card,
   .landing-auth-card {
-    padding: 20px 16px;
+    padding: 18px 14px;
   }
 }

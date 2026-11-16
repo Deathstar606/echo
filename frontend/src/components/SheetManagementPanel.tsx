@@ -25,6 +25,7 @@ import {
   Link2,
   FileText,
   Table2,
+  MessageSquare,
 } from 'lucide-react';
 
 import type {
@@ -1722,6 +1723,63 @@ export default function SheetManagementPanel(): React.ReactElement {
 
   const aiResponseCitations = b2bWorkflow.conversationalData?.citations || [];
 
+  const copilotWorkbenchRef = useRef<HTMLElement | null>(null);
+  const copilotTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [isCopilotInViewport, setIsCopilotInViewport] = useState(true);
+
+  useEffect(() => {
+    const el = copilotWorkbenchRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return undefined;
+
+    const checkViewportFallback = () => {
+      if (!copilotWorkbenchRef.current || copilotWorkbenchRef.current.offsetParent === null) {
+        return;
+      }
+      const rect = copilotWorkbenchRef.current.getBoundingClientRect();
+      const vh = window.innerHeight || document.documentElement.clientHeight;
+      const visible = rect.top < vh * 0.92 && rect.bottom > vh * 0.08;
+      setIsCopilotInViewport(visible);
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+        if (el.offsetParent === null) return;
+        setIsCopilotInViewport(entry.isIntersecting);
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => checkViewportFallback());
+      resizeObserver.observe(el);
+    }
+    window.addEventListener('resize', checkViewportFallback);
+    checkViewportFallback();
+
+    return () => {
+      observer.disconnect();
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', checkViewportFallback);
+    };
+  }, []);
+
+  const handleScrollAndFocusCopilot = () => {
+    copilotTextareaRef.current?.focus({ preventScroll: true });
+    if (copilotWorkbenchRef.current) {
+      copilotWorkbenchRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    }
+    window.setTimeout(() => {
+      copilotTextareaRef.current?.focus({ preventScroll: true });
+    }, 360);
+  };
+
   const handleShowAllRows = () => {
     setIsEditingSheet(false);
     setEditedCellsByRowId({});
@@ -2948,6 +3006,8 @@ export default function SheetManagementPanel(): React.ReactElement {
 
       {/* Right Column: ChatGPT / Gemini-Style B2B Copilot Conversation */}
       <SocraticOperationsWorkbench
+        workbenchRef={copilotWorkbenchRef}
+        composerTextareaRef={copilotTextareaRef}
         activeEntity={activeEntity}
         activeDisplayName={activeDisplayName}
         workflowStatus={b2bWorkflow.workflowStatus}
@@ -3638,6 +3698,41 @@ export default function SheetManagementPanel(): React.ReactElement {
               )}
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Mobile Floating Animated Copilot Jump Button (Visible when chatbox is out of viewport) */}
+      <AnimatePresence>
+        {!isCopilotInViewport && (
+          <motion.button
+            type="button"
+            className="mobile-copilot-fab"
+            onClick={handleScrollAndFocusCopilot}
+            aria-label="Scroll to B2B Operations Copilot chatbox"
+            title="Jump to AI Copilot Chatbox"
+            initial={{ opacity: 0, scale: 0.75, y: 16 }}
+            animate={{ opacity: 1, scale: 1, y: [0, -5, 0] }}
+            exit={{ opacity: 0, scale: 0.75, y: 16 }}
+            transition={{
+              opacity: { duration: 0.2 },
+              scale: { duration: 0.2 },
+              y: { duration: 2.2, repeat: Infinity, ease: 'easeInOut' },
+            }}
+            whileTap={{ scale: 0.92 }}
+          >
+            <span className="mobile-copilot-fab-pulse" aria-hidden="true" />
+            <MessageSquare size={20} strokeWidth={2.2} style={{ position: 'relative', zIndex: 2 }} />
+            <Sparkles
+              size={11}
+              style={{
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                zIndex: 2,
+                color: '#fde68a',
+              }}
+            />
+          </motion.button>
         )}
       </AnimatePresence>
     </motion.div>

@@ -26,6 +26,8 @@ interface SocraticOperationsWorkbenchProps {
   onExecuteOperation: (customPrompt?: string) => void;
   onDismissError: () => void;
   onResetWorkflow: () => void;
+  workbenchRef?: React.RefObject<HTMLElement | null>;
+  composerTextareaRef?: React.RefObject<HTMLTextAreaElement | null>;
 }
 
 export default function SocraticOperationsWorkbench({
@@ -41,9 +43,12 @@ export default function SocraticOperationsWorkbench({
   onExecuteOperation,
   onDismissError,
   onResetWorkflow,
+  workbenchRef,
+  composerTextareaRef,
 }: SocraticOperationsWorkbenchProps): React.ReactElement {
   const threadEndRef = useRef<HTMLDivElement | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const internalTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const textareaRef = composerTextareaRef || internalTextareaRef;
 
   useEffect(() => {
     if (conversationHistory.length > 0 || workflowStatus === 'executing') {
@@ -69,6 +74,7 @@ export default function SocraticOperationsWorkbench({
 
   return (
     <aside
+      ref={workbenchRef}
       aria-label="B2B Autonomous Operations Copilot"
       className="copilot-side-card socratic-operations-workbench b2b-chat-panel"
     >

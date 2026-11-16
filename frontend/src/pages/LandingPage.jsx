@@ -27,7 +27,6 @@ import {
   ExternalLink,
   Check,
   Database,
-  Clock,
 } from 'lucide-react';
 import {
   getActiveWorkspaceId,
@@ -44,10 +43,9 @@ import { loginApi, registerApi, demoLoginApi, getGoogleAuthUrlApi } from '../ser
 // =============================================================================
 
 /**
- * Paste your YouTube tutorial URL (watch link, youtu.be link, or embed URL) below
- * when ready. Leave empty to display the interactive tutorial preview placeholder.
+ * YouTube product walkthrough URL embedded on the home screen.
  */
-const YOUTUBE_TUTORIAL_URL = '';
+const YOUTUBE_TUTORIAL_URL = 'https://youtu.be/LTYa9HEe8Ps?si=4UUWmJKFomZKBN-B';
 
 /**
  * Update with your developer / maintainer profile details when ready.
@@ -144,13 +142,6 @@ const WORKFLOW_STEPS = [
     description:
       'Commit approved database mutations and dispatch verified customer communications with automatic table refresh and full audit trails.',
   },
-];
-
-const TUTORIAL_CHAPTERS = [
-  { time: '00:00', title: 'Workspace Onboarding & Multi-Source Sync' },
-  { time: '01:20', title: 'Querying Operational Tables with Natural Language' },
-  { time: '02:45', title: 'Socratic Conflict Gate & Stage 1 Diff Review' },
-  { time: '04:10', title: 'Customer Inquiry Copilot & Bulk Announcements' },
 ];
 
 const HERO_PILLARS = [
@@ -950,49 +941,30 @@ export default function LandingPage() {
                 )}
               </div>
 
-              {/* Right: Walkthrough Overview & Chapters */}
+              {/* Right: Walkthrough Overview */}
               <div className="landing-tutorial-details">
                 <span className="landing-section-eyebrow">VIDEO WALKTHROUGH</span>
                 <h2 className="landing-tutorial-heading">
                   See multi-source triage &amp; Socratic staging live
                 </h2>
                 <p className="landing-tutorial-copy">
-                  Watch how operations teams connect a workspace Gmail inbox, inspect operational
-                  tables, verify RAG policy citations, and approve Stage 1 previews end-to-end in
-                  under 5 minutes.
+                  Watch the full walkthrough of MaxiText AI Studio: workspace onboarding,
+                  natural-language dataset queries, cross-document RAG policy citations, Socratic
+                  conflict resolution, Stage 1 diff &amp; email previews, and customer inquiry triage.
                 </p>
 
-                <div className="landing-chapters-list">
-                  {TUTORIAL_CHAPTERS.map((chap) => (
-                    <div key={chap.time} className="landing-chapter-row">
-                      <span className="landing-chapter-time">
-                        <Clock size={11} />
-                        {chap.time}
-                      </span>
-                      <span className="landing-chapter-title">{chap.title}</span>
-                    </div>
-                  ))}
-                </div>
-
                 <div className="landing-tutorial-cta-row">
-                  {YOUTUBE_TUTORIAL_URL ? (
-                    <a
-                      href={YOUTUBE_TUTORIAL_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn-primary-indigo"
-                      style={{ textDecoration: 'none', padding: '9px 16px', fontSize: '13px' }}
-                    >
-                      <PlayCircle size={15} />
-                      <span>Open Tutorial on YouTube</span>
-                      <ExternalLink size={13} />
-                    </a>
-                  ) : (
-                    <span className="landing-youtube-placeholder-badge">
-                      <PlayCircle size={14} color="#dc2626" />
-                      <span>YouTube Tutorial Link Placeholder — Coming Soon</span>
-                    </span>
-                  )}
+                  <a
+                    href={YOUTUBE_TUTORIAL_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-primary-indigo"
+                    style={{ textDecoration: 'none', padding: '9px 16px', fontSize: '13px' }}
+                  >
+                    <PlayCircle size={15} />
+                    <span>Watch on YouTube</span>
+                    <ExternalLink size={13} />
+                  </a>
                 </div>
               </div>
             </div>

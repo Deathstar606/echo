@@ -530,7 +530,7 @@ export default function TopHeader() {
     <>
       <header className="top-header">
         {/* Left Cluster: Brand & Workspace Selector (Workspace Switcher ONLY visible when signed in) */}
-        <div className="header-left-cluster" style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+        <div className="header-left-cluster">
           <Link to="/" className="brand-cluster">
             <div className="brand-logo-box">M</div>
             <div className="brand-text-stack">
