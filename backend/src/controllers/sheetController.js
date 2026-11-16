@@ -1,4 +1,5 @@
 const path = require('node:path');
+const { withTransaction } = require('../../db');
 const { findBusinessOrThrow } = require('./businessController');
 const {
   detectEntityFromCsv,
@@ -26,7 +27,11 @@ const {
   registerTableSchema,
   ensureTableExists,
   findColumnDef,
+  quoteIdentifier,
 } = require('../services/sheetSchemaService');
+const {
+  refreshWorkspaceTableMetadata,
+} = require('../services/workspaceTableMetadataService');
 const {
   listWorkspaceTableMetadataCached,
 } = require('../services/workspaceTableMetadataService');
@@ -796,6 +801,256 @@ async function insertSheetRow(req, res, next) {
 }
 
 /**
+ * PATCH /api/sheets/:entity/rows
+ * PATCH /api/sheets/rows
+ * PATCH /api/businesses/:businessId/sheets/:entity/rows
+ *
+ * Saves manual inline cell edits across one or more rows of the active table.
+ * Body: { edits: Array<{ id: string | number, changes: Record<string, unknown> }> }
+ */
+async function updateSheetRows(req, res, next) {
+  try {
+    const business = await resolveBusiness(req);
+    const rawEntity =
+      req.params.entity || req.query.entity || req.body?.entity || 'products';
+    const entity = normalizeEntityName(rawEntity);
+
+    const rawEdits = Array.isArray(req.body?.edits)
+      ? req.body.edits
+      : Array.isArray(req.body?.rows)
+        ? req.body.rows
+        : null;
+
+    if (!rawEdits || rawEdits.length === 0) {
+      throw new AppError(
+        'Field "edits" must be a non-empty array of row updates.',
+        400
+      );
+    }
+
+    const schema = await discoverTableSchema(entity, business.id);
+    await ensureTableExists(schema);
+
+    const SYSTEM_FIELDS = new Set([
+      'id',
+      'business_id',
+      'workspace_id',
+      'user_id',
+      'workspace_document_id',
+      '_google_row_index',
+      'created_at',
+      'updated_at',
+    ]);
+    const UUID_REGEX =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    const preparedEdits = [];
+    for (const item of rawEdits) {
+      if (!item || typeof item !== 'object') {
+        throw new AppError('Each edit entry must be an object.', 400);
+      }
+      const rowId = item.id !== undefined && item.id !== null ? String(item.id).trim() : '';
+      if (!rowId) {
+        throw new AppError('Each row edit must include a valid "id".', 400);
+      }
+      const rawChanges =
+        item.changes && typeof item.changes === 'object' && !Array.isArray(item.changes)
+          ? item.changes
+          : null;
+      if (!rawChanges) {
+        throw new AppError(
+          `Row edit for "${rowId}" must include a "changes" object.`,
+          400
+        );
+      }
+
+      const assignments = [];
+      for (const [colKey, rawVal] of Object.entries(rawChanges)) {
+        if (SYSTEM_FIELDS.has(colKey.toLowerCase())) continue;
+
+        const match = findColumnDef(schema, colKey);
+        if (!match || match.colDef?.virtual || match.colDef?.modifiable === false) {
+          throw new AppError(
+            `Column "${colKey}" cannot be edited on table "${schema.displayName || entity}".`,
+            400
+          );
+        }
+
+        const { colDef, exactName } = match;
+        const colType = String(colDef.type || 'string').toLowerCase();
+        const isJsonStorage =
+          colType === 'json' ||
+          ['json', 'jsonb'].includes(String(colDef.storageType || '').toLowerCase());
+
+        let typedValue;
+        if (isJsonStorage) {
+          if (rawVal === null || rawVal === undefined || String(rawVal).trim() === '') {
+            typedValue = null;
+          } else if (typeof rawVal === 'object') {
+            typedValue = JSON.stringify(rawVal);
+          } else {
+            try {
+              const parsed = JSON.parse(String(rawVal));
+              typedValue = JSON.stringify(parsed);
+            } catch {
+              throw new AppError(
+                `Invalid JSON value for column "${exactName}".`,
+                400
+              );
+            }
+          }
+        } else if (colType === 'boolean') {
+          const parsedBool = parseCsvBoolean(rawVal);
+          if (!parsedBool.valid) {
+            throw new AppError(
+              `Invalid boolean value "${rawVal}" for column "${exactName}". Use true/false or yes/no.`,
+              400
+            );
+          }
+          typedValue = parsedBool.value;
+        } else if (colType === 'integer') {
+          if (rawVal === null || rawVal === undefined || String(rawVal).trim() === '') {
+            typedValue = null;
+          } else {
+            const num = Number(rawVal);
+            if (!Number.isFinite(num) || !Number.isInteger(num)) {
+              throw new AppError(
+                `Column "${exactName}" requires a whole integer value (got "${rawVal}").`,
+                400
+              );
+            }
+            typedValue = num;
+          }
+        } else if (colType === 'number' || colType === 'decimal') {
+          if (rawVal === null || rawVal === undefined || String(rawVal).trim() === '') {
+            typedValue = null;
+          } else {
+            const num = Number(rawVal);
+            if (!Number.isFinite(num)) {
+              throw new AppError(
+                `Column "${exactName}" requires a numeric value (got "${rawVal}").`,
+                400
+              );
+            }
+            typedValue = num;
+          }
+        } else if (colType === 'date') {
+          typedValue =
+            rawVal === null || rawVal === undefined || String(rawVal).trim() === ''
+              ? null
+              : String(rawVal).trim();
+        } else {
+          typedValue =
+            rawVal === null || rawVal === undefined ? null : String(rawVal);
+        }
+
+        assignments.push({
+          exactName,
+          typedValue,
+          isJsonStorage,
+        });
+      }
+
+      if (assignments.length > 0) {
+        preparedEdits.push({ rowId, assignments });
+      }
+    }
+
+    if (preparedEdits.length === 0) {
+      const currentRows = await getAllRows(schema, business.id, { skipEnsure: true });
+      return res.status(200).json({
+        status: 'success',
+        message: 'No editable changes were submitted.',
+        entity,
+        displayName: schema.displayName || entity,
+        affected_count: 0,
+        updated_rows: [],
+        rows: currentRows,
+      });
+    }
+
+    const safeTableName = quoteIdentifier(schema.tableName || entity);
+    const whereBizSql = schema.columns?.workspace_id
+      ? '(business_id = $1 OR workspace_id = $1)'
+      : 'business_id = $1';
+
+    const updatedRows = await withTransaction(async (client) => {
+      const saved = [];
+      for (const edit of preparedEdits) {
+        const params = [business.id, edit.rowId];
+        const setClauses = [];
+
+        for (const assign of edit.assignments) {
+          params.push(assign.typedValue);
+          const paramRef = `$${params.length}`;
+          setClauses.push(
+            `${quoteIdentifier(assign.exactName)} = ${assign.isJsonStorage ? `${paramRef}::jsonb` : paramRef}`
+          );
+        }
+
+        if (schema.columns?.updated_at) {
+          setClauses.push(
+            `${quoteIdentifier(schema.columns.updated_at.exactName || 'updated_at')} = NOW()`
+          );
+        }
+
+        const isUuidId = UUID_REGEX.test(edit.rowId);
+        const idExpr = isUuidId ? 'id = $2::uuid' : 'CAST(id AS TEXT) = $2';
+        const updateSql = `
+          UPDATE ${safeTableName}
+          SET ${setClauses.join(', ')}
+          WHERE ${whereBizSql} AND ${idExpr}
+          RETURNING *;
+        `;
+
+        const updateRes = await client.query(updateSql, params);
+        if (!updateRes.rows || updateRes.rows.length === 0) {
+          throw new AppError(
+            `Record "${edit.rowId}" was not found in "${schema.displayName || entity}" for this workspace.`,
+            404
+          );
+        }
+        saved.push(normalizeProductRow(updateRes.rows[0], schema));
+      }
+
+      await refreshWorkspaceTableMetadata({
+        client,
+        workspaceId: business.id,
+        tableName: schema.tableName,
+      });
+
+      return saved;
+    });
+
+    // Write-back sync to Google Sheets if this table is synced (best-effort)
+    try {
+      const { syncMutationsToGoogleSheet } = require('../services/googleSheetsSyncService');
+      await syncMutationsToGoogleSheet(
+        business.id,
+        schema.tableName,
+        updatedRows.map((row) => ({ ...row, _internal_id: row.id }))
+      );
+    } catch (gSyncErr) {
+      console.warn('[UpdateSheetRows] Google Sheets sync error:', gSyncErr.message);
+    }
+
+    const rows = await getAllRows(schema, business.id, { skipEnsure: true });
+
+    return res.status(200).json({
+      status: 'success',
+      message: `Saved manual edits to ${updatedRows.length} row(s) in ${schema.displayName || entity}.`,
+      entity,
+      displayName: schema.displayName || entity,
+      affected_count: updatedRows.length,
+      updated_rows: updatedRows,
+      rows,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+/**
  * DELETE /api/sheets/products
  * DELETE /api/sheets/:entity
  * DELETE /api/businesses/:businessId/sheets/:entity
@@ -832,5 +1087,6 @@ module.exports = {
   querySpreadsheet,
   mutateSpreadsheet,
   insertSheetRow,
+  updateSheetRows,
   deleteSheetTable,
 };

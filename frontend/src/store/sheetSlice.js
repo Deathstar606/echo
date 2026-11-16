@@ -6,6 +6,7 @@ import {
   mutateSheet,
   uploadSheetCsv,
   addSheetRow,
+  updateSheetRowsApi,
   deleteSheetTable,
 } from '../services/api';
 import { getActiveBusinessId } from '../config/constants';
@@ -367,6 +368,31 @@ export const insertSingleSheetRow = createAsyncThunk(
     } catch (err) {
       return rejectWithValue({
         message: err.message || 'Failed to add row to sheet.',
+      });
+    }
+  }
+);
+
+/**
+ * Thunk: Save manual inline spreadsheet cell edits into PostgreSQL.
+ * PATCH /api/sheets/{entity}/rows
+ * @type {any}
+ */
+export const saveManualSheetEdits = createAsyncThunk(
+  'sheets/saveManualSheetEdits',
+  async ({ entity, edits }, { getState, rejectWithValue }) => {
+    try {
+      const targetEntity = entity || getState().sheets?.activeEntity || '';
+      const targetBiz = getState().sheets?.businessId || getActiveBusinessId();
+      const data = await updateSheetRowsApi(targetEntity, edits, targetBiz);
+      return {
+        ...data,
+        businessId: targetBiz,
+        entity: data.entity || targetEntity,
+      };
+    } catch (err) {
+      return rejectWithValue({
+        message: err.message || 'Failed to save spreadsheet edits.',
       });
     }
   }
@@ -1127,6 +1153,40 @@ const sheetSlice = createSlice({
         state.rowInsertStatus = 'failed';
         state.rowInsertError =
           action.payload?.message || 'Failed to add row to sheet.';
+      })
+
+      // Manual Inline Spreadsheet Edits Save
+      .addCase(saveManualSheetEdits.fulfilled, (state, action) => {
+        const targetEntity = action.payload?.entity || state.activeEntity;
+        const updatedRows = Array.isArray(action.payload?.updated_rows)
+          ? action.payload.updated_rows
+          : [];
+        const updatedById = new Map(updatedRows.map((r) => [String(r.id), r]));
+
+        if (Array.isArray(action.payload?.rows)) {
+          state.rowsByEntity[targetEntity] = action.payload.rows;
+        } else if (updatedById.size > 0 && Array.isArray(state.rowsByEntity[targetEntity])) {
+          state.rowsByEntity[targetEntity] = state.rowsByEntity[targetEntity].map((row) =>
+            updatedById.has(String(row.id)) ? updatedById.get(String(row.id)) : row
+          );
+        }
+
+        if (
+          state.queryResult &&
+          Array.isArray(state.queryResult.rows) &&
+          updatedById.size > 0
+        ) {
+          state.queryResult.rows = state.queryResult.rows.map((row) =>
+            updatedById.has(String(row.id)) ? updatedById.get(String(row.id)) : row
+          );
+        }
+
+        const nextRows = state.rowsByEntity[targetEntity];
+        const targetBizId =
+          action.payload?.businessId || state.businessId || getActiveBusinessId();
+        if (targetBizId && targetEntity && Array.isArray(nextRows)) {
+          patchCachedTableRows(targetBizId, targetEntity, nextRows);
+        }
       })
 
       // Remove Sheet Table

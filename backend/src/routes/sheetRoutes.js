@@ -7,6 +7,7 @@ const {
   querySpreadsheet,
   mutateSpreadsheet,
   insertSheetRow,
+  updateSheetRows,
   deleteSheetTable,
 } = require('../controllers/sheetController');
 
@@ -22,6 +23,7 @@ router.post('/products/append', uploadSingleCsv, (req, res, next) => {
   return uploadProducts(req, res, next);
 });
 router.post('/products/row', insertSheetRow);
+router.patch('/products/rows', updateSheetRows);
 router.get('/products', getProductsList);
 router.delete('/products', deleteSheetTable);
 
@@ -32,6 +34,7 @@ router.post('/append', uploadSingleCsv, (req, res, next) => {
   return uploadProducts(req, res, next);
 });
 router.post('/row', insertSheetRow);
+router.patch('/rows', updateSheetRows);
 router.get('/', getProductsList);
 
 // Universal natural-language query endpoint
@@ -48,6 +51,7 @@ router.post('/:entity/append', uploadSingleCsv, (req, res, next) => {
   return uploadProducts(req, res, next);
 });
 router.post('/:entity/row', insertSheetRow);
+router.patch('/:entity/rows', updateSheetRows);
 router.get('/:entity', getProductsList);
 router.delete('/:entity', deleteSheetTable);
 router.post('/:entity/query', querySpreadsheet);

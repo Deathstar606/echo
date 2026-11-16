@@ -571,6 +571,43 @@ export interface AddRowResponse {
   row?: DynamicSheetRow;
 }
 
+export interface SheetRowEditItem {
+  id: string | number;
+  changes: Record<string, unknown>;
+}
+
+export interface UpdateSheetRowsResponse {
+  status: string;
+  message: string;
+  entity: string;
+  displayName?: string;
+  affected_count: number;
+  updated_rows?: DynamicSheetRow[];
+  rows?: DynamicSheetRow[];
+}
+
+/**
+ * Persists manual inline cell edits across one or more rows in the active PostgreSQL table.
+ * PATCH /api/sheets/{entity}/rows?businessId={businessId}
+ */
+export async function updateSheetRowsApi(
+  entity: string = 'products',
+  edits: SheetRowEditItem[] = [],
+  businessId?: string
+): Promise<UpdateSheetRowsResponse> {
+  const targetEntity = String(entity || 'products').trim();
+  const targetBiz = (businessId && String(businessId).trim()) || getActiveBusinessId();
+  return request<UpdateSheetRowsResponse>(
+    `/api/sheets/${encodeURIComponent(targetEntity)}/rows?businessId=${encodeURIComponent(
+      targetBiz
+    )}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ edits }),
+    }
+  );
+}
+
 /**
  * Inserts a single new row with dynamic columns into the active table in PostgreSQL.
  * POST /api/sheets/{entity}/row?businessId={businessId}

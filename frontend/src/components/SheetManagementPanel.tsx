@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Loader2,
   Edit3,
+  Save,
   AlertTriangle,
   Info,
   X,
@@ -43,6 +44,7 @@ import {
   importSheetCsvFile,
   appendSheetCsvFile,
   insertSingleSheetRow,
+  saveManualSheetEdits,
   removeSheetTable,
   setSheetNlPrompt,
   applySheetQueryPayload,
@@ -426,6 +428,102 @@ export default function SheetManagementPanel(): React.ReactElement {
   const [newRowData, setNewRowData] = useState<Record<string, string>>({});
   const [addRowError, setAddRowError] = useState<string | null>(null);
   const [addRowSuccessToast, setAddRowSuccessToast] = useState<string | null>(null);
+
+  // Manual Inline Spreadsheet Editing state
+  const [isEditingSheet, setIsEditingSheet] = useState<boolean>(false);
+  const [editedCellsByRowId, setEditedCellsByRowId] = useState<
+    Record<string, Record<string, string>>
+  >({});
+  const [isSavingManualEdits, setIsSavingManualEdits] = useState<boolean>(false);
+  const [manualSaveError, setManualSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setIsEditingSheet(false);
+    setEditedCellsByRowId({});
+    setManualSaveError(null);
+  }, [activeBusinessId, activeEntity]);
+
+  const formatCellForEditInput = (value: unknown): string => {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'object') {
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return String(value);
+      }
+    }
+    if (typeof value === 'boolean') return value ? 'true' : 'false';
+    return String(value);
+  };
+
+  const handleStartManualEdit = () => {
+    if (!activeEntity || displayedRows.length === 0 || isBusy) return;
+    setManualSaveError(null);
+    setEditedCellsByRowId({});
+    setIsEditingSheet(true);
+  };
+
+  const handleCancelManualEdit = () => {
+    setIsEditingSheet(false);
+    setEditedCellsByRowId({});
+    setManualSaveError(null);
+  };
+
+  const handleCellDraftChange = (rowKey: string, col: string, nextValue: string) => {
+    setEditedCellsByRowId((prev) => ({
+      ...prev,
+      [rowKey]: {
+        ...(prev[rowKey] || {}),
+        [col]: nextValue,
+      },
+    }));
+  };
+
+  const handleSaveManualEdits = async () => {
+    if (!activeEntity || isSavingManualEdits) return;
+    setManualSaveError(null);
+
+    const edits: Array<{ id: string | number; changes: Record<string, unknown> }> = [];
+    for (const row of displayedRows) {
+      if (row.id === undefined || row.id === null) continue;
+      const rowKey = String(row.id);
+      const rowDrafts = editedCellsByRowId[rowKey];
+      if (!rowDrafts) continue;
+
+      const changes: Record<string, unknown> = {};
+      for (const [col, draftVal] of Object.entries(rowDrafts)) {
+        if (draftVal !== formatCellForEditInput(row[col])) {
+          changes[col] = draftVal;
+        }
+      }
+      if (Object.keys(changes).length > 0) {
+        edits.push({ id: row.id as string | number, changes });
+      }
+    }
+
+    if (edits.length === 0) {
+      setIsEditingSheet(false);
+      setEditedCellsByRowId({});
+      return;
+    }
+
+    setIsSavingManualEdits(true);
+    try {
+      const res = await dispatch(
+        saveManualSheetEdits({ entity: activeEntity, edits })
+      ).unwrap();
+      setIsEditingSheet(false);
+      setEditedCellsByRowId({});
+      setAddRowSuccessToast(
+        res?.message || `Saved manual edits to ${edits.length} row(s).`
+      );
+      setTimeout(() => setAddRowSuccessToast(null), 4000);
+    } catch (err: any) {
+      setManualSaveError(err?.message || 'Failed to save spreadsheet edits.');
+    } finally {
+      setIsSavingManualEdits(false);
+    }
+  };
 
   // Cross-Document RAG & Socratic Operations state
   const [documents, setDocuments] = useState<WorkspaceDocument[]>([]);
@@ -1445,7 +1543,8 @@ export default function SheetManagementPanel(): React.ReactElement {
     csvUploadStatus === 'loading' ||
     csvAppendStatus === 'loading' ||
     rowInsertStatus === 'loading' ||
-    sheetDeleteStatus === 'loading';
+    sheetDeleteStatus === 'loading' ||
+    isSavingManualEdits;
 
   const pendingMutationMap = useMemo(() => {
     const map = new Map<string, WorkspaceMutationDiff>();
@@ -1496,6 +1595,9 @@ export default function SheetManagementPanel(): React.ReactElement {
   const aiResponseCitations = b2bWorkflow.conversationalData?.citations || [];
 
   const handleShowAllRows = () => {
+    setIsEditingSheet(false);
+    setEditedCellsByRowId({});
+    setManualSaveError(null);
     dispatch(clearSheetFiltersAndFeedback());
     b2bWorkflow.handleClearConversationalData();
   };
@@ -1598,6 +1700,22 @@ export default function SheetManagementPanel(): React.ReactElement {
             <div className="alert-banner error">
               <AlertCircle size={16} style={{ flexShrink: 0 }} />
               <span>{sheetLoadError}</span>
+            </div>
+          )}
+
+          {manualSaveError && (
+            <div className="alert-banner error" role="alert">
+              <AlertCircle size={16} style={{ flexShrink: 0 }} />
+              <span style={{ flex: 1 }}>{manualSaveError}</span>
+              <button
+                type="button"
+                className="btn-warm-outlined"
+                onClick={() => setManualSaveError(null)}
+                aria-label="Dismiss save error"
+                style={{ padding: '2px 6px' }}
+              >
+                <X size={13} />
+              </button>
             </div>
           )}
 
@@ -1993,6 +2111,72 @@ export default function SheetManagementPanel(): React.ReactElement {
                   ? `Showing ${displayedRows.length} of ${activeRows.length} rows`
                   : `Total Rows: ${activeRows.length}`}
               </span>
+              {!isEditingSheet ? (
+                <button
+                  type="button"
+                  className="btn-warm-outlined"
+                  disabled={!activeEntity || displayedRows.length === 0 || isBusy}
+                  onClick={handleStartManualEdit}
+                  title={
+                    !activeEntity
+                      ? 'Load a table to edit'
+                      : displayedRows.length === 0
+                        ? 'No rows visible to edit'
+                        : 'Edit cells in this spreadsheet'
+                  }
+                  style={{
+                    fontSize: '11.5px',
+                    padding: '3px 10px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                  }}
+                >
+                  <Edit3 size={12} />
+                  <span>Edit</span>
+                </button>
+              ) : (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <button
+                    type="button"
+                    className="btn-primary-indigo"
+                    disabled={isSavingManualEdits}
+                    onClick={handleSaveManualEdits}
+                    title="Save edited cells to database"
+                    style={{
+                      fontSize: '11.5px',
+                      padding: '4px 10px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                    }}
+                  >
+                    {isSavingManualEdits ? (
+                      <Loader2 size={12} className="spin" />
+                    ) : (
+                      <Save size={12} />
+                    )}
+                    <span>{isSavingManualEdits ? 'Saving…' : 'Save'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-warm-outlined"
+                    disabled={isSavingManualEdits}
+                    onClick={handleCancelManualEdit}
+                    title="Discard unsaved cell edits"
+                    style={{
+                      fontSize: '11.5px',
+                      padding: '3px 9px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <X size={12} />
+                    <span>Cancel</span>
+                  </button>
+                </div>
+              )}
               {Boolean(activeEntity) && (
                 <button
                   type="button"
@@ -2285,6 +2469,68 @@ export default function SheetManagementPanel(): React.ReactElement {
                             );
                           }
 
+                          if (isEditingSheet && row.id !== undefined && row.id !== null) {
+                            const rowKey = String(row.id);
+                            const originalDraft = formatCellForEditInput(row[col]);
+                            const hasDraft = editedCellsByRowId[rowKey]?.[col] !== undefined;
+                            const cellValue = hasDraft
+                              ? editedCellsByRowId[rowKey][col]
+                              : originalDraft;
+                            const isDirtyCell = hasDraft && cellValue !== originalDraft;
+
+                            return (
+                              <td key={col} style={{ padding: '4px 6px' }}>
+                                {typeof row[col] === 'boolean' ? (
+                                  <select
+                                    value={cellValue.toLowerCase() === 'true' ? 'true' : 'false'}
+                                    onChange={(e) =>
+                                      handleCellDraftChange(rowKey, col, e.target.value)
+                                    }
+                                    disabled={isSavingManualEdits}
+                                    aria-label={`Edit ${col} for row ${idx + 1}`}
+                                    style={{
+                                      minWidth: '88px',
+                                      width: '100%',
+                                      padding: '5px 7px',
+                                      fontSize: '12.5px',
+                                      borderRadius: '6px',
+                                      border: `1.5px solid ${
+                                        isDirtyCell ? 'var(--primary-indigo)' : 'var(--border-warm)'
+                                      }`,
+                                      backgroundColor: isDirtyCell ? '#eef2ff' : '#ffffff',
+                                      color: 'var(--text-primary)',
+                                    }}
+                                  >
+                                    <option value="true">True</option>
+                                    <option value="false">False</option>
+                                  </select>
+                                ) : (
+                                  <input
+                                    type="text"
+                                    value={cellValue}
+                                    onChange={(e) =>
+                                      handleCellDraftChange(rowKey, col, e.target.value)
+                                    }
+                                    disabled={isSavingManualEdits}
+                                    aria-label={`Edit ${col} for row ${idx + 1}`}
+                                    style={{
+                                      minWidth: '110px',
+                                      width: '100%',
+                                      padding: '5px 8px',
+                                      fontSize: '12.5px',
+                                      borderRadius: '6px',
+                                      border: `1.5px solid ${
+                                        isDirtyCell ? 'var(--primary-indigo)' : 'var(--border-warm)'
+                                      }`,
+                                      backgroundColor: isDirtyCell ? '#eef2ff' : '#ffffff',
+                                      color: 'var(--text-primary)',
+                                    }}
+                                  />
+                                )}
+                              </td>
+                            );
+                          }
+
                           return (
                             <td
                               key={col}
@@ -2305,6 +2551,19 @@ export default function SheetManagementPanel(): React.ReactElement {
               </table>
             )}
           </div>
+
+          {/* Provenance citations below larger matched rows table */}
+          {aiResponseCitations.length > 0 && (
+            <section
+              aria-label="Provenance citations"
+              className="sheet-ai-summary-card"
+            >
+              <CitationBadges
+                citations={aiResponseCitations}
+                onSelectCitation={(citation) => setActiveCitation(citation)}
+              />
+            </section>
+          )}
         </div>
       </div>
 
@@ -2316,13 +2575,11 @@ export default function SheetManagementPanel(): React.ReactElement {
         executingStep={b2bWorkflow.executingStep}
         workflowError={b2bWorkflow.workflowError}
         conversationHistory={b2bWorkflow.conversationHistory}
-        citations={aiResponseCitations}
         isBusy={isBusy}
         nlPrompt={nlPrompt}
         onPromptChange={(prompt) => dispatch(setSheetNlPrompt(prompt))}
         samplePrompts={samplePrompts}
         onExecuteOperation={b2bWorkflow.handleExecuteOperation}
-        onSelectCitation={(citation) => setActiveCitation(citation)}
         onDismissError={b2bWorkflow.handleDismissError}
         onResetWorkflow={b2bWorkflow.handleResetWorkflow}
       />
