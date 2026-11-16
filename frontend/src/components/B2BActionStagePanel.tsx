@@ -9,8 +9,7 @@ import {
   ShieldAlert,
   HelpCircle,
   Check,
-  ChevronDown,
-  ChevronUp,
+  RotateCcw,
 } from 'lucide-react';
 import type {
   Citation,
@@ -39,6 +38,11 @@ interface B2BActionStagePanelProps {
     index: number,
     patch: { subject?: string; body?: string }
   ) => void;
+  onApplyTemplateToAllEmails?: (template: {
+    subject?: string;
+    body?: string;
+  }) => void;
+  onRestoreOriginalEmails?: () => void;
   onConfirmOperation: () => void;
   onBackToClarification: () => void;
   onResetWorkflow: () => void;
@@ -57,20 +61,35 @@ export default function B2BActionStagePanel({
   onSelectSocraticOption,
   onResolveSocratic,
   onUpdateEmailDraft,
+  onApplyTemplateToAllEmails,
+  onRestoreOriginalEmails,
   onConfirmOperation,
   onBackToClarification,
   onResetWorkflow,
   onSelectCitation,
 }: B2BActionStagePanelProps): React.ReactElement | null {
   const [previewTab, setPreviewTab] = useState<'mutations' | 'emails'>('mutations');
-  const [expandedEmailIndex, setExpandedEmailIndex] = useState<number | null>(0);
+  const [selectedEmailTab, setSelectedEmailTab] = useState<'all' | number>(0);
+  const [templateSubject, setTemplateSubject] = useState('');
+  const [templateBody, setTemplateBody] = useState('');
 
   useEffect(() => {
-    if (!previewData) return;
+    if (!previewData) {
+      setTemplateSubject('');
+      setTemplateBody('');
+      return;
+    }
     const hasMutations = (previewData.mutations_preview?.length || 0) > 0;
     const hasEmails = (previewData.emails_preview?.length || 0) > 0;
     setPreviewTab(!hasMutations && hasEmails ? 'emails' : 'mutations');
-    setExpandedEmailIndex(0);
+    setSelectedEmailTab(0);
+    const firstEmail = previewData.emails_preview?.[0];
+    setTemplateSubject(
+      previewData.email_draft_template?.subject || firstEmail?.subject || ''
+    );
+    setTemplateBody(
+      previewData.email_draft_template?.body || firstEmail?.body || ''
+    );
   }, [previewData?.workflow_id]);
 
   if (
@@ -276,6 +295,36 @@ export default function B2BActionStagePanel({
       editedEmails && editedEmails.length > 0
         ? editedEmails
         : previewData.emails_preview || [];
+    const originalEmails = previewData.emails_preview || [];
+    const hasCustomEdits =
+      activeEmails.length > 0 &&
+      originalEmails.length === activeEmails.length &&
+      activeEmails.some(
+        (item, idx) =>
+          item.subject !== originalEmails[idx]?.subject ||
+          item.body !== originalEmails[idx]?.body
+      );
+    const hasBlankDraft =
+      activeEmails.length > 0 &&
+      activeEmails.some((item) => !item.subject?.trim() || !item.body?.trim());
+    const activeEmailIndex =
+      typeof selectedEmailTab === 'number' && selectedEmailTab < activeEmails.length
+        ? selectedEmailTab
+        : 0;
+    const currentEmail = activeEmails[activeEmailIndex];
+    const hasMutations = (previewData.mutations_preview?.length || 0) > 0;
+
+    const handleRestoreDrafts = () => {
+      onRestoreOriginalEmails?.();
+      const firstOrig = previewData.emails_preview?.[0];
+      setTemplateSubject(
+        previewData.email_draft_template?.subject || firstOrig?.subject || ''
+      );
+      setTemplateBody(
+        previewData.email_draft_template?.body || firstOrig?.body || ''
+      );
+    };
+
     return (
       <motion.section
         aria-label="Stage 1 B2B action preview"
@@ -455,173 +504,374 @@ export default function B2BActionStagePanel({
         )}
 
         {previewTab === 'emails' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-              {activeEmails.length} customer notification email(s) queued for individual
-              dispatch. You can edit the subject or body before confirming.
-            </div>
-
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <div
               style={{
-                maxHeight: '300px',
-                overflowY: 'auto',
                 display: 'flex',
-                flexDirection: 'column',
-                gap: '6px',
-                paddingRight: '2px',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '8px',
+                flexWrap: 'wrap',
               }}
             >
-              {activeEmails.map((email, idx) => {
-                const isExpanded = expandedEmailIndex === idx;
-                return (
-                  <div
-                    key={`${email.recipient_email}-${idx}`}
-                    style={{
-                      borderRadius: '8px',
-                      backgroundColor: '#ffffff',
-                      border: '1px solid var(--border-warm)',
-                      overflow: 'hidden',
-                      fontSize: '12px',
-                    }}
-                  >
-                    <button
-                      type="button"
-                      style={{
-                        width: '100%',
-                        textAlign: 'left',
-                        padding: '9px 12px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        backgroundColor: isExpanded ? 'var(--bg-subtle-warm)' : '#ffffff',
-                        cursor: 'pointer',
-                      }}
-                      onClick={() => setExpandedEmailIndex(isExpanded ? null : idx)}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                        <Mail size={13} color="var(--primary-indigo)" />
-                        <span style={{ fontWeight: 700 }}>{email.customer_identifier}</span>
-                        <span style={{ color: 'var(--text-secondary)', fontSize: '11.5px' }}>
-                          ({email.recipient_email})
-                        </span>
-                      </div>
-                      {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                    </button>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                {activeEmails.length} customer notification email(s) queued for individual
+                dispatch. Select a recipient below to review or edit before confirming.
+              </div>
 
-                    {isExpanded && (
-                      <div
+              {hasCustomEdits && onRestoreOriginalEmails && (
+                <button
+                  type="button"
+                  onClick={handleRestoreDrafts}
+                  style={{
+                    fontSize: '11.5px',
+                    fontWeight: 600,
+                    color: 'var(--primary-indigo)',
+                    backgroundColor: '#ffffff',
+                    border: '1px solid var(--border-warm)',
+                    borderRadius: '6px',
+                    padding: '4px 9px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <RotateCcw size={12} />
+                  <span>Restore Original</span>
+                </button>
+              )}
+            </div>
+
+            {activeEmails.length === 0 ? (
+              <div
+                style={{
+                  padding: '12px',
+                  borderRadius: '8px',
+                  backgroundColor: 'var(--bg-panel)',
+                  border: '1px solid var(--border-warm)',
+                  fontSize: '12px',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                No emails are queued for this operation.
+              </div>
+            ) : (
+              <div
+                style={{
+                  borderRadius: '10px',
+                  border: '1px solid var(--border-warm)',
+                  backgroundColor: '#f8fafc',
+                  padding: '12px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                }}
+              >
+                {/* Recipient Switcher Pills */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  {activeEmails.map((email, idx) => {
+                    const isSelected = selectedEmailTab === idx;
+                    return (
+                      <button
+                        key={`${email.recipient_email}-${idx}`}
+                        type="button"
+                        onClick={() => setSelectedEmailTab(idx)}
+                        title={`${email.customer_identifier} (${email.recipient_email})`}
                         style={{
-                          padding: '10px 12px',
-                          backgroundColor: 'var(--bg-panel)',
-                          borderTop: '1px solid var(--border-subtle)',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '8px',
+                          fontSize: '11.5px',
+                          fontWeight: isSelected ? 700 : 500,
+                          padding: '4px 10px',
+                          borderRadius: '999px',
+                          border: `1px solid ${
+                            isSelected ? 'var(--primary-indigo)' : 'var(--border-warm)'
+                          }`,
+                          backgroundColor: isSelected
+                            ? 'var(--primary-indigo)'
+                            : '#ffffff',
+                          color: isSelected ? '#ffffff' : 'var(--text-secondary)',
+                          cursor: 'pointer',
+                          maxWidth: '240px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
                         }}
                       >
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <label
-                            style={{
-                              fontSize: '11px',
-                              fontWeight: 700,
-                              color: 'var(--text-secondary)',
-                            }}
-                          >
-                            Subject
-                          </label>
-                          {onUpdateEmailDraft ? (
-                            <input
-                              type="text"
-                              value={email.subject}
-                              onChange={(e) =>
-                                onUpdateEmailDraft(idx, { subject: e.target.value })
-                              }
-                              style={{
-                                width: '100%',
-                                padding: '6px 9px',
-                                fontSize: '12px',
-                                fontWeight: 600,
-                                borderRadius: '6px',
-                                border: '1px solid var(--border-warm)',
-                                backgroundColor: '#ffffff',
-                                color: 'var(--text-primary)',
-                              }}
-                            />
-                          ) : (
-                            <div>
-                              <strong>Subject:</strong> {email.subject}
-                            </div>
-                          )}
-                        </div>
+                        {email.customer_identifier || email.recipient_email}
+                      </button>
+                    );
+                  })}
 
-                        {email.metadata?.applied_rule && (
-                          <div
+                  {activeEmails.length > 1 && onApplyTemplateToAllEmails && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedEmailTab('all')}
+                      style={{
+                        fontSize: '11.5px',
+                        fontWeight: selectedEmailTab === 'all' ? 700 : 600,
+                        padding: '4px 10px',
+                        borderRadius: '999px',
+                        border: `1px solid ${
+                          selectedEmailTab === 'all'
+                            ? 'var(--primary-indigo)'
+                            : 'var(--border-warm)'
+                        }`,
+                        backgroundColor:
+                          selectedEmailTab === 'all'
+                            ? 'var(--primary-indigo)'
+                            : '#eef2ff',
+                        color:
+                          selectedEmailTab === 'all'
+                            ? '#ffffff'
+                            : 'var(--primary-indigo-dark)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      All ({activeEmails.length}) Template
+                    </button>
+                  )}
+                </div>
+
+                {/* Single Clean Email Editor Card */}
+                {selectedEmailTab === 'all' && activeEmails.length > 1 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div
+                      style={{
+                        fontSize: '11.5px',
+                        color: 'var(--primary-indigo-dark)',
+                        backgroundColor: '#eef2ff',
+                        border: '1px solid #c7d2fe',
+                        padding: '6px 10px',
+                        borderRadius: '6px',
+                      }}
+                    >
+                      Editing all {activeEmails.length} drafts together. Use{' '}
+                      <code>{'{{customer_name}}'}</code> to personalize each greeting.
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          color: 'var(--text-secondary)',
+                        }}
+                      >
+                        Subject (All Recipients)
+                      </label>
+                      <input
+                        type="text"
+                        aria-label="Master email subject"
+                        placeholder="Email Subject"
+                        value={templateSubject}
+                        onChange={(e) => {
+                          const nextSubject = e.target.value;
+                          setTemplateSubject(nextSubject);
+                          onApplyTemplateToAllEmails?.({
+                            subject: nextSubject,
+                            body: templateBody,
+                          });
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '7px 10px',
+                          fontSize: '12.5px',
+                          fontWeight: 600,
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-warm)',
+                          backgroundColor: '#ffffff',
+                          color: 'var(--text-primary)',
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          color: 'var(--text-secondary)',
+                        }}
+                      >
+                        Message Body (All Recipients)
+                      </label>
+                      <textarea
+                        rows={6}
+                        aria-label="Master email body"
+                        placeholder="Email body..."
+                        value={templateBody}
+                        onChange={(e) => {
+                          const nextBody = e.target.value;
+                          setTemplateBody(nextBody);
+                          onApplyTemplateToAllEmails?.({
+                            subject: templateSubject,
+                            body: nextBody,
+                          });
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '9px 10px',
+                          fontSize: '12.5px',
+                          lineHeight: 1.5,
+                          borderRadius: '6px',
+                          border: '1px solid var(--border-warm)',
+                          backgroundColor: '#ffffff',
+                          color: 'var(--text-primary)',
+                          resize: 'vertical',
+                          fontFamily: 'inherit',
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  currentEmail && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px',
+                        padding: '10px 12px',
+                        borderRadius: '8px',
+                        backgroundColor: '#ffffff',
+                        border: '1px solid var(--border-subtle)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          flexWrap: 'wrap',
+                          fontSize: '12px',
+                          color: 'var(--text-primary)',
+                          paddingBottom: '6px',
+                          borderBottom: '1px solid var(--border-subtle)',
+                        }}
+                      >
+                        <Mail size={14} color="var(--primary-indigo)" />
+                        <span style={{ fontWeight: 700 }}>
+                          {currentEmail.customer_identifier}
+                        </span>
+                        <span style={{ color: 'var(--text-secondary)' }}>
+                          &lt;{currentEmail.recipient_email}&gt;
+                        </span>
+                      </div>
+
+                      {currentEmail.metadata?.applied_rule && (
+                        <div
+                          style={{
+                            fontSize: '11.5px',
+                            padding: '5px 9px',
+                            borderRadius: '5px',
+                            backgroundColor: '#fef3c7',
+                            color: '#92400e',
+                            border: '1px solid #fde68a',
+                          }}
+                        >
+                          <strong>Rule Applied:</strong> {currentEmail.metadata.applied_rule}
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <label
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          Subject
+                        </label>
+                        {onUpdateEmailDraft ? (
+                          <input
+                            type="text"
+                            aria-label="Email subject"
+                            value={currentEmail.subject}
+                            onChange={(e) =>
+                              onUpdateEmailDraft(activeEmailIndex, {
+                                subject: e.target.value,
+                              })
+                            }
                             style={{
-                              fontSize: '11.5px',
-                              padding: '4px 8px',
-                              borderRadius: '4px',
-                              backgroundColor: '#fef3c7',
-                              color: '#92400e',
-                              border: '1px solid #fde68a',
+                              width: '100%',
+                              padding: '7px 10px',
+                              fontSize: '12.5px',
+                              fontWeight: 600,
+                              borderRadius: '6px',
+                              border: '1px solid var(--border-warm)',
+                              backgroundColor: '#ffffff',
+                              color: 'var(--text-primary)',
                             }}
-                          >
-                            <strong>Rule Applied:</strong> {email.metadata.applied_rule}
+                          />
+                        ) : (
+                          <div style={{ fontSize: '12.5px', fontWeight: 600 }}>
+                            {currentEmail.subject}
                           </div>
                         )}
+                      </div>
 
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          <label
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <label
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            color: 'var(--text-secondary)',
+                          }}
+                        >
+                          Message Body
+                        </label>
+                        {onUpdateEmailDraft ? (
+                          <textarea
+                            rows={6}
+                            aria-label="Email message body"
+                            value={currentEmail.body}
+                            onChange={(e) =>
+                              onUpdateEmailDraft(activeEmailIndex, {
+                                body: e.target.value,
+                              })
+                            }
                             style={{
-                              fontSize: '11px',
-                              fontWeight: 700,
-                              color: 'var(--text-secondary)',
+                              width: '100%',
+                              padding: '9px 10px',
+                              fontSize: '12.5px',
+                              lineHeight: 1.5,
+                              borderRadius: '6px',
+                              border: '1px solid var(--border-warm)',
+                              backgroundColor: '#ffffff',
+                              color: 'var(--text-primary)',
+                              resize: 'vertical',
+                              fontFamily: 'inherit',
+                            }}
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              whiteSpace: 'pre-wrap',
+                              fontSize: '12.5px',
+                              lineHeight: 1.5,
+                              backgroundColor: '#f8fafc',
+                              padding: '10px',
+                              borderRadius: '6px',
+                              border: '1px solid var(--border-light)',
+                              color: 'var(--text-primary)',
                             }}
                           >
-                            Message Body
-                          </label>
-                          {onUpdateEmailDraft ? (
-                            <textarea
-                              rows={5}
-                              value={email.body}
-                              onChange={(e) =>
-                                onUpdateEmailDraft(idx, { body: e.target.value })
-                              }
-                              style={{
-                                width: '100%',
-                                padding: '8px 10px',
-                                fontSize: '12px',
-                                lineHeight: 1.5,
-                                borderRadius: '6px',
-                                border: '1px solid var(--border-warm)',
-                                backgroundColor: '#ffffff',
-                                color: 'var(--text-primary)',
-                                resize: 'vertical',
-                                fontFamily: 'inherit',
-                              }}
-                            />
-                          ) : (
-                            <div
-                              style={{
-                                whiteSpace: 'pre-wrap',
-                                fontSize: '12px',
-                                lineHeight: 1.5,
-                                backgroundColor: '#ffffff',
-                                padding: '10px',
-                                borderRadius: '6px',
-                                border: '1px solid var(--border-light)',
-                                color: 'var(--text-primary)',
-                              }}
-                            >
-                              {email.body}
-                            </div>
-                          )}
-                        </div>
+                            {currentEmail.body}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -635,10 +885,12 @@ export default function B2BActionStagePanel({
             type="button"
             className="btn-primary-indigo"
             style={{ flex: 1, minWidth: '220px', padding: '10px 16px', fontSize: '12.5px' }}
-            disabled={isBusy}
+            disabled={isBusy || hasBlankDraft}
             onClick={onConfirmOperation}
           >
-            Approve All &amp; Execute (Stage 2 Confirm)
+            {!hasMutations && activeEmails.length > 0
+              ? `Confirm & Send (${activeEmails.length} Email${activeEmails.length === 1 ? '' : 's'})`
+              : 'Approve All & Execute (Stage 2 Confirm)'}
           </button>
 
           {clarificationData && (

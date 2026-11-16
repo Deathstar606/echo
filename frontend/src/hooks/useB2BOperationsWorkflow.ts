@@ -408,8 +408,8 @@ export function useB2BOperationsWorkflow({
         stageHint = 'preview';
         stageSummary =
           (res.mutations_preview?.length || 0) === 0 && (res.emails_preview?.length || 0) > 0
-            ? `${res.emails_preview?.length || 0} email draft(s) • Editable below`
-            : `${res.mutations_preview?.length || 0} DB row(s), ${res.emails_preview?.length || 0} email(s) • Review & confirm`;
+            ? `${res.emails_preview?.length || 0} email draft(s) • Editable in main panel`
+            : `${res.mutations_preview?.length || 0} DB row(s), ${res.emails_preview?.length || 0} email(s) • Review in main panel`;
       }
 
       const structuredSummaryText =

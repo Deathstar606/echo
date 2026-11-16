@@ -1884,6 +1884,8 @@ export default function SheetManagementPanel(): React.ReactElement {
             onSelectSocraticOption={b2bWorkflow.handleSelectSocraticOption}
             onResolveSocratic={b2bWorkflow.handleResolveSocratic}
             onUpdateEmailDraft={b2bWorkflow.handleUpdateEmailDraft}
+            onApplyTemplateToAllEmails={b2bWorkflow.handleApplyTemplateToAllEmails}
+            onRestoreOriginalEmails={b2bWorkflow.handleRestoreOriginalEmails}
             onConfirmOperation={async () => {
               if (
                 (b2bWorkflow.previewData?.mutations_preview?.length || 0) > 0 &&
@@ -2351,25 +2353,11 @@ export default function SheetManagementPanel(): React.ReactElement {
         executingStep={b2bWorkflow.executingStep}
         workflowError={b2bWorkflow.workflowError}
         conversationHistory={b2bWorkflow.conversationHistory}
-        previewData={b2bWorkflow.previewData}
-        editedEmails={b2bWorkflow.editedEmails}
         isBusy={isBusy}
         nlPrompt={nlPrompt}
         onPromptChange={(prompt) => dispatch(setSheetNlPrompt(prompt))}
         samplePrompts={samplePrompts}
         onExecuteOperation={b2bWorkflow.handleExecuteOperation}
-        onUpdateEmailDraft={b2bWorkflow.handleUpdateEmailDraft}
-        onApplyTemplateToAllEmails={b2bWorkflow.handleApplyTemplateToAllEmails}
-        onRestoreOriginalEmails={b2bWorkflow.handleRestoreOriginalEmails}
-        onConfirmOperation={async () => {
-          if (
-            (b2bWorkflow.previewData?.mutations_preview?.length || 0) > 0 &&
-            mutationPreview?.status === 'preview'
-          ) {
-            dispatch(discardMutationPreview());
-          }
-          await b2bWorkflow.handleConfirmOperation();
-        }}
         onDismissError={b2bWorkflow.handleDismissError}
         onResetWorkflow={b2bWorkflow.handleResetWorkflow}
       />
