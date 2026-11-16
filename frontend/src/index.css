@@ -55,6 +55,8 @@ body,
 #root {
   min-height: 100vh;
   width: 100%;
+  max-width: 100%;
+  overflow-x: clip;
   background-color: var(--bg-parchment);
   color: var(--text-primary);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
@@ -108,6 +110,8 @@ button:disabled {
    ========================================================================= */
 .app-shell {
   min-height: 100vh;
+  max-width: 100%;
+  overflow-x: clip;
   display: flex;
   flex-direction: column;
   background-color: var(--bg-parchment);
@@ -1362,6 +1366,12 @@ button:disabled {
   border: 1px solid var(--accent-lavender-border);
 }
 
+.mobile-thread-back-btn,
+.ksb-mobile-active-chip,
+.ksb-mobile-tabs-bar {
+  display: none;
+}
+
 /* =========================================================================
    Responsive Breakpoints & Small-Screen Optimization
    ========================================================================= */
@@ -1385,22 +1395,127 @@ button:disabled {
 }
 
 @media (max-width: 768px) {
+  /* Top Header Compact Mobile Arrangement */
   .top-header {
-    padding: 10px 14px;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-  }
-
-  .top-header > div:first-child {
-    justify-content: space-between;
-    width: 100%;
-  }
-
-  .header-right-cluster {
-    width: 100%;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
     justify-content: space-between;
     gap: 8px;
+  }
+
+  .header-left-cluster,
+  .header-right-cluster {
+    display: contents;
+  }
+
+  .header-divider {
+    display: none;
+  }
+
+  .brand-cluster {
+    order: 1;
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .brand-logo-box {
+    width: 30px;
+    height: 30px;
+    font-size: 16px;
+    border-radius: 8px;
+  }
+
+  .brand-title {
+    font-size: 15.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .brand-subtitle {
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .api-status-indicator {
+    order: 2;
+    flex-shrink: 0;
+    padding: 4px 8px;
+    font-size: 10.5px;
+    gap: 5px;
+  }
+
+  .ws-selector-wrap {
+    order: 3;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .ws-selector-btn {
+    width: 100%;
+    justify-content: space-between;
+    padding: 6px 9px !important;
+    font-size: 11.5px !important;
+    gap: 6px !important;
+    min-width: 0;
+  }
+
+  .ws-selector-name {
+    max-width: none !important;
+    flex: 1;
+    text-align: left;
+  }
+
+  .ws-dropdown-menu {
+    min-width: 250px !important;
+    max-width: calc(100vw - 24px) !important;
+  }
+
+  .user-menu-wrap {
+    order: 4;
+    flex: 0 1 auto;
+    max-width: 48%;
+    min-width: 0;
+  }
+
+  .user-menu-btn {
+    width: 100%;
+    padding: 3px 8px 3px 5px !important;
+    gap: 6px !important;
+    min-width: 0;
+  }
+
+  .user-menu-avatar {
+    width: 24px !important;
+    height: 24px !important;
+    font-size: 10px !important;
+  }
+
+  .user-menu-name {
+    font-size: 11.5px !important;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .user-menu-subtext {
+    font-size: 9.5px !important;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .user-dropdown-menu {
+    min-width: 225px !important;
+    max-width: calc(100vw - 24px) !important;
   }
 
   .mode-switcher-pills {
@@ -1417,26 +1532,86 @@ button:disabled {
     white-space: nowrap;
   }
 
+  /* Segmented Workspace Tab Box Fix (Prevent Tab Overflow Outside Container) */
   .workspace-nav-bar {
-    padding: 10px 12px 2px 12px;
+    padding: 8px 12px 4px 12px;
+    overflow: hidden;
   }
 
   .workspace-tabs-track {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
   }
 
   .workspace-tab-btn {
-    flex: 1;
+    width: 100%;
+    min-width: 0;
+    flex-shrink: 1;
     justify-content: center;
-    padding: 7px 12px;
-    font-size: 12.5px;
+    padding: 7px 6px;
+    font-size: 11.5px;
     white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .workspace-tab-label {
+    min-width: 0;
+    max-width: 100%;
+    gap: 5px;
+    overflow: hidden;
+  }
+
+  .workspace-tab-label > svg {
     flex-shrink: 0;
   }
 
+  .workspace-tab-label > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Customer Inquiry Panel: Messenger List -> Chatbox Revamp */
   .company-workspace-main {
-    padding: 10px 12px;
+    padding: 8px 12px 20px 12px;
     gap: 12px;
+  }
+
+  .inquiry-main-card {
+    min-height: 440px;
+    max-height: none;
+  }
+
+  .inquiry-card-header {
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between;
+    padding: 10px 14px;
+  }
+
+  .inquiry-card-title {
+    font-size: 15px;
+  }
+
+  .inquiry-channel-tabs-bar {
+    padding: 6px 8px !important;
+    gap: 4px !important;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .inquiry-channel-tabs-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .inquiry-channel-tabs-bar > button {
+    flex: 1 1 auto;
+    padding: 6px 6px !important;
+    font-size: 11px !important;
   }
 
   .inquiry-tabs-bar {
@@ -1455,17 +1630,90 @@ button:disabled {
   }
 
   .inquiry-split-body {
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
   }
 
-  .inbox-column {
+  .inquiry-split-body.is-mobile-inbox-open .inbox-column {
+    display: flex;
+    flex: 1;
+    width: 100%;
+    max-height: none;
+    min-height: 360px;
     border-right: none;
-    border-bottom: 1px solid var(--border-warm);
-    max-height: 250px;
+    border-bottom: none;
   }
 
-  .thread-column {
-    min-height: 420px;
+  .inquiry-split-body.is-mobile-inbox-open .thread-column {
+    display: none !important;
+  }
+
+  .inquiry-split-body.is-mobile-chat-open .inbox-column {
+    display: none !important;
+  }
+
+  .inquiry-split-body.is-mobile-chat-open .thread-column {
+    display: flex !important;
+    flex: 1;
+    width: 100%;
+    min-height: 450px;
+    max-height: 76dvh;
+  }
+
+  .mobile-thread-back-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.85);
+    border: 1px solid var(--border-warm);
+    color: var(--text-primary);
+    flex-shrink: 0;
+    margin-right: 2px;
+  }
+
+  .thread-header {
+    padding: 10px 12px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .thread-customer-info {
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .thread-customer-name {
+    font-size: 13.5px;
+    word-break: break-word;
+    flex-wrap: wrap;
+  }
+
+  .thread-customer-sub {
+    font-size: 11px;
+    overflow-wrap: anywhere;
+  }
+
+  .thread-messages-scroll {
+    padding: 14px 12px;
+    gap: 12px;
+  }
+
+  .msg-row {
+    max-width: 90%;
+  }
+
+  .thread-composer-bar {
+    padding: 10px 10px;
+    gap: 8px;
+  }
+
+  .composer-input-wrap {
+    padding: 7px 10px;
+    gap: 7px;
   }
 
   .reply-composer-bar {
@@ -1489,11 +1737,60 @@ button:disabled {
     justify-content: center;
   }
 
-  /* Sheet Management Panel Responsiveness */
+  /* Sheet Management & Operations Tabbed Knowledge Sources Responsiveness */
   .sheet-management-workspace {
     grid-template-columns: 1fr;
-    padding: 10px 10px 20px 10px;
+    padding: 8px 12px 20px 12px;
     gap: 12px;
+  }
+
+  .ksb-shell {
+    padding: 10px 10px;
+    gap: 8px;
+    border-radius: 12px;
+  }
+
+  .ksb-topbar {
+    gap: 6px;
+  }
+
+  .ksb-title-text {
+    font-size: 13px;
+  }
+
+  .ksb-mobile-active-chip {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    padding: 2px 8px;
+    border-radius: var(--radius-pill);
+    font-size: 10.5px;
+    font-weight: 700;
+    color: var(--primary-indigo-dark);
+    background-color: var(--accent-lavender-bg);
+    border: 1px solid var(--accent-lavender-border);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ksb-mobile-tabs-bar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    width: 100%;
+  }
+
+  .ksb-split-grid.is-mobile-tab-none {
+    display: none;
+  }
+
+  .ksb-split-grid.is-mobile-tab-tables .ksb-pane-docs {
+    display: none;
+  }
+
+  .ksb-split-grid.is-mobile-tab-docs .ksb-pane-tables {
+    display: none;
   }
 
   .sheet-panel-card {
@@ -1528,7 +1825,16 @@ button:disabled {
   }
 
   .copilot-side-card {
-    padding: 16px;
+    padding: 14px;
+  }
+
+  .b2b-chat-panel {
+    max-height: 540px;
+    padding: 0;
+  }
+
+  .b2b-chat-thread {
+    max-height: 260px;
   }
 
   .modal-card {
@@ -1544,7 +1850,7 @@ button:disabled {
 
 @media (max-width: 480px) {
   .brand-title {
-    font-size: 18px;
+    font-size: 14.5px;
   }
 
   .beta-pill {
@@ -1552,25 +1858,24 @@ button:disabled {
   }
 
   .api-status-indicator {
-    padding: 4px 8px;
-    font-size: 11px;
+    padding: 3px 7px;
+    font-size: 10px;
   }
 
   .api-status-indicator span:last-child {
-    max-width: 110px;
+    max-width: 96px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .inquiry-card-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
+  .workspace-tab-btn {
+    padding: 6px 4px;
+    font-size: 11px;
   }
 
   .sheet-management-workspace {
-    padding: 8px 6px 16px 6px;
+    padding: 8px 10px 18px 10px;
     gap: 10px;
   }
 
@@ -2114,6 +2419,73 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.ksb-mobile-tab-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border-warm);
+  background-color: #ffffff;
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  min-width: 0;
+  box-shadow: 0 1px 2px rgba(45, 38, 28, 0.04);
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.ksb-mobile-tab-btn.is-tables.is-active {
+  background-color: #eef2ff;
+  border-color: var(--primary-indigo);
+  color: var(--primary-indigo-dark);
+}
+
+.ksb-mobile-tab-btn.is-docs.is-active {
+  background-color: #eff6ff;
+  border-color: #2563eb;
+  color: #1d4ed8;
+}
+
+.ksb-mobile-tab-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ksb-mobile-tab-left > span:first-of-type {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ksb-mobile-tab-count {
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  font-size: 10.5px;
+  font-weight: 700;
+  background-color: var(--bg-subtle-warm);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.ksb-mobile-tab-btn.is-active .ksb-mobile-tab-count {
+  background-color: rgba(255, 255, 255, 0.9);
+  color: inherit;
+}
+
+.ksb-mobile-tab-chevron {
+  flex-shrink: 0;
+  transition: transform 0.18s ease;
+}
+
+.ksb-mobile-tab-chevron.is-open {
+  transform: rotate(180deg);
+}
+
 .ksb-split-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2448,6 +2820,19 @@ button:disabled {
   .ksb-pane + .ksb-pane {
     border-left: none;
     border-top: 1px solid #ede5d6;
+  }
+}
+
+@media (max-width: 768px) {
+  .b2b-chat-panel {
+    position: static;
+    height: auto;
+    max-height: 540px;
+    padding: 0;
+  }
+
+  .b2b-chat-thread {
+    max-height: 260px;
   }
 }
 

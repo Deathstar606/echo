@@ -15,6 +15,7 @@ import {
   FileCheck,
   Link2,
   Trash2,
+  ChevronDown,
 } from 'lucide-react';
 import type { WorkspaceDocument } from '../../../shared/types/contracts';
 import {
@@ -66,6 +67,7 @@ function extractGoogleDocId(input: string): string {
 export default function KnowledgeSourceBar({
   activeBusinessId: activeBusinessIdProp,
   activeEntity,
+  activeDisplayName,
   tableList,
   onSelectTable,
   onRemoveTable,
@@ -110,6 +112,8 @@ export default function KnowledgeSourceBar({
   >(null);
   const [isRemovingSource, setIsRemovingSource] = useState(false);
   const [removeSourceError, setRemoveSourceError] = useState<string | null>(null);
+  // Mobile tab-based accordion for Structured Tables / Policy Docs ('tables' | 'docs' | null)
+  const [mobileSourceTab, setMobileSourceTab] = useState<'tables' | 'docs' | null>(null);
 
   // Reset modals cleanly whenever active workspace changes
   useEffect(() => {
@@ -121,6 +125,7 @@ export default function KnowledgeSourceBar({
     setDocImportSuccess(null);
     setPendingRemoval(null);
     setRemoveSourceError(null);
+    setMobileSourceTab(null);
   }, [resolvedBusinessId]);
 
   const hasActiveDocument = Boolean(selectedDocumentId || selectedDocumentName);
@@ -282,12 +287,56 @@ export default function KnowledgeSourceBar({
             </span>
           </div>
         </div>
+        {(selectedDocumentName || activeDisplayName || activeEntity) && (
+          <span className="ksb-mobile-active-chip" title="Currently active source">
+            {selectedDocumentName ? `Doc: ${selectedDocumentName}` : `Table: ${activeDisplayName || activeEntity}`}
+          </span>
+        )}
+      </div>
+
+      {/* Mobile Tab Switcher: Shows Structured Tables or Policy Docs ONLY when clicked */}
+      <div className="ksb-mobile-tabs-bar" role="tablist" aria-label="Knowledge source categories">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mobileSourceTab === 'tables'}
+          className={`ksb-mobile-tab-btn is-tables ${mobileSourceTab === 'tables' ? 'is-active' : ''}`}
+          onClick={() => setMobileSourceTab((prev) => (prev === 'tables' ? null : 'tables'))}
+        >
+          <span className="ksb-mobile-tab-left">
+            <Database size={13} />
+            <span>Structured Tables</span>
+            <span className="ksb-mobile-tab-count">{tableList.length}</span>
+          </span>
+          <ChevronDown
+            size={14}
+            className={`ksb-mobile-tab-chevron ${mobileSourceTab === 'tables' ? 'is-open' : ''}`}
+          />
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mobileSourceTab === 'docs'}
+          className={`ksb-mobile-tab-btn is-docs ${mobileSourceTab === 'docs' ? 'is-active' : ''}`}
+          onClick={() => setMobileSourceTab((prev) => (prev === 'docs' ? null : 'docs'))}
+        >
+          <span className="ksb-mobile-tab-left">
+            <FileText size={13} />
+            <span>Policy Docs</span>
+            <span className="ksb-mobile-tab-count">{policyDocuments.length}</span>
+          </span>
+          <ChevronDown
+            size={14}
+            className={`ksb-mobile-tab-chevron ${mobileSourceTab === 'docs' ? 'is-open' : ''}`}
+          />
+        </button>
       </div>
 
       {/* Unified Split Panes: Structured Tables & Policy Documents */}
-      <div className="ksb-split-grid">
+      <div className={`ksb-split-grid is-mobile-tab-${mobileSourceTab || 'none'}`}>
         {/* Pane 1: Structured Relational Tables (CSV/DB) */}
-        <section className="ksb-pane" aria-label="Structured tables">
+        <section className="ksb-pane ksb-pane-tables" aria-label="Structured tables">
           <div className="ksb-pane-header">
             <div className="ksb-pane-title">
               <span className="ksb-pane-dot is-indigo" aria-hidden="true">
@@ -409,7 +458,7 @@ export default function KnowledgeSourceBar({
         </section>
 
         {/* Pane 2: Unstructured Knowledge Documents (PDF/TXT/MD/GDOC) */}
-        <section className="ksb-pane" aria-label="Policy and notice documents">
+        <section className="ksb-pane ksb-pane-docs" aria-label="Policy and notice documents">
           <div className="ksb-pane-header">
             <div className="ksb-pane-title">
               <span className="ksb-pane-dot is-blue" aria-hidden="true">

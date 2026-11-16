@@ -530,7 +530,7 @@ export default function TopHeader() {
     <>
       <header className="top-header">
         {/* Left Cluster: Brand & Workspace Selector (Workspace Switcher ONLY visible when signed in) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+        <div className="header-left-cluster" style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
           <Link to="/" className="brand-cluster">
             <div className="brand-logo-box">M</div>
             <div className="brand-text-stack">
@@ -543,9 +543,10 @@ export default function TopHeader() {
             <>
               <span className="header-divider" aria-hidden="true">/</span>
 
-              <div ref={wsDropdownRef} style={{ position: 'relative' }}>
+              <div ref={wsDropdownRef} className="ws-selector-wrap" style={{ position: 'relative' }}>
                 <button
                   type="button"
+                  className="ws-selector-btn"
                   onClick={() => {
                     setShowUserDropdown(false);
                     setShowWsDropdown((prev) => !prev);
@@ -565,8 +566,9 @@ export default function TopHeader() {
                     cursor: 'pointer',
                   }}
                 >
-                  <Building2 size={14} color="var(--primary-indigo)" />
+                  <Building2 size={14} color="var(--primary-indigo)" style={{ flexShrink: 0 }} />
                   <span
+                    className="ws-selector-name"
                     style={{
                       maxWidth: '210px',
                       overflow: 'hidden',
@@ -580,6 +582,7 @@ export default function TopHeader() {
                     size={14}
                     color="var(--text-muted)"
                     style={{
+                      flexShrink: 0,
                       transform: showWsDropdown ? 'rotate(180deg)' : 'rotate(0deg)',
                       transition: 'transform 0.18s ease',
                     }}
@@ -590,6 +593,7 @@ export default function TopHeader() {
                   {showWsDropdown && (
                     <motion.div
                       key="workspace-dropdown-menu"
+                      className="ws-dropdown-menu"
                       initial={{ opacity: 0, scale: 0.95, y: -6 }}
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.95, y: -4 }}
@@ -873,9 +877,10 @@ export default function TopHeader() {
           </div>
 
           {effectiveUser ? (
-            <div ref={userDropdownRef} style={{ position: 'relative' }}>
+            <div ref={userDropdownRef} className="user-menu-wrap" style={{ position: 'relative' }}>
               <button
                 type="button"
+                className="user-menu-btn"
                 onClick={() => {
                   setShowWsDropdown(false);
                   setShowUserDropdown((prev) => !prev);
@@ -897,16 +902,19 @@ export default function TopHeader() {
                     src={effectiveUser.picture}
                     alt={effectiveUser.name}
                     referrerPolicy="no-referrer"
+                    className="user-menu-avatar"
                     style={{
                       width: 28,
                       height: 28,
                       borderRadius: '50%',
                       objectFit: 'cover',
                       border: '1.5px solid #10b981',
+                      flexShrink: 0,
                     }}
                   />
                 ) : (
                   <div
+                    className="user-menu-avatar"
                     style={{
                       width: 28,
                       height: 28,
@@ -918,24 +926,28 @@ export default function TopHeader() {
                       justifyContent: 'center',
                       fontSize: '11px',
                       fontWeight: 700,
+                      flexShrink: 0,
                     }}
                   >
                     {userInitials}
                   </div>
                 )}
                 <div
+                  className="user-menu-text"
                   style={{
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'flex-start',
                     textAlign: 'left',
                     lineHeight: 1.15,
+                    minWidth: 0,
                   }}
                 >
-                  <span style={{ fontSize: '12.5px', fontWeight: 700, color: '#1e293b' }}>
+                  <span className="user-menu-name" style={{ fontSize: '12.5px', fontWeight: 700, color: '#1e293b' }}>
                     {effectiveUser.name}
                   </span>
                   <span
+                    className="user-menu-subtext"
                     style={{
                       fontSize: '10px',
                       color: effectiveGoogleConnected ? '#059669' : '#64748b',
@@ -951,6 +963,7 @@ export default function TopHeader() {
                         height: 6,
                         borderRadius: '50%',
                         backgroundColor: effectiveGoogleConnected ? '#10b981' : '#94a3b8',
+                        flexShrink: 0,
                       }}
                     />
                     {effectiveGoogleConnected
@@ -964,6 +977,7 @@ export default function TopHeader() {
                   size={13}
                   color="var(--text-muted)"
                   style={{
+                    flexShrink: 0,
                     transform: showUserDropdown ? 'rotate(180deg)' : 'rotate(0deg)',
                     transition: 'transform 0.18s ease',
                   }}
@@ -974,6 +988,7 @@ export default function TopHeader() {
                 {showUserDropdown && (
                   <motion.div
                     key="user-dropdown-menu"
+                    className="user-dropdown-menu"
                     initial={{ opacity: 0, scale: 0.95, y: -6 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.95, y: -4 }}

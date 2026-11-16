@@ -38,6 +38,7 @@ import {
   Building2,
   FileSpreadsheet,
   Trash2,
+  ArrowLeft,
 } from 'lucide-react';
 import {
   loadCompanyConversations,
@@ -159,6 +160,8 @@ export default function CompanyDashboard() {
 
   // Channel Tabs: 'filtered' | 'gmail' | 'slack' | 'toleto'
   const [inboxSource, setInboxSource] = useState('filtered');
+  // Mobile Messenger Navigation: false = show full inbox, true = show active chatbox
+  const [mobileThreadOpen, setMobileThreadOpen] = useState(false);
 
   // Workspace Contacts (Filtered & Workspace CSV upload modal)
   const [workspaceContacts, setWorkspaceContacts] = useState({
@@ -586,6 +589,7 @@ export default function CompanyDashboard() {
           dispatch(resetCompanyWorkspaceState());
           setGmailMessages([]);
           setActiveGmailMessage(null);
+          setMobileThreadOpen(false);
           activeGmailMessageIdRef.current = null;
           setGmailAiDraftsById({});
           setGmailDraftError(null);
@@ -684,6 +688,7 @@ export default function CompanyDashboard() {
   const handleSelectConversation = (convId) => {
     dispatch(setActiveConversationImmediate(convId));
     dispatch(selectAndLoadConversation(convId));
+    setMobileThreadOpen(true);
   };
 
   // Send reply from bottom composer bar
@@ -999,11 +1004,12 @@ export default function CompanyDashboard() {
               </div>
             </div>
 
-            <div className="inquiry-split-body">
+            <div className={`inquiry-split-body ${mobileThreadOpen ? 'is-mobile-chat-open' : 'is-mobile-inbox-open'}`}>
               {/* Left Sub-Column: Inbox */}
               <aside className="inbox-column">
                 {/* Channel Selector: Filtered, Gmail, Slack (Demo), Toleto (Demo) */}
                 <div
+                  className="inquiry-channel-tabs-bar"
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -1333,7 +1339,10 @@ export default function CompanyDashboard() {
                             key={contact.id}
                             type="button"
                             className={`inbox-item ${isSelected ? 'active' : ''}`}
-                            onClick={() => setActiveFilteredContact(contact)}
+                            onClick={() => {
+                              setActiveFilteredContact(contact);
+                              setMobileThreadOpen(true);
+                            }}
                           >
                             <div
                               className="avatar-circle"
@@ -1502,7 +1511,10 @@ export default function CompanyDashboard() {
                           <div
                             key={msg.id}
                             className={`inbox-item ${isSelected ? 'active' : ''}`}
-                            onClick={() => handleSelectGmailMessage(msg)}
+                            onClick={() => {
+                              handleSelectGmailMessage(msg);
+                              setMobileThreadOpen(true);
+                            }}
                             style={{ cursor: 'pointer', display: 'flex', position: 'relative' }}
                           >
                             <div
@@ -1560,7 +1572,10 @@ export default function CompanyDashboard() {
                           key={item.id}
                           type="button"
                           className={`inbox-item ${isSelected ? 'active' : ''}`}
-                          onClick={() => setActiveSlackMessage(item)}
+                          onClick={() => {
+                            setActiveSlackMessage(item);
+                            setMobileThreadOpen(true);
+                          }}
                         >
                           <div
                             className="avatar-circle"
@@ -1606,7 +1621,10 @@ export default function CompanyDashboard() {
                           key={item.id}
                           type="button"
                           className={`inbox-item ${isSelected ? 'active' : ''}`}
-                          onClick={() => setActiveToletoMessage(item)}
+                          onClick={() => {
+                            setActiveToletoMessage(item);
+                            setMobileThreadOpen(true);
+                          }}
                         >
                           <div
                             className="avatar-circle"
@@ -1718,6 +1736,15 @@ export default function CompanyDashboard() {
                       {/* Gmail Thread Header */}
                       <div className="thread-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div className="thread-customer-info">
+                          <button
+                            type="button"
+                            className="mobile-thread-back-btn"
+                            onClick={() => setMobileThreadOpen(false)}
+                            aria-label="Back to inbox"
+                            title="Back to inbox"
+                          >
+                            <ArrowLeft size={17} />
+                          </button>
                           <div
                             className="avatar-circle"
                             style={{ backgroundColor: '#fee2e2', color: '#b91c1c' }}
@@ -1958,6 +1985,15 @@ export default function CompanyDashboard() {
                       {/* Filtered Contact Header */}
                       <div className="thread-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div className="thread-customer-info">
+                          <button
+                            type="button"
+                            className="mobile-thread-back-btn"
+                            onClick={() => setMobileThreadOpen(false)}
+                            aria-label="Back to inbox"
+                            title="Back to inbox"
+                          >
+                            <ArrowLeft size={17} />
+                          </button>
                           <div
                             className="avatar-circle"
                             style={{
@@ -2107,6 +2143,15 @@ export default function CompanyDashboard() {
                     <>
                       <div className="thread-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div className="thread-customer-info">
+                          <button
+                            type="button"
+                            className="mobile-thread-back-btn"
+                            onClick={() => setMobileThreadOpen(false)}
+                            aria-label="Back to inbox"
+                            title="Back to inbox"
+                          >
+                            <ArrowLeft size={17} />
+                          </button>
                           <div className="avatar-circle" style={{ backgroundColor: '#f3e8ff', color: '#6b21a8' }}>
                             <Hash size={18} />
                           </div>
@@ -2204,6 +2249,15 @@ export default function CompanyDashboard() {
                     <>
                       <div className="thread-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div className="thread-customer-info">
+                          <button
+                            type="button"
+                            className="mobile-thread-back-btn"
+                            onClick={() => setMobileThreadOpen(false)}
+                            aria-label="Back to inbox"
+                            title="Back to inbox"
+                          >
+                            <ArrowLeft size={17} />
+                          </button>
                           <div className="avatar-circle" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>
                             <PhoneCall size={18} />
                           </div>
@@ -2337,6 +2391,15 @@ export default function CompanyDashboard() {
                     {/* Thread Header */}
                     <div className="thread-header">
                       <div className="thread-customer-info">
+                        <button
+                          type="button"
+                          className="mobile-thread-back-btn"
+                          onClick={() => setMobileThreadOpen(false)}
+                          aria-label="Back to inbox"
+                          title="Back to inbox"
+                        >
+                          <ArrowLeft size={17} />
+                        </button>
                         <div className="avatar-circle">
                           <User size={18} />
                         </div>
