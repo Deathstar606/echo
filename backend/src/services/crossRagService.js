@@ -18,8 +18,10 @@ const {
   quoteIdentifier,
 } = require('./sheetSchemaService');
 const {
-  listWorkspaceTableMetadata,
+  listWorkspaceTableMetadataCached,
 } = require('./workspaceTableMetadataService');
+
+const BM25_CORPUS_CACHE = new WeakMap();
 
 const SEARCH_CONVERSATIONAL_STOP = new Set([
   'checking', 'compare', 'against', 'between', 'regarding', 'currently',
@@ -307,23 +309,37 @@ async function retrieveHybridDocumentChunks(
   const queryTokens = tokenizeDocumentText(queryText);
   const queryVector = buildTextVector(queryText);
 
-  // Compute corpus document frequencies for BM25
-  const docFreqMap = new Map();
-  let totalTokens = 0;
-  for (const chunk of chunks) {
-    const cTokens = chunk.tokens || tokenizeDocumentText(chunk.raw_text);
-    totalTokens += cTokens.length;
-    const unique = new Set(cTokens);
-    for (const t of unique) {
-      docFreqMap.set(t, (docFreqMap.get(t) || 0) + 1);
+  // Reuse cached corpus document frequencies per chunk-array reference
+  let corpusStats = BM25_CORPUS_CACHE.get(chunks);
+  if (!corpusStats) {
+    const docFreqMap = new Map();
+    let totalTokens = 0;
+    const chunkEntries = [];
+    for (const chunk of chunks) {
+      const retrievalText =
+        chunk.enriched_text || `${chunk.breadcrumb_header || ''}\n${chunk.raw_text || ''}`;
+      const cTokens = chunk.tokens || tokenizeDocumentText(retrievalText);
+      const cVec = chunk.tf_vector || buildTextVector(retrievalText);
+      totalTokens += cTokens.length;
+      const unique = new Set(cTokens);
+      for (const t of unique) {
+        docFreqMap.set(t, (docFreqMap.get(t) || 0) + 1);
+      }
+      chunkEntries.push({ retrievalText, cTokens, cVec });
     }
+    corpusStats = {
+      docFreqMap,
+      avgChunkLen: chunks.length > 0 ? totalTokens / chunks.length : 1,
+      chunkEntries,
+    };
+    BM25_CORPUS_CACHE.set(chunks, corpusStats);
   }
-  const avgChunkLen = chunks.length > 0 ? totalTokens / chunks.length : 1;
+  const { docFreqMap, avgChunkLen, chunkEntries } = corpusStats;
 
   const scored = [];
-  for (const chunk of chunks) {
-    const retrievalText =
-      chunk.enriched_text || `${chunk.breadcrumb_header || ''}\n${chunk.raw_text || ''}`;
+  for (let i = 0; i < chunks.length; i += 1) {
+    const chunk = chunks[i];
+    const { retrievalText, cTokens, cVec } = chunkEntries[i];
     const lexicalScore = scoreContextEntry(
       {
         category: chunk.filename,
@@ -332,9 +348,6 @@ async function retrieveHybridDocumentChunks(
       },
       queryKeywords
     );
-
-    const cTokens = chunk.tokens || tokenizeDocumentText(retrievalText);
-    const cVec = chunk.tf_vector || buildTextVector(retrievalText);
     const bm25Score = computeBm25Score(
       queryTokens,
       cTokens,
@@ -576,7 +589,7 @@ async function retrieveCrossDocumentContext({
   ].slice(0, 20);
 
   // 2. Discover candidate schemas & score structured table rows
-  const tableMetadata = await listWorkspaceTableMetadata(businessId);
+  const tableMetadata = await listWorkspaceTableMetadataCached(businessId);
   const metadataByTable = new Map(
     tableMetadata.map((metadata) => [String(metadata.table_name).toLowerCase(), metadata])
   );

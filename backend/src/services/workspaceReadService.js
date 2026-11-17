@@ -548,6 +548,151 @@ async function executeReadQuery(businessId, plan) {
   };
 }
 
+function selectRelevantTablesForRead(
+  tables = [],
+  prompt = '',
+  chunks = [],
+  activeTargetTable = null
+) {
+  if (!Array.isArray(tables) || tables.length <= 1) {
+    return tables;
+  }
+
+  const promptLower = String(prompt || '').toLowerCase();
+  const positiveChunks = (chunks || []).filter((c) => Number(c.hybrid_score) > 0);
+  const evidencePool = positiveChunks.length > 0 ? positiveChunks : (chunks || []).slice(0, 4);
+  const chunkTextLower = evidencePool
+    .map((c) => `${c.filename || ''}\n${c.section_title || ''}\n${String(c.raw_text || '').slice(0, 600)}`)
+    .join('\n')
+    .toLowerCase();
+
+  const genericTableTokens = new Set([
+    'dataset',
+    'data',
+    'table',
+    'sheet',
+    'management',
+    'csv',
+  ]);
+  const skipCols = new Set([
+    'id',
+    'business_id',
+    'workspace_id',
+    'user_id',
+    'created_at',
+    'updated_at',
+    '_google_row_index',
+  ]);
+
+  const scored = tables.map((table) => {
+    const tName = String(table.tableName || '').toLowerCase();
+    const dName = String(table.displayName || '').toLowerCase();
+    let score = 0;
+
+    if (
+      activeTargetTable &&
+      normalizeEntityName(activeTargetTable) === normalizeEntityName(tName)
+    ) {
+      score += 3;
+    }
+
+    const spacedT = tName.replace(/_/g, ' ');
+    if (
+      (tName && promptLower.includes(tName)) ||
+      (spacedT && promptLower.includes(spacedT)) ||
+      (dName && dName.length >= 4 && promptLower.includes(dName))
+    ) {
+      score += 10;
+    } else if (
+      (tName && chunkTextLower.includes(tName)) ||
+      (spacedT && chunkTextLower.includes(spacedT))
+    ) {
+      score += 5;
+    }
+
+    const nameTokens = [...new Set([...tName.split(/[^a-z0-9]+/), ...dName.split(/[^a-z0-9]+/)])]
+      .filter((tok) => tok.length >= 3 && !genericTableTokens.has(tok));
+    for (const tok of nameTokens) {
+      const variants = [tok, tok.endsWith('s') && tok.length > 3 ? tok.slice(0, -1) : `${tok}s`];
+      if (variants.some((v) => promptLower.includes(v))) {
+        score += 4;
+      } else if (variants.some((v) => chunkTextLower.includes(v))) {
+        score += 2;
+      }
+    }
+
+    for (const col of Object.values(table.schema?.columns || {})) {
+      const colName = String(col.exactName || '').toLowerCase();
+      if (!colName || skipCols.has(colName)) continue;
+      const spacedCol = colName.replace(/_/g, ' ');
+      if (promptLower.includes(colName) || (spacedCol !== colName && promptLower.includes(spacedCol))) {
+        score += 3;
+      } else if (
+        chunkTextLower.includes(colName) ||
+        (spacedCol !== colName && chunkTextLower.includes(spacedCol))
+      ) {
+        score += 1;
+      }
+
+      const repVals = table.schema?.representativeValues?.[col.exactName];
+      if (Array.isArray(repVals)) {
+        for (const val of repVals.slice(0, 12)) {
+          const vStr = String(val ?? '').trim().toLowerCase();
+          if (vStr.length >= 3 && promptLower.includes(vStr)) {
+            score += 2;
+            break;
+          }
+        }
+      }
+    }
+
+    return { table, score };
+  });
+
+  const relevant = scored.filter((item) => item.score > 0).map((item) => item.table);
+  return relevant.length > 0 ? relevant : tables;
+}
+
+function selectPassagesForRead(
+  chunks = [],
+  { maxChunks = 6, maxChars = 750 } = {}
+) {
+  if (!Array.isArray(chunks) || chunks.length === 0) return [];
+  const positive = chunks.filter((c) => Number(c.hybrid_score) > 0);
+  const pool = positive.length > 0 ? positive : chunks;
+
+  const selected = [];
+  const seenKeys = new Set();
+  const seenPages = new Set();
+  for (const chunk of pool) {
+    if (selected.length >= maxChunks) break;
+    const pageKey = `${chunk.filename || 'doc'}::${chunk.page_number || 1}`;
+    const chunkKey = `${pageKey}::${chunk.chunk_index ?? selected.length}`;
+    if (!seenPages.has(pageKey)) {
+      seenPages.add(pageKey);
+      seenKeys.add(chunkKey);
+      selected.push(chunk);
+    }
+  }
+  for (const chunk of pool) {
+    if (selected.length >= maxChunks) break;
+    const pageKey = `${chunk.filename || 'doc'}::${chunk.page_number || 1}`;
+    const chunkKey = `${pageKey}::${chunk.chunk_index ?? 0}`;
+    if (!seenKeys.has(chunkKey)) {
+      seenKeys.add(chunkKey);
+      selected.push(chunk);
+    }
+  }
+
+  return selected.map((chunk) => ({
+    filename: chunk.filename,
+    page: chunk.page_number,
+    section: chunk.section_title || undefined,
+    locator: chunk.locator || undefined,
+    text: String(chunk.raw_text || '').slice(0, maxChars),
+  }));
+}
+
 async function generateCrossSourceReadAnswer({
   businessId,
   prompt,
@@ -568,6 +713,12 @@ async function generateCrossSourceReadAnswer({
       : activeCtx.activeTargetTable
         ? [activeCtx.activeTargetTable]
         : [];
+  const chunks =
+    Array.isArray(prefetchedChunks) && prefetchedChunks.length > 0
+      ? prefetchedChunks
+      : await retrieveHybridDocumentChunks(businessId, prompt, {
+          topK: 8,
+        });
   let tables = [];
   if (Array.isArray(prefetchedTables) && prefetchedTables.length > 0) {
     if (effectiveTargetEntities.length > 0) {
@@ -579,21 +730,28 @@ async function generateCrossSourceReadAnswer({
       );
       tables = filtered.length > 0 ? filtered : prefetchedTables;
     } else {
-      tables = prefetchedTables;
+      tables = selectRelevantTablesForRead(
+        prefetchedTables,
+        prompt,
+        chunks,
+        activeCtx.activeTargetTable || null
+      );
     }
   } else {
     const discovered = await discoverWorkspaceSources(businessId, {
       targetEntities: effectiveTargetEntities,
       includeRows: false,
     });
-    tables = discovered.tables;
+    tables =
+      effectiveTargetEntities.length > 0
+        ? discovered.tables
+        : selectRelevantTablesForRead(
+            discovered.tables,
+            prompt,
+            chunks,
+            activeCtx.activeTargetTable || null
+          );
   }
-  const chunks =
-    Array.isArray(prefetchedChunks) && prefetchedChunks.length > 0
-      ? prefetchedChunks
-      : await retrieveHybridDocumentChunks(businessId, prompt, {
-          topK: 8,
-        });
   if (tables.length === 0 && chunks.length === 0) {
     return {
       message: 'No matching workspace table or document source was found. Please select or upload the relevant source.',
@@ -610,24 +768,29 @@ async function generateCrossSourceReadAnswer({
     ? `\nCONVERSATION CONTEXT (last ${normalizedHistory.length} turn(s); prior active table: ${activeCtx.activeTargetTable || 'none'}; prior matched_row_ids: ${JSON.stringify((activeCtx.matchedRowIds || []).slice(0, 40))}; prior filter summary: ${JSON.stringify(activeCtx.appliedFilterSummary || '')}):\n${formattedHistory}\n- FOLLOW-UP CHAINING RULE: If LATEST USER REQUEST uses pronouns/narrowing cues ("those", "them", "these", "of those", "only the ones...") referring to prior results on ${activeCtx.activeTargetTable || 'a prior table'}, chain the prior active filters/matched_row_ids with any new filter conditions.\n`
     : '';
 
+  const systemSchemaCols = new Set([
+    'business_id',
+    'workspace_id',
+    'user_id',
+    'created_at',
+    'updated_at',
+    '_google_row_index',
+  ]);
   const compactSchemas = tables.map((table) => ({
     table_name: table.tableName,
     row_count: table.rowCount,
-    columns: Object.values(table.schema.columns || {}).map((column) => ({
-      name: column.exactName,
-      type: column.type,
-      queryable: Boolean(column.queryable),
-      description: column.description || undefined,
-      values: table.schema.representativeValues?.[column.exactName]?.slice(0, 5),
-    })),
+    columns: Object.values(table.schema.columns || {})
+      .filter((column) => !systemSchemaCols.has(String(column.exactName || '').toLowerCase()))
+      .map((column) => ({
+        name: column.exactName,
+        type: column.type,
+        queryable: Boolean(column.queryable),
+        description: column.description || undefined,
+        values: table.schema.representativeValues?.[column.exactName]?.slice(0, 5),
+      })),
   }));
-  const compactPassages = chunks.slice(0, 8).map((chunk) => ({
-    filename: chunk.filename,
-    page: chunk.page_number,
-    section: chunk.section_title || undefined,
-    locator: chunk.locator || undefined,
-    text: String(chunk.raw_text || '').slice(0, 950),
-  }));
+  const planPassages = selectPassagesForRead(chunks, { maxChunks: 8, maxChars: 950 });
+  const synthesisPassages = selectPassagesForRead(chunks, { maxChunks: 8, maxChars: 850 });
 
   const planPrompt = `Create a read-only query plan for the latest user request using only these active workspace sources.
 Return structured JSON only. Never return SQL.
@@ -647,7 +810,7 @@ ACTIVE TABLE SCHEMAS:
 ${JSON.stringify(compactSchemas)}
 
 RELEVANT DOCUMENT PASSAGES:
-${JSON.stringify(compactPassages)}
+${JSON.stringify(planPassages)}
 ${historySection}
 LATEST USER REQUEST:
 ${prompt}`;
@@ -722,6 +885,13 @@ ${prompt}`;
     });
   }
 
+  const referencedTextLower = [
+    prompt,
+    ...planPassages.map((p) => `${p.section || ''} ${p.text || ''}`),
+  ]
+    .join('\n')
+    .toLowerCase();
+
   const compactRowForSynthesis = (row, idx, schema) => {
     const out = { _row_id: resolveRowIdentifier(row, idx + 1, schema) };
     const skipCols = new Set([
@@ -732,11 +902,32 @@ ${prompt}`;
       'created_at',
       'updated_at',
       'images',
+      '_google_row_index',
+    ]);
+    const verboseCols = new Set([
+      'description',
+      'notes',
+      'comments',
+      'summary',
+      'product_url',
+      'url',
+      'image_url',
     ]);
     for (const [k, v] of Object.entries(row || {})) {
-      if (skipCols.has(k.toLowerCase())) continue;
-      if (typeof v === 'string' && v.length > 180) {
-        out[k] = `${v.slice(0, 177)}...`;
+      const lower = k.toLowerCase();
+      if (skipCols.has(lower)) continue;
+      if (v === null || v === undefined) continue;
+      if (typeof v === 'string') {
+        const trimmed = v.trim();
+        if (!trimmed) continue;
+        if (verboseCols.has(lower) && !referencedTextLower.includes(lower)) {
+          if (lower.includes('url')) continue;
+          if (trimmed.length > 60) {
+            out[k] = `${trimmed.slice(0, 57)}...`;
+            continue;
+          }
+        }
+        out[k] = trimmed.length > 160 ? `${trimmed.slice(0, 157)}...` : trimmed;
       } else {
         out[k] = v;
       }
@@ -757,7 +948,7 @@ ${prompt}`;
     row_count: result.row_count,
     aggregates: result.aggregates,
     calculations: result.calculations,
-    rows: result.rows.slice(0, 40).map((row, index) => compactRowForSynthesis(row, index, result.schema)),
+    rows: result.rows.slice(0, 30).map((row, index) => compactRowForSynthesis(row, index, result.schema)),
   }));
   const synthesisPrompt = `Answer the user's read-only workspace question using only the verified query output and retrieved document passages.
 Never propose or execute mutations. Do not invent missing facts. Use exact counts, values, units, and negative signs from the SQL results. Explain uncertainty when the retrieved data cannot answer.
@@ -775,7 +966,7 @@ VERIFIED SQL OUTPUT:
 ${JSON.stringify(synthesisSqlOutput)}
 
 RELEVANT DOCUMENT PASSAGES:
-${JSON.stringify(compactPassages)}`;
+${JSON.stringify(synthesisPassages)}`;
   const synthesisResult = await generateStructuredJsonWithRetry(
     synthesisPrompt,
     (parsed) => {
@@ -858,6 +1049,8 @@ ${JSON.stringify(compactPassages)}`;
 
 module.exports = {
   READ_PLAN_SCHEMA,
+  selectRelevantTablesForRead,
+  selectPassagesForRead,
   validateReadPlan,
   buildArithmeticExpression,
   extractDocumentArithmeticFilters,

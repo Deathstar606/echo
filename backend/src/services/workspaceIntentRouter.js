@@ -94,11 +94,13 @@ function formatWorkspaceSources(tables, documents, chunks) {
     filename: document.filename,
     page_count: document.page_count,
   }));
-  const retrievedContext = (chunks || []).slice(0, 4).map((chunk) => ({
+  const positiveChunks = (chunks || []).filter((c) => Number(c.hybrid_score) > 0);
+  const chunkPool = positiveChunks.length > 0 ? positiveChunks : chunks || [];
+  const retrievedContext = chunkPool.slice(0, 4).map((chunk) => ({
     filename: chunk.filename,
     page: chunk.page_number,
     section: chunk.section_title || undefined,
-    excerpt: String(chunk.raw_text || '').slice(0, 450),
+    excerpt: String(chunk.raw_text || '').slice(0, 400),
   }));
 
   return JSON.stringify({
@@ -207,8 +209,15 @@ function enforceOperationalIntentPrecedence(
   return { ...routed, intent };
 }
 
-function isUnambiguousCrossSourceReadCandidate(prompt, tables = [], chunks = []) {
+function isUnambiguousCrossSourceReadCandidate(
+  prompt,
+  tables = [],
+  chunks = [],
+  documents = [],
+  activeHistoryContext = null
+) {
   if (hasCustomWorkspaceGeminiGenerator()) return false;
+  if (activeHistoryContext?.pendingClarification) return false;
   if (!Array.isArray(tables) || tables.length === 0) return false;
   if (!Array.isArray(chunks) || !chunks.some((c) => Number(c.hybrid_score) > 0)) {
     return false;
@@ -242,11 +251,21 @@ function isUnambiguousCrossSourceReadCandidate(prompt, tables = [], chunks = [])
     return false;
   }
 
-  // Must explicitly cite a governing document or policy source
+  // Must explicitly cite a governing document or policy source (handling Snake_Case_Filenames.pdf as well)
+  const citesNamedDoc =
+    Array.isArray(documents) &&
+    documents.some((doc) => {
+      const base = String(doc?.filename || '')
+        .replace(/\.[^.]+$/, '')
+        .toLowerCase();
+      return base.length >= 4 && text.toLowerCase().includes(base);
+    });
   const citesDocument =
-    /\b(?:policy|policies|procedure|sop|manifest|memo|brief|bulletin|recall|protocol|guideline|addendum|notice|document|handbook|manual|rulebook)\b/i.test(
+    citesNamedDoc ||
+    /(?:^|[\s_-])(?:policy|policies|procedure|sop|manifest|memo|brief|bulletin|recall|protocol|guideline|addendum|notice|document|handbook|manual|rulebook)(?:$|[\s._-])|\.(?:pdf|docx?|txt|md)\b/i.test(
       text
-    ) || /^(?:according\s+to|per|under|based\s+on)\s+/i.test(text);
+    ) ||
+    /^(?:according\s+to|per|under|based\s+on)\s+/i.test(text);
   if (!citesDocument) {
     return false;
   }
@@ -317,7 +336,15 @@ async function routeWorkspaceIntent({
   const normalizedHistory = normalizeConversationHistory(history);
   const activeHistoryContext = getLatestActiveContext(normalizedHistory, entity || null);
 
-  if (isUnambiguousCrossSourceReadCandidate(prompt, tables, chunks)) {
+  if (
+    isUnambiguousCrossSourceReadCandidate(
+      prompt,
+      tables,
+      chunks,
+      documents,
+      activeHistoryContext
+    )
+  ) {
     const fallbackEntity =
       entity || activeHistoryContext.activeTargetTable || (tables.length === 1 ? tables[0].tableName : null);
     return {

@@ -884,8 +884,8 @@ async function listDocumentsForBusiness(businessId) {
   }
 
   try {
-    // Clean up any legacy spreadsheet/CSV rows that were previously inserted for lineage
-    await query(
+    // Run legacy sheet-row cleanup concurrently with document fetch to save a remote DB round-trip
+    const cleanupPromise = query(
       `DELETE FROM workspace_documents
        WHERE workspace_id = $1
          AND (
@@ -903,7 +903,7 @@ async function listDocumentsForBusiness(businessId) {
       [businessId]
     ).catch(() => {});
 
-    const res = await query(
+    const selectPromise = query(
       `SELECT doc_id, doc_id AS id, workspace_id, workspace_id AS business_id, user_id, filename, mime_type, page_count, chunk_count, full_text, created_at
        FROM workspace_documents
        WHERE workspace_id = $1
@@ -920,6 +920,8 @@ async function listDocumentsForBusiness(businessId) {
        ORDER BY created_at ASC;`,
       [businessId]
     );
+
+    const [, res] = await Promise.all([cleanupPromise, selectPromise]);
     if (res && Array.isArray(res.rows) && res.rows.length > 0) {
       const filteredRows = res.rows.filter((doc) => !isStructuredSheetDocument(doc));
       DOCUMENTS_BY_BUSINESS.set(businessId, filteredRows);

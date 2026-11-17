@@ -251,6 +251,10 @@ async function callGeminiModelWithSchema(
   const thinkingBudget = Number.isInteger(options?.thinkingBudget)
     ? options.thinkingBudget
     : 0;
+  const timeoutMs =
+    Number.isFinite(Number(options?.timeoutMs)) && Number(options.timeoutMs) > 0
+      ? Number(options.timeoutMs)
+      : 25000;
   if (!isLiteModel && thinkingBudget >= 0) {
     generationConfig.thinkingConfig = { thinkingBudget };
   }
@@ -274,21 +278,18 @@ async function callGeminiModelWithSchema(
           'Content-Type': 'application/json',
         },
         body: requestBody,
-        signal: AbortSignal.timeout(25000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
-      if (
-        attempt === 0 &&
-        (error?.name === 'AbortError' ||
-          error?.name === 'TimeoutError' ||
-          error instanceof TypeError)
-      ) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
+      // Retry instant socket/network glitches once on the same model,
+      // but let timeouts fall straight through to model fallback without doubling wait time.
+      if (attempt === 0 && error instanceof TypeError) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
         continue;
       }
       const message =
         error?.name === 'TimeoutError' || error?.name === 'AbortError'
-          ? 'Gemini request timed out after 25 seconds.'
+          ? `Gemini request timed out after ${Math.round(timeoutMs / 1000)} seconds.`
           : `Gemini network request failed: ${error?.message || 'unknown network error'}`;
       const networkError = new AppError(message, 502);
       networkError.code = error?.name === 'TimeoutError' || error?.name === 'AbortError'
@@ -352,6 +353,24 @@ async function callGeminiModelWithSchema(
 
 const unavailableModels = new Set();
 const modelCooldownUntil = new Map();
+const FAST_STAGE_SET = new Set([
+  'intent_routing',
+  'cross_source_read_plan',
+  'cross_source_read_synthesis',
+]);
+
+function buildCandidateModelsForStage(stage, preferredModel) {
+  const fullCandidates = [
+    preferredModel || 'gemini-3.5-flash',
+    'gemini-3.5-flash',
+  ];
+  // Prioritize fast yet high-accuracy 3.5-flash-lite first on lightweight stages,
+  // falling back to 3.5-flash -> 3.1-flash-lite before 3.8-flash (which often 503s slowly).
+  const ordered = FAST_STAGE_SET.has(stage)
+    ? ['gemini-3.5-flash-lite', ...fullCandidates, 'gemini-3.1-flash-lite', 'gemini-3.8-flash']
+    : [...fullCandidates, 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+  return Array.from(new Set(ordered)).filter((m) => !unavailableModels.has(m));
+}
 
 /**
  * Executes a prompt against the configured Gemini model with automatic fallback on transient errors.
@@ -369,22 +388,23 @@ async function executeGeminiWithFallback(promptText, responseSchema, options = {
     );
   }
 
-  const allCandidates = Array.from(
-    new Set([
-      env.geminiModel || 'gemini-3.5-flash',
-      'gemini-3.5-flash',
-      'gemini-3.5-flash-lite',
-      'gemini-3.1-flash-lite',
-      'gemini-3.8-flash',
-    ])
-  ).filter((m) => !unavailableModels.has(m));
+  const allCandidates = buildCandidateModelsForStage(options?.stage, env.geminiModel);
 
   const now = Date.now();
   const readyCandidates = allCandidates.filter(
     (m) => (modelCooldownUntil.get(m) || 0) <= now
   );
+  // Try ready models first; if all ready models fail transiently and other non-429 cooled models exist,
+  // allow one safety-net pass through cooled-down models before failing the user request.
+  const cooledNonRateLimited = allCandidates.filter(
+    (m) =>
+      !readyCandidates.includes(m) &&
+      (modelCooldownUntil.get(m) || 0) - now <= 20000
+  );
   const candidateModels =
-    readyCandidates.length > 0 ? readyCandidates : allCandidates;
+    readyCandidates.length > 0
+      ? [...readyCandidates, ...cooledNonRateLimited]
+      : allCandidates;
 
   let lastError = null;
   for (const modelName of candidateModels) {
@@ -407,7 +427,7 @@ async function executeGeminiWithFallback(promptText, responseSchema, options = {
         error.upstreamStatus === 429 ||
         error.code === 'GEMINI_TIMEOUT'
       ) {
-        const cooldownMs = error.upstreamStatus === 429 ? 45000 : 5000;
+        const cooldownMs = error.upstreamStatus === 429 ? 45000 : 15000;
         modelCooldownUntil.set(modelName, Date.now() + cooldownMs);
         continue;
       }
@@ -499,6 +519,12 @@ async function generateStructuredJsonWithRetry(
   const thinkingBudget = Number.isInteger(options.thinkingBudget)
     ? options.thinkingBudget
     : defaultThinkingBudget;
+  const timeoutMs =
+    Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0
+      ? Number(options.timeoutMs)
+      : FAST_STAGE_SET.has(stage)
+        ? 8500
+        : 25000;
 
   let currentPrompt = String(promptText ?? '');
   let lastValidationError = null;
@@ -516,7 +542,7 @@ async function generateStructuredJsonWithRetry(
         rawOutput = await executeGeminiWithFallback(
           currentPrompt,
           responseSchema,
-          { thinkingBudget }
+          { thinkingBudget, stage, timeoutMs }
         );
       }
 
@@ -527,7 +553,12 @@ async function generateStructuredJsonWithRetry(
       return parsed;
     } catch (error) {
       lastValidationError = error;
-      if (attempt >= maxRetries) {
+      const isTransportFailure = Boolean(
+        error?.upstreamStatus ||
+          error?.code === 'GEMINI_TIMEOUT' ||
+          error?.code === 'GEMINI_NETWORK_ERROR'
+      );
+      if (isTransportFailure || attempt >= maxRetries) {
         break;
       }
 

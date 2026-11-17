@@ -17,9 +17,12 @@ const {
 } = require('../src/services/workspaceTableMetadataService');
 const {
   enforceOperationalIntentPrecedence,
+  isUnambiguousCrossSourceReadCandidate,
 } = require('../src/services/workspaceIntentRouter');
 const { loadTableRowsForSchema } = require('../src/services/crossRagService');
 const {
+  selectRelevantTablesForRead,
+  selectPassagesForRead,
   validateReadPlan,
   executeReadQuery,
 } = require('../src/services/workspaceReadService');
@@ -856,4 +859,114 @@ test('listDocumentsForBusiness excludes Google Sheets and CSV metadata entries f
     await clearDocumentsForBusiness(wsId);
     setPool(null);
   }
+});
+
+test('isUnambiguousCrossSourceReadCandidate handles underscore PDF filenames while guarding clarification replies', () => {
+  const tables = [
+    { tableName: 'raised_by_society_beanies_catalog', displayName: 'Raised By Society Beanies Catalog' },
+  ];
+  const docs = [{ filename: 'Raised_By_Society_Refund_Policy.pdf' }];
+  const chunks = [{ filename: 'Raised_By_Society_Refund_Policy.pdf', hybrid_score: 6.5 }];
+
+  assert.equal(
+    isUnambiguousCrossSourceReadCandidate(
+      'Which wool Short Beanies priced at 45 have fewer than 16 units in stock, and according to Raised_By_Society_Refund_Policy.pdf, what is the free shipping threshold?',
+      tables,
+      chunks,
+      docs,
+      { pendingClarification: null }
+    ),
+    true
+  );
+
+  // Never hijack an active clarification turn or action command
+  assert.equal(
+    isUnambiguousCrossSourceReadCandidate(
+      'Which ones need update according to Raised_By_Society_Refund_Policy.pdf?',
+      tables,
+      chunks,
+      docs,
+      { pendingClarification: { baseIntent: 'SHEET_MUTATION' } }
+    ),
+    false
+  );
+  assert.equal(
+    isUnambiguousCrossSourceReadCandidate(
+      'Find delayed orders and issue vouchers per Raised_By_Society_Refund_Policy.pdf',
+      tables,
+      chunks,
+      docs,
+      null
+    ),
+    false
+  );
+});
+
+test('selectRelevantTablesForRead prunes unrelated tables while preserving document-referenced multi-table joins', () => {
+  const hospitalUnits = {
+    tableName: 'hospital_units',
+    displayName: 'Hospital Units',
+    schema: {
+      columns: {
+        unit_id: { exactName: 'unit_id' },
+        staffing_gap: { exactName: 'staffing_gap' },
+        surge_status: { exactName: 'surge_status' },
+      },
+      representativeValues: { surge_status: ['Normal', 'High Occupancy'] },
+    },
+  };
+  const floatRoster = {
+    tableName: 'nursing_float_roster',
+    displayName: 'Nursing Float Roster',
+    schema: {
+      columns: { nurse_id: { exactName: 'nurse_id' }, availability_status: { exactName: 'availability_status' } },
+      representativeValues: {},
+    },
+  };
+  const dengue = {
+    tableName: 'dengue_prediction_dataset',
+    displayName: 'Dengue Prediction Dataset',
+    schema: {
+      columns: { month: { exactName: 'month' }, temp: { exactName: 'temp' }, infected: { exactName: 'infected' } },
+      representativeValues: {},
+    },
+  };
+
+  // Document excerpt mentions nursing_float_roster implicitly; dengue has 0 overlap and must be pruned
+  const kept = selectRelevantTablesForRead(
+    [dengue, hospitalUnits, floatRoster],
+    'Which hospital units have a staffing_gap or surge_status risk under the Bed Policy?',
+    [
+      {
+        filename: 'Hospital Bed Allocation Policy.pdf',
+        hybrid_score: 5.2,
+        raw_text: 'Assign nurses from nursing_float_roster when staffing_gap exceeds 1.',
+      },
+    ],
+    null
+  );
+  assert.deepEqual(
+    kept.map((t) => t.tableName),
+    ['hospital_units', 'nursing_float_roster']
+  );
+});
+
+test('selectPassagesForRead filters zero-score chunks when positive matches exist and retains page diversity', () => {
+  const chunks = [
+    { filename: 'Policy.pdf', page_number: 1, chunk_index: 0, hybrid_score: 8, raw_text: 'Page 1 rule' },
+    { filename: 'Policy.pdf', page_number: 1, chunk_index: 1, hybrid_score: 5, raw_text: 'Page 1 detail' },
+    { filename: 'Policy.pdf', page_number: 2, chunk_index: 2, hybrid_score: 4, raw_text: 'Page 2 addendum' },
+    { filename: 'Other.pdf', page_number: 1, chunk_index: 0, hybrid_score: 0, raw_text: 'Irrelevant noise' },
+  ];
+
+  const selected = selectPassagesForRead(chunks, { maxChunks: 3, maxChars: 200 });
+  assert.equal(selected.length, 3);
+  assert.equal(selected.some((p) => p.text === 'Irrelevant noise'), false);
+  assert.equal(selected.some((p) => p.page === 2), true);
+
+  // Generic prompt fallback when all scores are 0
+  const allZero = [
+    { filename: 'Policy.pdf', page_number: 1, chunk_index: 0, hybrid_score: 0, raw_text: 'Fallback chunk' },
+  ];
+  assert.equal(selectPassagesForRead(allZero, { maxChunks: 3, maxChars: 200 }).length, 1);
 });
