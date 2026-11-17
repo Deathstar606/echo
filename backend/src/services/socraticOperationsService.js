@@ -262,6 +262,22 @@ const DIRECT_TABLE_EMAIL_SCHEMA = {
       description:
         'Reusable plain-text email body template using {{customer_name}} and exact {{Column_Name}} / {{before.Column_Name}} placeholders.',
     },
+    emails: {
+      type: 'ARRAY',
+      description:
+        'Include when drafting for EXTERNAL_RECIPIENT_EMAILS (prompt-provided email IDs where the table has no email column, or explicit external recipients). Leave empty/omitted when using email_subject_template and email_body_template for table email column rows.',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          recipient_email: { type: 'STRING' },
+          customer_identifier: { type: 'STRING' },
+          subject: { type: 'STRING' },
+          body: { type: 'STRING' },
+          row_identifier: { type: 'STRING' },
+        },
+        required: ['recipient_email', 'subject', 'body'],
+      },
+    },
     applied_rule: {
       type: 'STRING',
       description:
@@ -703,7 +719,7 @@ function explicitlyRequestsNotifications(prompt) {
   );
 
   const actionBeforeEmailAddress =
-    /\b(?:(?:e-?mail|mail)(?:ing)?|notify(?:ing)?|messag(?:e|ing)|alert(?:ing)?|send(?:ing)?\b[^.?!;\n]{0,60}\bto)\s+[^\s,;]+@[^\s,;]+\.[^\s,;]+/i;
+    /\b(?:(?:e-?mail|mail)(?:ing)?|notify(?:ing)?|messag(?:e|ing)|alert(?:ing)?|send(?:ing)?|draft(?:ing)?|dispatch(?:ing)?)\b[^.?!;\n]{0,60}\b(?:to\s+)?[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i;
 
   const actionBeforeProperName =
     /\b(?:[Ee]-?[Mm]ail(?:ing)?|[Mm]ail(?:ing)?|[Nn]otify(?:ing)?|[Mm]essag(?:e|ing)|[Aa]lert(?:ing)?)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3}\b/;
@@ -802,7 +818,90 @@ function getTargetTablesFromMultiHop(multiHopResult) {
     : [];
 }
 
-function buildMultiTableRecipientDirectory(targetTables, workspaceCustomers = []) {
+function extractValidEmailsFromText(text) {
+  const raw = String(text || '');
+  if (!raw || !raw.includes('@')) return [];
+  const matches =
+    raw.match(
+      /[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g
+    ) || [];
+  const deduped = [];
+  const seen = new Set();
+  for (const m of matches) {
+    const cleaned = m.replace(/[.,;:!?)\]}>'"]+$/, '').trim();
+    const lower = cleaned.toLowerCase();
+    if (!cleaned || seen.has(lower)) continue;
+    if (isValidDeliverableEmail(cleaned)) {
+      seen.add(lower);
+      deduped.push(cleaned);
+    }
+  }
+  return deduped;
+}
+
+function classifyRequestedEmailCardinality(promptText, rowCount = 0) {
+  const text = String(promptText || '');
+  const hasPluralRecipient =
+    /\b(?:e-?mails|mails|recipients|customers|buyers|resellers|clients|managers|contacts|vendors|suppliers|leads|teams|everyone|both|multiple|different\s+e-?mails?)\b/i.test(
+      text
+    ) ||
+    /\beach\s+(?:customer|buyer|reseller|client|recipient|manager|account|partner|contact|person|vendor|supplier)\b/i.test(
+      text
+    ) ||
+    /\bto\s+them\b/i.test(text);
+
+  if (hasPluralRecipient) return 'multiple';
+
+  const hasSingularSubject =
+    /\b(?:a|an|one|the|this)\s+(?:[a-z]+\s+){0,2}(?:reseller|buyer|customer|client|recipient|vendor|supplier|manager|partner|person|contact|member|lead)\b/i.test(
+      text
+    );
+  const hasSingularEmail =
+    /\b(?:an?\s+)?(?:confirmation|order|summary|notification|receipt|follow[- ]?up|status)?\s*(?:e-?mail|mail)\b/i.test(
+      text
+    );
+
+  if (hasSingularSubject || (hasSingularEmail && rowCount <= 1)) {
+    return 'single';
+  }
+  if (hasSingularEmail && /\border\s+\d+\s+units?\b/i.test(text)) {
+    return 'single';
+  }
+  return 'one_or_more';
+}
+
+function buildMissingEmailClarificationMessage(
+  promptText,
+  displayTable,
+  emailCol = null,
+  rowCount = 0
+) {
+  const cardinality = classifyRequestedEmailCardinality(promptText, rowCount);
+  const sourceNotice = emailCol
+    ? `None of the selected rows in "${displayTable}" contain a valid email address in "${emailCol}"`
+    : `The active table "${displayTable}" does not contain an email column`;
+
+  if (cardinality === 'single') {
+    return `${sourceNotice}, and your request does not include a recipient email ID. Please provide the recipient's email address so I can draft and send the email.`;
+  }
+  if (cardinality === 'multiple') {
+    return `${sourceNotice}, and your request does not include recipient email IDs. Please provide the recipient email addresses (comma-separated — you can also specify which item or row each email is for) so I can draft and send the emails.`;
+  }
+  return `${sourceNotice}, and your request does not include any recipient email ID. Please provide one or multiple recipient email addresses (comma-separated) so I can draft and send the email(s).`;
+}
+
+function formatExternalRecipientLabel(email) {
+  const raw = String(email || '').trim();
+  const local = raw.split('@')[0] || '';
+  if (!local) return raw;
+  return raw;
+}
+
+function buildMultiTableRecipientDirectory(
+  targetTables,
+  workspaceCustomers = [],
+  promptEmails = []
+) {
   const allowedByLowerEmail = new Map();
   const recipients = [];
   let rowLevelCount = 0;
@@ -851,19 +950,25 @@ function buildMultiTableRecipientDirectory(targetTables, workspaceCustomers = []
     return { mode: 'row_level', recipients, allowedByLowerEmail };
   }
 
-  return buildRecipientDirectory(null, workspaceCustomers);
+  return buildRecipientDirectory(null, workspaceCustomers, promptEmails);
 }
 
 /**
  * Builds the allowed email directory for a workspace operation:
  * - Uses row-level email column(s) when present on `targetTable`.
- * - Otherwise falls back to `workspaceCustomers` (registered buyers/customers for `businessId`).
+ * - Otherwise falls back to `workspaceCustomers` (registered buyers/customers for `businessId`),
+ *   or prompt-supplied `promptEmails`.
  *
  * @param {object} targetTable
  * @param {Array<object>} workspaceCustomers
- * @returns {{ mode: 'row_level' | 'workspace_customers' | 'none', recipients: Array<object>, allowedByLowerEmail: Map<string, object> }}
+ * @param {string[]} [promptEmails=[]]
+ * @returns {{ mode: 'row_level' | 'workspace_customers' | 'prompt_recipients' | 'none', recipients: Array<object>, allowedByLowerEmail: Map<string, object> }}
  */
-function buildRecipientDirectory(targetTable, workspaceCustomers = []) {
+function buildRecipientDirectory(
+  targetTable,
+  workspaceCustomers = [],
+  promptEmails = []
+) {
   const allowedByLowerEmail = new Map();
   const recipients = [];
 
@@ -924,6 +1029,24 @@ function buildRecipientDirectory(targetTable, workspaceCustomers = []) {
     }
     if (recipients.length > 0) {
       return { mode: 'workspace_customers', recipients, allowedByLowerEmail };
+    }
+  }
+
+  if (Array.isArray(promptEmails) && promptEmails.length > 0) {
+    for (const rawEmail of promptEmails) {
+      const email = String(rawEmail || '').trim();
+      if (!isValidDeliverableEmail(email)) continue;
+      const rec = {
+        buyer_name: email,
+        email,
+      };
+      recipients.push(rec);
+      if (!allowedByLowerEmail.has(email.toLowerCase())) {
+        allowedByLowerEmail.set(email.toLowerCase(), rec);
+      }
+    }
+    if (recipients.length > 0) {
+      return { mode: 'prompt_recipients', recipients, allowedByLowerEmail };
     }
   }
 
@@ -1059,9 +1182,11 @@ async function analyzeCrossDocumentOperation(
     return null;
   };
 
+  const promptEmails = extractValidEmailsFromText(rawUserPrompt);
   const recipientDir = buildMultiTableRecipientDirectory(
     targetTables,
-    workspaceCustomers
+    workspaceCustomers,
+    promptEmails
   );
 
   const docsPayload = retrievedChunks.map((c) => ({
@@ -1521,9 +1646,11 @@ async function compileResolutionPreview(workflow, optionId, optionMeta) {
   });
 
   const primaryCtx = projectedTableContexts[0];
+  const promptEmails = extractValidEmailsFromText(workflow?.prompt || '');
   const recipientDir = buildMultiTableRecipientDirectory(
     targetTables,
-    multiHopResult?.workspaceCustomers || []
+    multiHopResult?.workspaceCustomers || [],
+    promptEmails
   );
 
   const affectedIdsSet = new Set(workflow?.analysis?.affectedRowIds || []);
@@ -1993,18 +2120,38 @@ function resolveEmailRecipientNaming(schema, emailCol = null) {
 }
 
 /**
- * Returns true if the instruction requests drafting/sending emails to table rows
- * without citing external policy/SOP/governance documents that require Socratic conflict resolution.
+ * Returns true if the instruction requests drafting/sending emails to table rows or prompt-supplied
+ * email IDs (or replies to a pending email-clarification turn) without citing external policy/SOP/governance
+ * documents that require Socratic conflict resolution.
  *
  * @param {string} prompt
+ * @param {Array<object>} [history=[]]
+ * @param {string | null} [entity=null]
  * @returns {boolean}
  */
-function isDirectTableEmailCandidate(prompt) {
+function isDirectTableEmailCandidate(prompt, history = [], entity = null) {
   const text = String(prompt || '').trim();
   if (!text) return false;
-  if (!explicitlyRequestsNotifications(text)) return false;
   if (DOCUMENT_GOVERNANCE_REGEX.test(text)) return false;
-  return true;
+  if (explicitlyRequestsNotifications(text)) return true;
+
+  if (Array.isArray(history) && history.length > 0 && !hasExplicitScopeReset(text)) {
+    const lastTurn = history[history.length - 1];
+    const activeCtx = getLatestActiveContext(history, entity || null);
+    const isPendingEmailClarification =
+      Boolean(activeCtx?.pendingClarification?.isEmailClarification) ||
+      String(lastTurn?.resolved_intent || '')
+        .trim()
+        .toUpperCase()
+        .includes('EMAIL_CLARIFICATION');
+    const isCancelReply =
+      /^(?:cancel|abort|never\s*mind|skip|stop|no\s+thanks?)\.?$/i.test(text);
+    if (isPendingEmailClarification && !isCancelReply) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -2134,19 +2281,6 @@ async function tryExecuteDirectTableEmailOperation({
   const emailCol = findTableEmailColumn(schema, liveRows);
   const displayTable = schema.displayName || schema.tableName;
 
-  if (!emailCol) {
-    const hardStopMessage =
-      `Hard Stop: Cannot draft or send emails because the active table "${displayTable}" does not contain an email column. Switch to a table that includes customer or contact email addresses to send emails from this chatbox.`;
-    return {
-      status: 'CONVERSATIONAL',
-      conversational: true,
-      intent: 'email_hard_stop',
-      message: hardStopMessage,
-      answer: hardStopMessage,
-      citations: [],
-    };
-  }
-
   const {
     rowLabelCol: customerNameCol,
     salutationCol,
@@ -2162,6 +2296,14 @@ async function tryExecuteDirectTableEmailOperation({
     !startsFreshSearch &&
     normalizedHistory.length > 0 &&
     activeCtx.matchedRowIds.length > 0;
+  const pendingClarificationPrompt =
+    !startsFreshSearch && activeCtx.pendingClarification?.combinedUserPrompt
+      ? activeCtx.pendingClarification.combinedUserPrompt
+      : '';
+  const combinedPromptForEmailScan = pendingClarificationPrompt
+    ? `${pendingClarificationPrompt}\n${prompt}`
+    : prompt;
+  const promptEmails = extractValidEmailsFromText(combinedPromptForEmailScan);
 
   let candidateLiveRows = liveRows;
   if (inheritPriorSelection) {
@@ -2186,7 +2328,9 @@ async function tryExecuteDirectTableEmailOperation({
   }
 
   const columnRoles = classifyTableColumns(schema, candidateLiveRows.slice(0, 10));
-  columnRoles.emailCol = emailCol;
+  if (emailCol) {
+    columnRoles.emailCol = emailCol;
+  }
   if (customerNameCol && !columnRoles.customerNameCol) {
     columnRoles.customerNameCol = customerNameCol;
   }
@@ -2200,20 +2344,32 @@ async function tryExecuteDirectTableEmailOperation({
     rows: candidateLiveRows,
   };
 
-  const recipientDir = buildRecipientDirectory(targetTable, []);
-  if (recipientDir.recipients.length === 0) {
-    const hardStopMessage = inheritPriorSelection
-      ? `Hard Stop: None of the ${candidateLiveRows.length} selected row(s) in "${displayTable}" contain a valid deliverable email address.`
-      : `Hard Stop: Although column "${emailCol}" exists on "${displayTable}", none of the records contain a valid deliverable email address.`;
+  const recipientDir = emailCol
+    ? buildRecipientDirectory(targetTable, [])
+    : { mode: 'none', recipients: [], allowedByLowerEmail: new Map() };
+  const hasTableRecipients = Boolean(emailCol && recipientDir.recipients.length > 0);
+
+  if (!hasTableRecipients && promptEmails.length === 0) {
+    const clarificationMsg = buildMissingEmailClarificationMessage(
+      pendingClarificationPrompt || prompt,
+      displayTable,
+      emailCol,
+      candidateLiveRows.length
+    );
     return {
       status: 'CONVERSATIONAL',
       conversational: true,
-      intent: 'email_hard_stop',
-      message: hardStopMessage,
-      answer: hardStopMessage,
+      intent: 'email_clarification_needed',
+      message: clarificationMsg,
+      answer: clarificationMsg,
       citations: [],
     };
   }
+
+  const emailMode = hasTableRecipients ? 'table' : 'prompt_recipients';
+  const allowedPromptByLower = new Map(
+    promptEmails.map((em) => [em.toLowerCase(), em])
+  );
 
   const {
     schemaColumns,
@@ -2229,10 +2385,6 @@ async function tryExecuteDirectTableEmailOperation({
     .map((c) => c.name)
     .filter((n) => n !== emailCol)
     .slice(0, 6);
-  const pendingClarificationPrompt =
-    !startsFreshSearch && activeCtx.pendingClarification?.combinedUserPrompt
-      ? activeCtx.pendingClarification.combinedUserPrompt
-      : '';
   const effectiveUserInstruction = pendingClarificationPrompt
     ? `Pending request from Turn ${activeCtx.pendingClarification.fromTurnIndex}: "${pendingClarificationPrompt}"\nFollow-up specification: "${prompt}"`
     : prompt;
@@ -2243,10 +2395,35 @@ async function tryExecuteDirectTableEmailOperation({
     const keepCols = new Set(
       [emailCol, customerNameCol].filter(Boolean)
     );
+    const hasQtyOrStockCue =
+      /\b(?:stock|qty|quantity|units?|inventory|deduct|subtract|reduce|decrease|increase|add|order(?:ed|s|ing)?|allocate|beds?)\b/i.test(
+        contextLower
+      );
+    const hasPriceCue =
+      /\b(?:price|cost|discount|total|amount|eur|usd|bdt|subtotal)\b/i.test(
+        contextLower
+      );
+
     for (const colDesc of schemaColumns) {
       const cName = colDesc.name;
       const lower = cName.toLowerCase();
-      if (/(?:id|name|title|company|unit|tier|status|city)$/i.test(lower)) {
+      if (/(?:id|name|title|company|unit|tier|status|city|category)$/i.test(lower)) {
+        keepCols.add(cName);
+        continue;
+      }
+      if (
+        hasQtyOrStockCue &&
+        /(?:stock|qty|quantity|inventory|units?|beds?|count|available|remaining|size)/i.test(
+          lower
+        )
+      ) {
+        keepCols.add(cName);
+        continue;
+      }
+      if (
+        hasPriceCue &&
+        /(?:price|cost|discount|total|amount|subtotal)/i.test(lower)
+      ) {
         keepCols.add(cName);
         continue;
       }
@@ -2261,6 +2438,18 @@ async function tryExecuteDirectTableEmailOperation({
           );
         })
       ) {
+        keepCols.add(cName);
+        continue;
+      }
+      const valueMatchedPrompt = projectedRows.slice(0, 25).some((row) => {
+        const rawV = row[cName];
+        if (rawV === null || rawV === undefined || typeof rawV === 'boolean') {
+          return false;
+        }
+        const s = String(rawV).trim().toLowerCase();
+        return s.length >= 3 && s.length <= 48 && contextLower.includes(s);
+      });
+      if (valueMatchedPrompt) {
         keepCols.add(cName);
       }
     }
@@ -2308,13 +2497,24 @@ CRITICAL RULES:
    - Only return exact "_row_id" strings present in CANDIDATE_ROWS.
 
 2. TABLE MUTATIONS ("mutations"):
-   - ONLY include items in "mutations" if USER_INSTRUCTION explicitly asks to update/change/add/issue/set column value(s) on rows.
+   - ONLY include items in "mutations" if USER_INSTRUCTION (including any Pending Request from an earlier clarification turn) asks to update/change/deduct/reduce/subtract/allocate/add/issue/set column value(s) on rows.
    - If USER_INSTRUCTION only asks to draft or send emails (e.g., "send emails to the customers"), return "mutations": [].
    - Every "column" MUST be marked [modifiable] in TABLE_COLUMNS and use exact column spelling.
    - Compute exact arithmetic on each matched row's current value (e.g., adding 24 to Delay_Hours 18 -> "42"; adding 10000 to credit_limit 45000 -> "55000") and only emit updates where new_value differs from the current value.
+   - Never output negative values for stock, inventory, quantity, beds, or price columns; if a requested deduction exceeds a row's current stock/quantity (e.g. deducting 10 when stock is 9), set the column to "0" (allocating the remaining available stock) and note any partial fulfillment/shortfall in the email.
 
-3. PERSONALIZED EMAIL TEMPLATE ("email_subject_template", "email_body_template", "applied_rule"):
-   - Draft ONE polite, professional "email_subject_template" and "email_body_template" using dynamic {{Column_Name}} placeholders that will be rendered per matched recipient using their post-update row values.
+3. PERSONALIZED EMAIL DRAFTING (${
+    emailMode === 'prompt_recipients'
+      ? '"emails", "email_subject_template", "email_body_template"'
+      : '"email_subject_template", "email_body_template"'
+  }, "applied_rule"):
+   - ${
+     emailMode === 'prompt_recipients'
+       ? `EXTERNAL RECIPIENT MODE (no email column in table): Populate "emails" strictly targeting recipient(s) in EXTERNAL_RECIPIENT_EMAILS (${promptEmails.join(', ')}).
+   - If the request targets 1 recipient (or sends one order/summary to all listed external addresses), create ONE consolidated email per recipient in EXTERNAL_RECIPIENT_EMAILS summarizing all matched items, updated quantities/stock, and totals using verified CANDIDATE_ROWS data.
+   - If the request assigns specific items/rows to different email addresses, create one personalized email per assignment covering only that recipient's assigned items.
+   - Use any recipient name/company stated in USER_INSTRUCTION naturally, or a polite neutral greeting ("Hello,"); never invent unverified names or numbers. Also provide concise "email_subject_template" and "email_body_template" as summary fallback.`
+       : `Draft ONE polite, professional "email_subject_template" and "email_body_template" using dynamic {{Column_Name}} placeholders that will be rendered per matched recipient using their post-update row values.
    - ${
      recipientRoleLabel
        ? `EMAIL_COLUMN "${emailCol}" addresses the ${recipientRoleLabel} (NOT "${customerNameCol || 'the row subject'}"). ALWAYS write literal "Dear {{customer_name}}," in the greeting (do NOT invent placeholders like "{{Hub_Lead}}" — "{{customer_name}}" automatically renders "${recipientRoleLabel}"), and refer to the subject record using {{${customerNameCol || samplePlaceholderCols[0] || '_row_id'}}} and {{_row_id}}.`
@@ -2323,14 +2523,23 @@ CRITICAL RULES:
          : 'Address the recipient using "{{customer_name}}" (resolves to unit/company/account identifier).'
    }
    - Reference concrete row facts using exact {{Column_Name}} placeholders from TABLE_COLUMNS (such as {{${samplePlaceholderCols.join('}}, {{')}}}) — which render the row's UPDATED (post-mutation) value — and {{before.Column_Name}} when referencing the value prior to the update. Never invent unverified numbers or dates.${
+     promptEmails.length > 0
+       ? `\n   - If USER_INSTRUCTION explicitly instructs emailing external address(es) in EXTERNAL_RECIPIENT_EMAILS (${promptEmails.join(', ')}), populate "emails" targeting those exact address(es).`
+       : ''
+   }`
+   }${
      docExcerpts.length > 0
        ? '\n   - Cite relevant policy/protocol details (caps, section codes, PO/replacement numbers) from DOCUMENT_EXCERPTS where applicable.'
        : ''
    }
 
 ACTIVE_TABLE_NAME: ${targetTable.tableName}
-EMAIL_COLUMN: ${emailCol}
-CUSTOMER_NAME_COLUMN: ${salutationCol || recipientRoleLabel || 'none'}
+EMAIL_COLUMN: ${emailCol || 'none (use EXTERNAL_RECIPIENT_EMAILS)'}
+CUSTOMER_NAME_COLUMN: ${emailCol ? salutationCol || recipientRoleLabel || 'none' : 'none'}${
+    promptEmails.length > 0
+      ? `\nEXTERNAL_RECIPIENT_EMAILS: ${JSON.stringify(promptEmails)}`
+      : ''
+  }
 TABLE_COLUMNS: ${compactColumnsLine}
 ${formattedHistory ? `\nRECENT_CONVERSATION:\n${formattedHistory}\n` : ''}${
     docExcerpts.length > 0 ? `\nDOCUMENT_EXCERPTS:\n${JSON.stringify(docExcerpts)}\n` : ''
@@ -2453,40 +2662,49 @@ ${effectiveUserInstruction}`;
       }
 
       const emailsPreview = [];
-      const matchedRowsNeedingEmail = matchedEntries.filter((hit) =>
-        isValidDeliverableEmail(String(hit.row?.[emailCol] ?? '').trim())
-      );
-
-      if (matchedRowsNeedingEmail.length === 0) {
-        return {
-          noMatchedEmails: true,
-          matchedEntries,
-          mutationsPreview,
-          emailsPreview: [],
-          subjectTemplate: '',
-          bodyTemplate: '',
-        };
-      }
-
       const subjectTemplate = String(parsed.email_subject_template || '').trim();
       const bodyTemplate = String(parsed.email_body_template || '').trim();
       const topAppliedRule =
-        String(parsed.applied_rule || '').trim() || 'Direct table outreach';
+        String(parsed.applied_rule || '').trim() ||
+        (emailMode === 'prompt_recipients'
+          ? 'Prompt-supplied external recipient outreach'
+          : 'Direct table outreach');
       const includedRowIds = new Set();
 
       for (const mail of Array.isArray(parsed.emails) ? parsed.emails : []) {
         const rawEmail = String(mail?.recipient_email ?? '').trim();
         if (!rawEmail) continue;
-        const allowedRec = recipientDir.allowedByLowerEmail.get(rawEmail.toLowerCase());
-        if (!allowedRec) {
+        const lowerEmail = rawEmail.toLowerCase();
+        const allowedTableRec = recipientDir.allowedByLowerEmail.get(lowerEmail);
+        const allowedPromptEmail = allowedPromptByLower.get(lowerEmail);
+        if (!allowedTableRec && !allowedPromptEmail) {
           throw new Error(
-            `Recipient email "${rawEmail}" does not belong to candidate rows in "${targetTable.tableName}".`
+            `Recipient email "${rawEmail}" does not belong to candidate rows in "${targetTable.tableName}" or recipient email(s) provided in your prompt.`
           );
         }
         const subject = String(mail?.subject ?? '').trim();
         const body = String(mail?.body ?? '').trim();
         if (!subject || !body) {
           throw new Error('Each email draft must contain a non-empty subject and body.');
+        }
+
+        if (allowedPromptEmail && (!allowedTableRec || emailMode === 'prompt_recipients')) {
+          const fallbackPromptId = `prompt_recipient_${emailsPreview.length + 1}`;
+          emailsPreview.push({
+            recipient_email: allowedPromptEmail,
+            customer_identifier:
+              String(mail?.customer_identifier ?? '').trim() ||
+              formatExternalRecipientLabel(allowedPromptEmail),
+            subject,
+            body,
+            metadata: {
+              applied_rule:
+                String(mail?.applied_rule ?? '').trim() || topAppliedRule,
+              row_identifier:
+                String(mail?.row_identifier ?? '').trim() || fallbackPromptId,
+            },
+          });
+          continue;
         }
 
         const reqRowId = String(mail?.row_identifier ?? '').trim().toLowerCase();
@@ -2497,25 +2715,28 @@ ${effectiveUserInstruction}`;
             (e) =>
               !includedRowIds.has(e.identifier) &&
               String(e.row?.[emailCol] ?? '').trim().toLowerCase() ===
-                allowedRec.email.toLowerCase()
+                allowedTableRec.email.toLowerCase()
           ) ||
           matchedEntries.find(
             (e) =>
               String(e.row?.[emailCol] ?? '').trim().toLowerCase() ===
-              allowedRec.email.toLowerCase()
+              allowedTableRec.email.toLowerCase()
           );
         if (matchedRowHit) {
           includedRowIds.add(matchedRowHit.identifier);
         }
-        const derivedName = customerNameCol && matchedRowHit?.row?.[customerNameCol]
-          ? String(matchedRowHit.row[customerNameCol]).trim()
-          : '';
+        const derivedName =
+          customerNameCol && matchedRowHit?.row?.[customerNameCol]
+            ? String(matchedRowHit.row[customerNameCol]).trim()
+            : '';
         const defaultIdentifier = derivedName
-          ? `${derivedName} (${matchedRowHit?.identifier || allowedRec.row_id})`
-          : matchedRowHit?.identifier || allowedRec.row_id || allowedRec.email;
+          ? `${derivedName} (${matchedRowHit?.identifier || allowedTableRec.row_id})`
+          : matchedRowHit?.identifier ||
+            allowedTableRec.row_id ||
+            allowedTableRec.email;
 
         emailsPreview.push({
-          recipient_email: allowedRec.email,
+          recipient_email: allowedTableRec.email,
           customer_identifier:
             String(mail?.customer_identifier ?? '').trim() || defaultIdentifier,
           subject,
@@ -2526,100 +2747,194 @@ ${effectiveUserInstruction}`;
             row_identifier:
               matchedRowHit?.identifier ||
               String(mail?.row_identifier ?? '').trim() ||
-              allowedRec.row_id ||
+              allowedTableRec.row_id ||
               'row',
           },
         });
       }
 
-      // Deterministically render personalized emails from email_subject_template & email_body_template
-      // for every matched row not explicitly enumerated in parsed.emails (keyed by row_identifier so
-      // rows sharing a contact/coordinator email still each get their own targeted draft)
-      if (subjectTemplate && bodyTemplate) {
-        for (const hit of matchedRowsNeedingEmail) {
-          if (includedRowIds.has(hit.identifier)) continue;
-          const rowEmail = String(hit.row?.[emailCol] ?? '').trim();
-
-          const derivedName =
-            customerNameCol && hit.row?.[customerNameCol]
-              ? String(hit.row[customerNameCol]).trim()
-              : '';
-          const salutationValue =
-            (salutationCol && hit.row?.[salutationCol]
-              ? String(hit.row[salutationCol]).trim()
-              : '') ||
-            recipientRoleLabel ||
-            derivedName;
-          const defaultIdentifier = derivedName
-            ? `${derivedName} (${hit.identifier})`
-            : hit.identifier;
-          const mutEntry = mutationsByIdentifier.get(hit.identifier) || null;
-
-          const vars = new Map();
-          vars.set('customer_name', salutationValue || hit.identifier);
-          vars.set('recipient_name', salutationValue || hit.identifier);
-          if (recipientRoleLabel) {
-            vars.set(recipientRoleLabel.toLowerCase(), recipientRoleLabel);
-            vars.set(
-              recipientRoleLabel.toLowerCase().replace(/\s+/g, '_'),
-              recipientRoleLabel
-            );
-          }
-          vars.set('row_id', hit.identifier);
-          vars.set('_row_id', hit.identifier);
-          vars.set('row_identifier', hit.identifier);
-
-          for (const [colKey, rawVal] of Object.entries(hit.row || {})) {
-            const lowerKey = colKey.toLowerCase();
-            const beforeVal =
-              mutEntry?.before?.[colKey] !== undefined
-                ? mutEntry.before[colKey]
-                : rawVal;
-            const afterVal =
-              mutEntry?.after?.[colKey] !== undefined
-                ? mutEntry.after[colKey]
-                : rawVal;
-            vars.set(lowerKey, afterVal ?? '');
-            vars.set(`after.${lowerKey}`, afterVal ?? '');
-            vars.set(`before.${lowerKey}`, beforeVal ?? '');
-            vars.set(`old_${lowerKey}`, beforeVal ?? '');
-            vars.set(`new_${lowerKey}`, afterVal ?? '');
-          }
-
-          const renderTpl = (tpl) =>
-            String(tpl || '').replace(
-              /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g,
-              (full, rawToken) => {
-                const key = String(rawToken || '').trim().toLowerCase();
-                if (vars.has(key)) {
-                  const val = vars.get(key);
-                  return val !== null && val !== undefined ? String(val) : '';
-                }
-                return full;
+      if (emailMode === 'prompt_recipients') {
+        if (emailsPreview.length === 0) {
+          const fallbackItemsList = matchedEntries
+            .slice(0, 20)
+            .map((hit) => {
+              const label =
+                (customerNameCol && hit.row?.[customerNameCol]
+                  ? `${hit.row[customerNameCol]} (${hit.identifier})`
+                  : hit.identifier);
+              const mutEntry = mutationsByIdentifier.get(hit.identifier);
+              if (mutEntry) {
+                const diffs = Object.entries(mutEntry.after || {})
+                  .map(([c, val]) => `${c}: ${mutEntry.before?.[c]} -> ${val}`)
+                  .join(', ');
+                return `- ${label} (${diffs})`;
               }
+              return `- ${label}`;
+            })
+            .join('\n');
+          const cleanSubj =
+            (subjectTemplate || `${displayTable} Confirmation`).replace(
+              /\{\{[^}]+\}\}/g,
+              displayTable
             );
-
-          emailsPreview.push({
-            recipient_email: rowEmail,
-            customer_identifier: defaultIdentifier,
-            subject: renderTpl(subjectTemplate),
-            body: renderTpl(bodyTemplate),
-            metadata: {
-              applied_rule: topAppliedRule,
-              row_identifier: hit.identifier,
-            },
-          });
-          includedRowIds.add(hit.identifier);
+          for (let i = 0; i < promptEmails.length; i += 1) {
+            const extEmail = promptEmails[i];
+            const cleanBodyRaw = (
+              bodyTemplate ||
+              `Hello,\n\nThis is a confirmation regarding ${matchedEntries.length} item(s) in ${displayTable}:\n\n${fallbackItemsList}\n\nBest regards,`
+            )
+              .replace(/\{\{\s*(?:customer_name|recipient_name)\s*\}\}/gi, 'Customer')
+              .replace(/\{\{[^}]+\}\}/g, '')
+              .trim();
+            emailsPreview.push({
+              recipient_email: extEmail,
+              customer_identifier: formatExternalRecipientLabel(extEmail),
+              subject: cleanSubj,
+              body: cleanBodyRaw,
+              metadata: {
+                applied_rule: topAppliedRule,
+                row_identifier: `prompt_recipient_${i + 1}`,
+              },
+            });
+          }
         }
-      }
+      } else {
+        const matchedRowsNeedingEmail = emailCol
+          ? matchedEntries.filter((hit) =>
+              isValidDeliverableEmail(String(hit.row?.[emailCol] ?? '').trim())
+            )
+          : [];
 
-      const omittedRows = matchedRowsNeedingEmail.filter(
-        (hit) => !includedRowIds.has(hit.identifier)
-      );
-      if (omittedRows.length > 0) {
-        throw new Error(
-          `Drafted emails omitted matched row(s): ${omittedRows.map((h) => h.identifier).join(', ')}. Provide valid email_subject_template and email_body_template.`
-        );
+        if (matchedRowsNeedingEmail.length === 0 && emailsPreview.length === 0) {
+          if (promptEmails.length > 0) {
+            const cleanSubj =
+              (subjectTemplate || `${displayTable} Confirmation`).replace(
+                /\{\{[^}]+\}\}/g,
+                displayTable
+              );
+            for (let i = 0; i < promptEmails.length; i += 1) {
+              const extEmail = promptEmails[i];
+              const cleanBody = (
+                bodyTemplate ||
+                `Hello,\n\nConfirmation for ${matchedEntries.length} matched record(s) in ${displayTable}.`
+              )
+                .replace(/\{\{\s*(?:customer_name|recipient_name)\s*\}\}/gi, 'Customer')
+                .replace(/\{\{[^}]+\}\}/g, '')
+                .trim();
+              emailsPreview.push({
+                recipient_email: extEmail,
+                customer_identifier: formatExternalRecipientLabel(extEmail),
+                subject: cleanSubj,
+                body: cleanBody,
+                metadata: {
+                  applied_rule: topAppliedRule,
+                  row_identifier: `prompt_recipient_${i + 1}`,
+                },
+              });
+            }
+          } else {
+            return {
+              noMatchedEmails: true,
+              matchedEntries,
+              mutationsPreview,
+              emailsPreview: [],
+              subjectTemplate: '',
+              bodyTemplate: '',
+            };
+          }
+        }
+
+        // Deterministically render personalized emails from email_subject_template & email_body_template
+        // for every matched row not explicitly enumerated in parsed.emails (keyed by row_identifier so
+        // rows sharing a contact/coordinator email still each get their own targeted draft)
+        if (subjectTemplate && bodyTemplate && matchedRowsNeedingEmail.length > 0) {
+          for (const hit of matchedRowsNeedingEmail) {
+            if (includedRowIds.has(hit.identifier)) continue;
+            const rowEmail = String(hit.row?.[emailCol] ?? '').trim();
+
+            const derivedName =
+              customerNameCol && hit.row?.[customerNameCol]
+                ? String(hit.row[customerNameCol]).trim()
+                : '';
+            const salutationValue =
+              (salutationCol && hit.row?.[salutationCol]
+                ? String(hit.row[salutationCol]).trim()
+                : '') ||
+              recipientRoleLabel ||
+              derivedName;
+            const defaultIdentifier = derivedName
+              ? `${derivedName} (${hit.identifier})`
+              : hit.identifier;
+            const mutEntry = mutationsByIdentifier.get(hit.identifier) || null;
+
+            const vars = new Map();
+            vars.set('customer_name', salutationValue || hit.identifier);
+            vars.set('recipient_name', salutationValue || hit.identifier);
+            if (recipientRoleLabel) {
+              vars.set(recipientRoleLabel.toLowerCase(), recipientRoleLabel);
+              vars.set(
+                recipientRoleLabel.toLowerCase().replace(/\s+/g, '_'),
+                recipientRoleLabel
+              );
+            }
+            vars.set('row_id', hit.identifier);
+            vars.set('_row_id', hit.identifier);
+            vars.set('row_identifier', hit.identifier);
+
+            for (const [colKey, rawVal] of Object.entries(hit.row || {})) {
+              const lowerKey = colKey.toLowerCase();
+              const beforeVal =
+                mutEntry?.before?.[colKey] !== undefined
+                  ? mutEntry.before[colKey]
+                  : rawVal;
+              const afterVal =
+                mutEntry?.after?.[colKey] !== undefined
+                  ? mutEntry.after[colKey]
+                  : rawVal;
+              vars.set(lowerKey, afterVal ?? '');
+              vars.set(`after.${lowerKey}`, afterVal ?? '');
+              vars.set(`before.${lowerKey}`, beforeVal ?? '');
+              vars.set(`old_${lowerKey}`, beforeVal ?? '');
+              vars.set(`new_${lowerKey}`, afterVal ?? '');
+            }
+
+            const renderTpl = (tpl) =>
+              String(tpl || '').replace(
+                /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g,
+                (full, rawToken) => {
+                  const key = String(rawToken || '').trim().toLowerCase();
+                  if (vars.has(key)) {
+                    const val = vars.get(key);
+                    return val !== null && val !== undefined ? String(val) : '';
+                  }
+                  return full;
+                }
+              );
+
+            emailsPreview.push({
+              recipient_email: rowEmail,
+              customer_identifier: defaultIdentifier,
+              subject: renderTpl(subjectTemplate),
+              body: renderTpl(bodyTemplate),
+              metadata: {
+                applied_rule: topAppliedRule,
+                row_identifier: hit.identifier,
+              },
+            });
+            includedRowIds.add(hit.identifier);
+          }
+        }
+
+        if (matchedRowsNeedingEmail.length > 0) {
+          const omittedRows = matchedRowsNeedingEmail.filter(
+            (hit) => !includedRowIds.has(hit.identifier)
+          );
+          if (omittedRows.length > 0 && emailsPreview.length === 0) {
+            throw new Error(
+              `Drafted emails omitted matched row(s): ${omittedRows.map((h) => h.identifier).join(', ')}. Provide valid email_subject_template and email_body_template.`
+            );
+          }
+        }
       }
 
       const fallbackSubject = emailsPreview[0]?.subject || '';
@@ -2654,11 +2969,16 @@ ${effectiveUserInstruction}`;
   }
 
   if (compiled.noMatchedEmails) {
-    const noEmailMsg = `Hard Stop: Matched ${compiled.matchedEntries.length} record(s) in "${displayTable}", but none have a valid deliverable email address in "${emailCol}".`;
+    const noEmailMsg = buildMissingEmailClarificationMessage(
+      pendingClarificationPrompt || prompt,
+      displayTable,
+      emailCol,
+      compiled.matchedEntries.length
+    );
     return {
       status: 'CONVERSATIONAL',
       conversational: true,
-      intent: 'email_hard_stop',
+      intent: 'email_clarification_needed',
       message: noEmailMsg,
       answer: noEmailMsg,
       citations: [],
@@ -2782,7 +3102,7 @@ async function executeWorkspaceOperation({
   });
   if (fastMutationRoute) return fastMutationRoute;
 
-  if (isDirectTableEmailCandidate(prompt)) {
+  if (isDirectTableEmailCandidate(prompt, normalizedHistory, entity)) {
     const directEmailResult = await tryExecuteDirectTableEmailOperation({
       businessId,
       prompt,

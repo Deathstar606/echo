@@ -43,6 +43,7 @@ function isClarificationTurn(turn) {
 
 function inferBaseIntent(turn) {
   const rawIntent = String(turn?.resolved_intent || '').trim().toUpperCase();
+  if (rawIntent.includes('EMAIL')) return 'EMAIL_CLARIFICATION';
   if (rawIntent.includes('MUTATION')) return 'SHEET_MUTATION';
   if (rawIntent.includes('QUERY')) return 'SHEET_QUERY';
   if (rawIntent.includes('CROSS_DOCUMENT')) return 'CROSS_DOCUMENT_OPERATION';
@@ -201,6 +202,12 @@ function getLatestActiveContext(normalizedHistory = [], preferredTable = null) {
           lastTurnIndex:
             clarificationTurns[clarificationTurns.length - 1].turn_index,
           baseIntent: inferBaseIntent(clarificationTurns[0]),
+          isEmailClarification: clarificationTurns.some((t) =>
+            String(t.resolved_intent || '')
+              .trim()
+              .toUpperCase()
+              .includes('EMAIL')
+          ),
           combinedUserPrompt: clarificationTurns
             .map((t) => String(t.user_prompt || '').trim())
             .filter(Boolean)

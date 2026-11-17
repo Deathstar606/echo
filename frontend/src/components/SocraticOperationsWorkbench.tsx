@@ -221,7 +221,8 @@ export default function SocraticOperationsWorkbench({
           <textarea
             ref={textareaRef}
             className="b2b-chat-textarea"
-            rows={2}
+            rows={4}
+            style={{ minHeight: '96px' }}
             placeholder="Message B2B Operations Copilot... (Enter to send)"
             value={nlPrompt}
             onChange={(e) => onPromptChange(e.target.value)}

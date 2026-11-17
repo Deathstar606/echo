@@ -1088,8 +1088,22 @@ export async function sendGmailReplyApi(
 export async function generateGmailReplyDraftApi(
   payload: { messageText: string; senderName?: string; subject?: string },
   businessId = getActiveBusinessId()
-): Promise<{ success: boolean; draftText: string; category?: string; contextNote?: string; citations?: any[] }> {
-  return request<{ success: boolean; draftText: string; category?: string; contextNote?: string; citations?: any[] }>(
+): Promise<{
+  success: boolean;
+  draftText: string;
+  category?: string;
+  missingInfo?: string[];
+  contextNote?: string;
+  citations?: any[];
+}> {
+  return request<{
+    success: boolean;
+    draftText: string;
+    category?: string;
+    missingInfo?: string[];
+    contextNote?: string;
+    citations?: any[];
+  }>(
     '/api/google/gmail/suggest-reply',
     {
       method: 'POST',

@@ -213,40 +213,51 @@ async function generateAiDraftForGmailMessage(businessId, payload) {
   const { messageText, senderName = 'Customer', subject = '', requestUserId = '' } = payload;
   await assertGoogleServiceAllowed(businessId, requestUserId);
   const { query } = require('../../db');
-  const { retrieveRelevantContextForBusiness } = require('./contextRetrievalService');
-  const { buildContextualPrompt } = require('./promptBuilderService');
-  const { generateAiSupportResponse } = require('./geminiService');
+  const { generateWorkspaceCustomerReply } = require('./workspaceReplyService');
 
   const bizRes = await query('SELECT id, name FROM workspaces WHERE id = $1 LIMIT 1;', [businessId]);
   const business = bizRes.rows?.[0] || { id: businessId, name: 'Support Workspace' };
 
-  const combinedSearch = [subject, messageText].filter(Boolean).join(' ');
-  const relevantRecords = await retrieveRelevantContextForBusiness(businessId, combinedSearch);
-
-  const prompt = buildContextualPrompt({
-    business,
-    relevantRecords,
-    customerMessage: messageText,
-    conversationHistory: [],
-  });
+  const combinedSearch = [
+    subject ? `Subject: ${subject}` : '',
+    messageText,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
 
   try {
-    const aiResponse = await generateAiSupportResponse(prompt);
-    const topSuggestion = Array.isArray(aiResponse.suggestions) && aiResponse.suggestions.length > 0
-      ? aiResponse.suggestions[0]
-      : 'Thank you for reaching out. We have received your inquiry and our team is looking into it.';
+    const { aiResponse, retrievedContext, suggestion } =
+      await generateWorkspaceCustomerReply({
+        workspace: business,
+        customerMessage: combinedSearch,
+        customerContext: {
+          customer_name: senderName,
+          channel: 'gmail_email',
+        },
+        conversationHistory: [],
+      });
+
+    const citations = Array.isArray(retrievedContext?.citations)
+      ? retrievedContext.citations
+      : [];
+    const docCount = Array.isArray(retrievedContext?.document_chunks)
+      ? retrievedContext.document_chunks.length
+      : 0;
+    const rowCount = Array.isArray(retrievedContext?.table_rows)
+      ? retrievedContext.table_rows.length
+      : 0;
 
     return {
       success: true,
-      draftText: topSuggestion,
-      category: aiResponse.category || 'general_inquiry',
-      missingInfo: aiResponse.missing_information || [],
-      contextNote: `Generated using ${relevantRecords.length} workspace knowledge sources.`,
-      citations: relevantRecords.map((r) => ({
-        source_type: r.source_type || 'context',
-        title: r.title,
-        content: (r.content || '').slice(0, 300),
-      })),
+      draftText:
+        suggestion ||
+        'Thank you for reaching out. We have received your inquiry and our team is reviewing it.',
+      category: aiResponse?.category || 'general_inquiry',
+      missingInfo: Array.isArray(aiResponse?.missing_information)
+        ? aiResponse.missing_information
+        : [],
+      contextNote: `Generated using ${docCount} document section(s) and ${rowCount} catalog/table record(s).`,
+      citations,
     };
   } catch (err) {
     console.warn('[GmailService] AI suggestion fallback:', err.message);

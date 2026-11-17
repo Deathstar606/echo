@@ -101,7 +101,7 @@ router.post('/suggest-reply', async (req, res, next) => {
     }
     const { messageText, senderName, subject } = body;
     const { generateAiDraftForGmailMessage } = require('../services/gmailService');
-    const result = await generateAiDraftForGmailMessage(businessId, {
+    const result = await generateAiDraftForGmailMessage(wsId || businessId, {
       messageText,
       senderName,
       subject,

@@ -72,7 +72,7 @@ async function createConversation({ businessId, customerId, status = 'open' }) {
 async function findConversationForBusinessOrThrow(businessId, conversationId) {
   const result = await query(
     `
-      SELECT id, business_id, customer_id, status, ai_draft_reply, ai_draft_category, ai_draft_missing_info, ai_draft_message_id, ai_draft_updated_at, created_at, updated_at
+      SELECT id, business_id, customer_id, status, ai_draft_reply, ai_draft_category, ai_draft_missing_info, ai_draft_citations, ai_draft_message_id, ai_draft_updated_at, created_at, updated_at
       FROM conversations
       WHERE id = $1 AND business_id = $2;
     `,
@@ -106,7 +106,7 @@ async function getConversationWithMessages(businessId, conversationId) {
 
   const messagesResult = await query(
     `
-      SELECT id, conversation_id, sender_type, content, ai_suggestion, ai_category, ai_missing_info, created_at
+      SELECT id, conversation_id, sender_type, content, ai_suggestion, ai_category, ai_missing_info, ai_citations, created_at
       FROM messages
       WHERE conversation_id = $1
       ORDER BY created_at ASC, id ASC;
@@ -117,12 +117,14 @@ async function getConversationWithMessages(businessId, conversationId) {
   const messages = messagesResult.rows.map((m) => ({
     ...m,
     ai_missing_info: parseMissingInfo(m.ai_missing_info),
+    ai_citations: parseMissingInfo(m.ai_citations),
   }));
 
   return {
     conversation: {
       ...conversation,
       ai_draft_missing_info: parseMissingInfo(conversation.ai_draft_missing_info),
+      ai_draft_citations: parseMissingInfo(conversation.ai_draft_citations),
     },
     customer,
     messages,
@@ -197,7 +199,7 @@ async function findCustomerConversationWithMessages(businessId, customerId) {
 async function listConversationsForBusiness(businessId) {
   const convResult = await query(
     `
-      SELECT id, business_id, customer_id, status, ai_draft_reply, ai_draft_category, ai_draft_missing_info, ai_draft_message_id, ai_draft_updated_at, created_at, updated_at
+      SELECT id, business_id, customer_id, status, ai_draft_reply, ai_draft_category, ai_draft_missing_info, ai_draft_citations, ai_draft_message_id, ai_draft_updated_at, created_at, updated_at
       FROM conversations
       WHERE business_id = $1
       ORDER BY updated_at DESC, created_at DESC, id DESC;
@@ -211,7 +213,7 @@ async function listConversationsForBusiness(businessId) {
     const customer = await findCustomerById(conv.customer_id);
     const messagesResult = await query(
       `
-        SELECT id, conversation_id, sender_type, content, ai_suggestion, ai_category, ai_missing_info, created_at
+        SELECT id, conversation_id, sender_type, content, ai_suggestion, ai_category, ai_missing_info, ai_citations, created_at
         FROM messages
         WHERE conversation_id = $1
         ORDER BY created_at ASC, id ASC;
@@ -222,12 +224,14 @@ async function listConversationsForBusiness(businessId) {
     const messages = messagesResult.rows.map((m) => ({
       ...m,
       ai_missing_info: parseMissingInfo(m.ai_missing_info),
+      ai_citations: parseMissingInfo(m.ai_citations),
     }));
 
     enriched.push({
       conversation: {
         ...conv,
         ai_draft_missing_info: parseMissingInfo(conv.ai_draft_missing_info),
+        ai_draft_citations: parseMissingInfo(conv.ai_draft_citations),
       },
       customer,
       messages,
@@ -248,6 +252,7 @@ async function listConversationsForBusiness(businessId) {
  * @param {string} params.suggestion
  * @param {string} params.category
  * @param {string[]} params.missingInformation
+ * @param {Array<object>} [params.citations]
  */
 async function saveAiSuggestionForMessageAndConversation({
   businessId,
@@ -256,9 +261,13 @@ async function saveAiSuggestionForMessageAndConversation({
   suggestion,
   category,
   missingInformation = [],
+  citations = [],
 }) {
   const missingJson = JSON.stringify(
     Array.isArray(missingInformation) ? missingInformation : []
+  );
+  const citationsJson = JSON.stringify(
+    Array.isArray(citations) ? citations : []
   );
 
   return withTransaction(async (client) => {
@@ -303,10 +312,10 @@ async function saveAiSuggestionForMessageAndConversation({
     const messageResult = await client.query(
       `
         UPDATE messages
-        SET ai_suggestion = $3, ai_category = $4, ai_missing_info = $5::jsonb
+        SET ai_suggestion = $3, ai_category = $4, ai_missing_info = $5::jsonb, ai_citations = $6::jsonb
         WHERE id = $1 AND conversation_id = $2;
       `,
-      [messageId, conversationId, suggestion, category, missingJson]
+      [messageId, conversationId, suggestion, category, missingJson, citationsJson]
     );
     if (messageResult.rowCount === 0) {
       throw new AppError('The customer message for this reply was not found.', 404);
@@ -318,12 +327,21 @@ async function saveAiSuggestionForMessageAndConversation({
         SET ai_draft_reply = $3,
             ai_draft_category = $4,
             ai_draft_missing_info = $5::jsonb,
+            ai_draft_citations = $7::jsonb,
             ai_draft_message_id = $6,
             ai_draft_updated_at = NOW()
         WHERE id = $1 AND business_id = $2
         RETURNING ai_draft_updated_at;
       `,
-      [conversationId, businessId, suggestion, category, missingJson, messageId]
+      [
+        conversationId,
+        businessId,
+        suggestion,
+        category,
+        missingJson,
+        messageId,
+        citationsJson,
+      ]
     );
     if (draftResult.rowCount === 0) {
       throw new AppError(
@@ -440,6 +458,7 @@ async function addMessageToConversation({
           SET ai_draft_reply = NULL,
               ai_draft_category = NULL,
               ai_draft_missing_info = NULL,
+              ai_draft_citations = '[]'::jsonb,
               ai_draft_message_id = NULL,
               ai_draft_updated_at = NOW()
           WHERE id = $1 AND business_id = $2;

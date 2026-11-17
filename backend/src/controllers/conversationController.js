@@ -47,6 +47,9 @@ function formatCompanyMessageResponse(msg) {
     ai_missing_info: Array.isArray(msg.ai_missing_info)
       ? msg.ai_missing_info
       : [],
+    ai_citations: Array.isArray(msg.ai_citations)
+      ? msg.ai_citations
+      : [],
   };
 }
 
@@ -126,6 +129,15 @@ function formatCompanyConversationResponse({
         ? latestCustomerMsgWithSuggestion.ai_missing_info
         : [];
 
+  const activeDraftCitations =
+    Array.isArray(conversation.ai_draft_citations) &&
+    conversation.ai_draft_citations.length > 0
+      ? conversation.ai_draft_citations
+      : latestCustomerMsgWithSuggestion &&
+          Array.isArray(latestCustomerMsgWithSuggestion.ai_citations)
+        ? latestCustomerMsgWithSuggestion.ai_citations
+        : [];
+
   const sourceMessage =
     formattedMessages.find((m) => m.id === conversation.ai_draft_message_id) ||
     latestCustomerMsgWithSuggestion ||
@@ -138,6 +150,7 @@ function formatCompanyConversationResponse({
         suggestion: activeDraftReply,
         category: activeDraftCategory || 'general_inquiry',
         missing_information: activeDraftMissingInfo,
+        citations: activeDraftCitations,
         source_message_id: sourceMessage ? sourceMessage.id : null,
         source_message_content: sourceMessage ? sourceMessage.content : null,
         updated_at:
@@ -514,16 +527,22 @@ async function generateConversationReplyDraft(req, res, next) {
     }
 
     const conversationHistory = recentMessages.slice(0, -1).slice(-5);
-    const { aiResponse, suggestion } = await generateWorkspaceCustomerReply({
-      workspace: business,
-      customerMessage: latestMessage.content,
-      customerContext: {
-        customer_name: conversation.customer_name || conversation.customerName,
-        reference_id: conversation.reference_id || conversation.referenceId,
-        inquiry_id: conversation.id,
-      },
-      conversationHistory,
-    });
+    const { aiResponse, suggestion, retrievedContext } =
+      await generateWorkspaceCustomerReply({
+        workspace: business,
+        customerMessage: latestMessage.content,
+        customerContext: {
+          customer_name: conversation.customer_name || conversation.customerName,
+          reference_id: conversation.reference_id || conversation.referenceId,
+          inquiry_id: conversation.id,
+          channel: 'support_inbox',
+        },
+        conversationHistory,
+      });
+
+    const citations = Array.isArray(retrievedContext?.citations)
+      ? retrievedContext.citations
+      : [];
 
     await saveAiSuggestionForMessageAndConversation({
       businessId: business.id,
@@ -532,6 +551,7 @@ async function generateConversationReplyDraft(req, res, next) {
       suggestion,
       category: aiResponse.category,
       missingInformation: aiResponse.missing_information,
+      citations,
     });
 
     return res.status(200).json({
@@ -539,10 +559,12 @@ async function generateConversationReplyDraft(req, res, next) {
       source_message_id: latestMessage.id,
       source_message_content: latestMessage.content,
       ai_draft_reply: suggestion,
+      citations,
       ai_suggestion: {
         suggestion,
         category: aiResponse.category,
         missing_information: aiResponse.missing_information,
+        citations,
         source_message_id: latestMessage.id,
         source_message_content: latestMessage.content,
         updated_at: new Date().toISOString(),

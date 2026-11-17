@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FileText, Table2, ExternalLink } from 'lucide-react';
 import type { Citation } from '../../../shared/types/contracts';
 
@@ -15,12 +15,14 @@ export default function CitationBadges({
   maxDisplay = 6,
   className = '',
 }: CitationBadgesProps): React.ReactElement | null {
+  const [expanded, setExpanded] = useState(false);
+
   if (!Array.isArray(citations) || citations.length === 0) {
     return null;
   }
 
-  const displayed = citations.slice(0, maxDisplay);
-  const remaining = citations.length - maxDisplay;
+  const displayed = expanded ? citations : citations.slice(0, maxDisplay);
+  const remaining = Math.max(0, citations.length - displayed.length);
 
   return (
     <div
@@ -81,16 +83,23 @@ export default function CitationBadges({
         );
       })}
 
-      {remaining > 0 && (
-        <span
+      {(remaining > 0 || (expanded && citations.length > maxDisplay)) && (
+        <button
+          type="button"
+          onClick={() => setExpanded((prev) => !prev)}
           style={{
             fontSize: '11px',
-            color: 'var(--text-secondary)',
+            color: 'var(--primary-indigo)',
             fontWeight: 600,
+            backgroundColor: '#f1f5f9',
+            border: '1px solid var(--border-warm)',
+            borderRadius: '999px',
+            padding: '2px 8px',
+            cursor: 'pointer',
           }}
         >
-          +{remaining} more
-        </span>
+          {expanded ? 'Show less' : `+${remaining} more`}
+        </button>
       )}
     </div>
   );

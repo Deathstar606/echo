@@ -40,6 +40,7 @@ function extractAiSuggestionState(conv) {
       missingInformation: Array.isArray(aiSug?.missing_information)
         ? aiSug.missing_information
         : [],
+      citations: Array.isArray(aiSug?.citations) ? aiSug.citations : [],
       sourceMessageId: aiSug?.source_message_id || null,
       sourceMessageContent: aiSug?.source_message_content || null,
       updatedAt: aiSug?.updated_at || conv.updated_at || null,
@@ -438,6 +439,11 @@ const companySlice = createSlice({
             missingInformation: Array.isArray(draft.missing_information)
               ? draft.missing_information
               : [],
+            citations: Array.isArray(draft.citations)
+              ? draft.citations
+              : Array.isArray(action.payload?.citations)
+                ? action.payload.citations
+                : [],
             sourceMessageId: draft.source_message_id || null,
             sourceMessageContent: draft.source_message_content || null,
             updatedAt: draft.updated_at || null,

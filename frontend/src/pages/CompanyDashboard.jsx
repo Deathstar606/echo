@@ -479,9 +479,14 @@ export default function CompanyDashboard() {
         meta: {
           originalSuggestion: aiRes.draftText || '',
           category: aiRes.category || 'customer_inquiry',
-          missingInformation: aiRes.contextNote ? [aiRes.contextNote] : [],
+          missingInformation:
+            Array.isArray(aiRes.missingInfo) && aiRes.missingInfo.length > 0
+              ? aiRes.missingInfo
+              : aiRes.contextNote
+                ? [aiRes.contextNote]
+                : [],
           sourceMessageContent: targetMsg.bodyText || targetMsg.snippet,
-          citations: aiRes.citations || [],
+          citations: Array.isArray(aiRes.citations) ? aiRes.citations : [],
         },
       };
 
@@ -2717,6 +2722,7 @@ export default function CompanyDashboard() {
                         </div>
                         <CitationBadges
                           citations={aiSuggestionMeta.citations}
+                          maxDisplay={8}
                           onSelectCitation={(c) => setActiveInquiryCitation(c)}
                         />
                       </div>
@@ -2761,6 +2767,8 @@ export default function CompanyDashboard() {
                     <textarea
                       id="copilot-ai-draft-textarea"
                       className="ai-draft-textarea"
+                      rows={6}
+                      style={{ minHeight: '140px' }}
                       value={aiSuggestionDraft}
                       onChange={(e) =>
                         dispatch(updateAiSuggestionDraft(e.target.value))

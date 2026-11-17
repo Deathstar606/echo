@@ -21,6 +21,13 @@ const {
   listWorkspaceTableMetadata,
 } = require('./workspaceTableMetadataService');
 
+const SEARCH_CONVERSATIONAL_STOP = new Set([
+  'checking', 'compare', 'against', 'between', 'regarding', 'currently',
+  'available', 'looking', 'something', 'wanted', 'received', 'please',
+  'hello', 'support', 'would', 'could', 'should', 'thank', 'thanks',
+  'another', 'everything', 'because', 'within', 'without', 'provide',
+]);
+
 const SYSTEM_TABLES = new Set([
   'businesses',
   'workspaces',
@@ -274,7 +281,7 @@ function buildTableRowCitation(tableName, row, idx = 1) {
     source_type: 'table',
     source_name: tableName,
     locator: `Row ${rowId}`,
-    excerpt: kvPairs.join(', ').slice(0, 320),
+    excerpt: kvPairs.join(', ').slice(0, 600),
   };
 }
 
@@ -447,6 +454,10 @@ async function loadTableRowsForSchema(businessId, schema, options = {}) {
     .filter((column) => column.semantic_role === 'identifier')
     .map((column) => column.column_name);
   const codeColumns = identifierColumns.length > 0 ? identifierColumns : searchableColumns;
+  const userTerms = extractQueryKeywords(options.queryText || '')
+    .map((keyword) => keyword.raw)
+    .filter((keyword) => keyword.length >= 3 && !SEARCH_CONVERSATIONAL_STOP.has(keyword))
+    .slice(0, 16);
   if (identifierTokens.length > 0 && !customerEmail && codeColumns.length > 0) {
     for (const token of identifierTokens.slice(0, 8)) {
       const parameter = `$${values.length + 1}`;
@@ -455,16 +466,16 @@ async function loadTableRowsForSchema(businessId, schema, options = {}) {
         `(${codeColumns.map((column) => `${quoteIdentifier(column)}::text ILIKE ${parameter}`).join(' OR ')})`
       );
     }
-  } else if (!customerEmail && searchableColumns.length > 0) {
-    const userTerms = extractQueryKeywords(options.queryText || '')
-      .map((keyword) => keyword.raw)
-      .filter((keyword) => keyword.length >= 3)
-      .slice(0, 4);
-    const documentTerms = extractQueryKeywords(options.documentText || '')
-      .map((keyword) => keyword.raw)
-      .filter((keyword) => keyword.length >= 3)
-      .slice(0, 20);
-    const terms = [...new Set([...userTerms, ...documentTerms])].slice(0, 8);
+  }
+  if (!customerEmail && searchableColumns.length > 0) {
+    const documentTerms =
+      identifierTokens.length > 0
+        ? []
+        : extractQueryKeywords(options.documentText || '')
+            .map((keyword) => keyword.raw)
+            .filter((keyword) => keyword.length >= 3 && !SEARCH_CONVERSATIONAL_STOP.has(keyword))
+            .slice(0, 12);
+    const terms = [...new Set([...userTerms, ...documentTerms])].slice(0, 18);
     for (const term of terms) {
       const parameter = `$${values.length + 1}`;
       values.push(`%${term}%`);
@@ -527,6 +538,7 @@ async function retrieveCrossDocumentContext({
   businessId,
   queryText,
   topK = 8,
+  rowTopK = null,
   customerContext = {},
 }) {
   const convCheck = detectConversationalIntent(queryText);
@@ -624,18 +636,16 @@ async function retrieveCrossDocumentContext({
   }
 
   const matchedTableRows = [];
+  const queryLower = String(queryText || '').toLowerCase();
   const documentText = documentChunks
     .map((chunk) => `${chunk.breadcrumb_header || ''}\n${chunk.raw_text || ''}`)
     .join('\n')
     .slice(0, 12000);
   const documentKeywords = extractQueryKeywords(documentText).slice(0, 40);
-  const rowScoringKeywords = [
-    ...queryKeywords,
-    ...documentKeywords.filter(
-      (documentKeyword) =>
-        !queryKeywords.some((queryKeyword) => queryKeyword.raw === documentKeyword.raw)
-    ),
-  ];
+  const docOnlyKeywords = documentKeywords.filter(
+    (documentKeyword) =>
+      !queryKeywords.some((queryKeyword) => queryKeyword.raw === documentKeyword.raw)
+  );
   for (const { schema, sheetScore } of selectedSheets) {
     const metadata = metadataByTable.get(
       String(schema.tableName || schema.entity).toLowerCase()
@@ -648,7 +658,31 @@ async function retrieveCrossDocumentContext({
       customerEmail: customerContext.customer_email,
     });
     rows.forEach((row, idx) => {
-      const lexScore = scoreSheetRow(row, schema, rowScoringKeywords, sheetScore);
+      const userLexScore = scoreSheetRow(row, schema, queryKeywords, sheetScore);
+      const docLexScore =
+        docOnlyKeywords.length > 0
+          ? scoreSheetRow(row, schema, docOnlyKeywords, 0) * 0.25
+          : 0;
+      const rowIdentifier = resolveRowIdentifier(row, idx + 1, schema);
+      let exactEntityBoost = 0;
+      const candidatePhrases = [
+        rowIdentifier,
+        row.product_name,
+        row.name,
+        row.unit_name,
+        row.item_name,
+        row.Item_Name,
+        row.sku_id,
+        row.sku_code,
+        row.company_name,
+      ]
+        .map((v) => String(v || '').trim().toLowerCase())
+        .filter((v) => v.length >= 4);
+      for (const phrase of new Set(candidatePhrases)) {
+        if (queryLower.includes(phrase)) {
+          exactEntityBoost += 25;
+        }
+      }
       const rowText = Object.entries(row)
         .filter(
           ([k]) =>
@@ -666,15 +700,18 @@ async function retrieveCrossDocumentContext({
         .map(([k, v]) => `${k} ${v}`)
         .join(' ');
       const vecSim = cosineSimilarity(queryVector, buildTextVector(rowText));
-      const hybridScore = Number((lexScore + vecSim * 8).toFixed(4));
+      const hybridScore = Number(
+        (userLexScore + docLexScore + exactEntityBoost + vecSim * 8).toFixed(4)
+      );
       if (hybridScore > 0) {
         matchedTableRows.push({
           table_name: schema.tableName || schema.entity,
           entity: schema.entity,
           schema,
           row,
-          row_identifier: resolveRowIdentifier(row, idx + 1),
+          row_identifier: rowIdentifier,
           hybrid_score: hybridScore,
+          exact_entity_match: exactEntityBoost > 0,
           citation: buildTableRowCitation(
             schema.tableName || schema.entity,
             row,
@@ -686,7 +723,18 @@ async function retrieveCrossDocumentContext({
   }
 
   matchedTableRows.sort((a, b) => b.hybrid_score - a.hybrid_score);
-  const topTableRows = matchedTableRows.slice(0, topK);
+  const maxRows = Math.max(1, Number(rowTopK) || topK);
+  const topRowScore = matchedTableRows[0]?.hybrid_score || 0;
+  const prunedTableRows =
+    matchedTableRows.length <= 2
+      ? matchedTableRows
+      : matchedTableRows.filter(
+          (item, index) =>
+            index < 2 ||
+            item.exact_entity_match ||
+            item.hybrid_score >= topRowScore * 0.55
+        );
+  const topTableRows = prunedTableRows.slice(0, maxRows);
 
   const citations = [
     ...documentChunks.map((c) => c.citation),

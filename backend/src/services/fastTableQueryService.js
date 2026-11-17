@@ -111,6 +111,12 @@ function isBasicTableQueryCandidate(prompt, history = []) {
     }
     const normalizedHistory = normalizeConversationHistory(history);
     const activeCtx = getLatestActiveContext(normalizedHistory);
+    if (
+      activeCtx.pendingClarification?.isEmailClarification ||
+      activeCtx.pendingClarification?.baseIntent === 'EMAIL_CLARIFICATION'
+    ) {
+      return false;
+    }
     if (activeCtx.pendingClarification?.baseIntent === 'SHEET_QUERY') {
       return true;
     }
@@ -157,6 +163,12 @@ function isBasicTableMutationCandidate(prompt, history = []) {
   if (normalizedHistory.length === 0) return false;
 
   const activeCtx = getLatestActiveContext(normalizedHistory);
+  if (
+    activeCtx.pendingClarification?.isEmailClarification ||
+    activeCtx.pendingClarification?.baseIntent === 'EMAIL_CLARIFICATION'
+  ) {
+    return false;
+  }
   if (activeCtx.pendingClarification?.baseIntent === 'SHEET_MUTATION') {
     return !hasExplicitScopeReset(text);
   }

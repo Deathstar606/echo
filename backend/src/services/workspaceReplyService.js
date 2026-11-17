@@ -19,6 +19,7 @@ async function generateWorkspaceCustomerReply({
     businessId: workspace.id,
     queryText: queryParts.join('\n'),
     topK: 6,
+    rowTopK: 5,
     customerContext,
   });
   const promptText = buildWorkspaceSupportPrompt({
