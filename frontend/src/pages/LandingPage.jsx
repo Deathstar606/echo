@@ -13,20 +13,17 @@ import {
   Mail,
   Lock,
   User,
-  Sparkles,
   FileSpreadsheet,
   FileText,
   GitBranch,
   Play,
   PlayCircle,
   Layers,
-  Send,
   Cloud,
   Code2,
   Globe,
   ExternalLink,
   Check,
-  Database,
 } from 'lucide-react';
 import {
   getActiveWorkspaceId,
@@ -48,70 +45,68 @@ import { loginApi, registerApi, demoLoginApi, getGoogleAuthUrlApi } from '../ser
 const YOUTUBE_TUTORIAL_URL = 'https://youtu.be/LTYa9HEe8Ps?si=4UUWmJKFomZKBN-B';
 
 /**
- * Update with your developer / maintainer profile details when ready.
+ * Developer / maintainer credentials displayed in the landing footer.
  */
 const DEVELOPER_INFO = {
-  name: 'Your Name / Developer Placeholder',
-  role: 'Lead Engineer & Architect',
+  name: 'Fardin Rahman',
+  role: 'Developer & Creator',
   organization: 'MaxiText AI Studio',
-  email: 'developer@maxitext-studio.example',
-  githubUrl: '',
-  portfolioUrl: '',
-  linkedinUrl: '',
+  email: 'dsfardin606@gmail.com',
+  portfolioUrl: 'https://deathstar606.github.io/PortFolio/',
 };
 
 const CORE_CAPABILITIES = [
   {
     id: 'inquiry-triage',
-    title: 'Omnichannel Customer Inquiry Studio',
+    title: 'Customer Inquiry Studio',
     tag: 'Support & Gmail',
     description:
-      'Consolidate primary Gmail customer threads and internal inquiries in a single workspace queue, with instant AI reply drafting grounded in company policies.',
+      'Manage Gmail threads and customer tickets with policy-grounded AI reply drafts.',
     icon: Mail,
     accentClass: 'is-indigo',
   },
   {
     id: 'sheet-copilot',
-    title: 'Natural-Language Spreadsheet Intelligence',
+    title: 'Natural-Language Sheets',
     tag: 'Data Copilot',
     description:
-      'Query, filter, and stage row updates in plain English with a 5-turn conversational memory window and live row highlighting directly in the operational grid.',
+      'Filter rows and stage updates in plain English with live table highlighting.',
     icon: FileSpreadsheet,
     accentClass: 'is-blue',
   },
   {
     id: 'cross-doc-rag',
-    title: 'Cross-Document RAG & Verifiable Citations',
+    title: 'Cross-Document RAG',
     tag: 'Provenance',
     description:
-      'Combine relational tables with uploaded PDFs, Markdown runbooks, and Google Docs. Inspect exact document chunks and matched table rows from clickable citation badges.',
+      'Cross-reference PDFs, Docs, and tables with clickable source citations.',
     icon: FileText,
     accentClass: 'is-teal',
   },
   {
     id: 'socratic-gate',
-    title: 'Socratic Conflict Resolution Gate',
-    tag: 'Human Governance',
+    title: 'Socratic Resolution Gate',
+    tag: 'Governance',
     description:
-      'Automatically detects ambiguous instructions or conflicting compliance clauses across sources, pausing for explicit human policy decisions before generating mutations.',
+      'Pauses for human clarification whenever rules conflict or scope is unclear.',
     icon: GitBranch,
     accentClass: 'is-amber',
   },
   {
     id: 'stage-preview',
-    title: 'Stage 1 Diff Preview & Atomic Execution',
-    tag: 'Zero-Guess Writes',
+    title: 'Stage 1 Diff Previews',
+    tag: 'Safe Writes',
     description:
-      'Review side-by-side Before/After database diffs alongside personalized outbound customer email drafts before approving Stage 2 atomic execution.',
+      'Inspect Before/After table diffs and email drafts before atomic execution.',
     icon: ShieldCheck,
     accentClass: 'is-emerald',
   },
   {
     id: 'google-bulk',
-    title: 'Google Workspace Sync & Targeted Campaigns',
+    title: 'Google Workspace Sync',
     tag: 'Integrations',
     description:
-      'Import live Google Sheets and Docs via OAuth, maintain workspace-scoped contact CSV rosters, and preview AI-drafted bulk updates with full dispatch history.',
+      'Import Google Sheets and Docs via OAuth and run targeted campaigns.',
     icon: Cloud,
     accentClass: 'is-violet',
   },
@@ -120,34 +115,30 @@ const CORE_CAPABILITIES = [
 const WORKFLOW_STEPS = [
   {
     step: '01',
-    title: 'Connect Operational Sources',
-    description:
-      'Link your primary Gmail inbox, upload CSV datasets or Google Sheets, and index SLA policies, compliance manuals, and vendor notices.',
+    title: 'Connect Sources',
+    description: 'Link Gmail, upload CSVs or Google Sheets, and index SLA docs.',
   },
   {
     step: '02',
-    title: 'Converse & Disambiguate',
-    description:
-      'Issue multi-turn natural-language instructions. When policies conflict or scope is ambiguous, the Socratic gate requests explicit clarification.',
+    title: 'Prompt & Clarify',
+    description: 'Ask in natural language; resolve policy conflicts interactively.',
   },
   {
     step: '03',
-    title: 'Inspect Stage 1 Action Previews',
-    description:
-      'Audit exact database field changes, matched records, generated customer emails, and source document citations inside the main workspace.',
+    title: 'Inspect Stage 1 Diffs',
+    description: 'Review matched rows, table changes, emails, and citations.',
   },
   {
     step: '04',
-    title: 'Approve & Execute Atomically',
-    description:
-      'Commit approved database mutations and dispatch verified customer communications with automatic table refresh and full audit trails.',
+    title: 'Approve & Execute',
+    description: 'Commit verified updates and send emails with audit trails.',
   },
 ];
 
 const HERO_PILLARS = [
-  { value: 'Stage 1 -> Stage 2', label: 'Human-approved diffs & emails before commit' },
-  { value: '5-Turn Memory', label: 'Context-aware follow-up queries on live tables' },
-  { value: 'Full Provenance', label: 'Clickable row ID & policy chunk citations' },
+  { value: 'Stage 1 -> Stage 2', label: 'Preview diffs before commit' },
+  { value: '5-Turn Memory', label: 'Context-aware table queries' },
+  { value: 'Full Provenance', label: 'Row & document citations' },
 ];
 
 function extractYouTubeEmbedUrl(rawUrl) {
@@ -393,21 +384,14 @@ export default function LandingPage() {
               variants={fadeUpVariant}
               custom={0}
             >
-              <div className="landing-eyebrow-pill">
-                <Sparkles size={13} />
-                <span>MAXITEXT AI STUDIO • AUTONOMOUS B2B OPERATIONS</span>
-              </div>
-
               <h1 className="landing-hero-title">
-                Turn fragmented support queues &amp; company data into{' '}
+                Turn support queues &amp; company data into{' '}
                 <span className="landing-hero-accent">verified B2B action.</span>
               </h1>
 
               <p className="landing-hero-subtitle">
-                MaxiText AI Studio unites customer Gmail threads, live operational datasets, and
-                policy knowledge bases inside one human-governed AI platform. Query across
-                sources, resolve policy conflicts interactively, and review Stage 1 diffs before
-                committing.
+                Unite Gmail threads, live spreadsheets, and policy docs with human-approved Stage 1
+                diffs before committing.
               </p>
 
               {/* Active Session Status Bar (Shown only when user is signed in) */}
@@ -784,7 +768,7 @@ export default function LandingPage() {
         </section>
 
         {/* =================================================================
-            SECTION 2: CORE FUNCTIONALITIES & FEATURE SET
+            SECTION 2: CORE FUNCTIONALITIES
             ================================================================= */}
         <section id="capabilities" className="landing-section">
           <motion.div
@@ -794,13 +778,12 @@ export default function LandingPage() {
             viewport={{ once: true, amount: 0.25 }}
             variants={fadeUpVariant}
           >
-            <span className="landing-section-eyebrow">CORE FUNCTIONALITIES</span>
+            <span className="landing-section-eyebrow">CAPABILITIES</span>
             <h2 className="landing-section-title">
-              Engineered for reliable B2B execution, not blind automation
+              Built for verified B2B execution
             </h2>
             <p className="landing-section-subtitle">
-              Every customer communication, dataset lookup, and spreadsheet mutation passes
-              through deterministic grounding, provenance citations, and optional human sign-off.
+              Grounded answers, policy citations, and human-approved updates in one workspace.
             </p>
           </motion.div>
 
@@ -833,7 +816,7 @@ export default function LandingPage() {
         </section>
 
         {/* =================================================================
-            SECTION 3: HOW MAXITEXT AI STUDIO WORKS (4-STEP PIPELINE)
+            SECTION 3: 4-STEP PIPELINE
             ================================================================= */}
         <section id="workflow" className="landing-section">
           <motion.div
@@ -844,9 +827,9 @@ export default function LandingPage() {
             variants={fadeUpVariant}
           >
             <div className="landing-section-header" style={{ marginBottom: '26px' }}>
-              <span className="landing-section-eyebrow">AUTONOMOUS EXECUTION PIPELINE</span>
+              <span className="landing-section-eyebrow">WORKFLOW</span>
               <h2 className="landing-section-title">
-                From natural-language intent to audited commit in four stages
+                From prompt to audited commit in four steps
               </h2>
             </div>
 
@@ -880,7 +863,7 @@ export default function LandingPage() {
         </section>
 
         {/* =================================================================
-            SECTION 4: YOUTUBE PRODUCT TUTORIAL PLACEHOLDER
+            SECTION 4: VIDEO WALKTHROUGH
             ================================================================= */}
         <section id="tutorial" className="landing-section">
           <motion.div
@@ -891,7 +874,7 @@ export default function LandingPage() {
             variants={fadeUpVariant}
           >
             <div className="landing-tutorial-grid">
-              {/* Left: Video Player / YouTube Link Placeholder Stage */}
+              {/* Left: Video Player */}
               <div className="landing-tutorial-stage-wrap">
                 {embedUrl ? (
                   <div className="landing-video-frame">
@@ -926,15 +909,15 @@ export default function LandingPage() {
                       </motion.div>
 
                       <div className="landing-video-placeholder-title">
-                        Product Walkthrough Video Placeholder
+                        Product Walkthrough
                       </div>
                       <p className="landing-video-placeholder-caption">
-                        Guided video walkthrough will appear here once the YouTube link is added.
+                        Guided video walkthrough of MaxiText AI Studio.
                       </p>
 
                       <div className="landing-youtube-link-pill">
                         <PlayCircle size={14} color="#dc2626" />
-                        <span>YouTube Tutorial Link • Placeholder Ready</span>
+                        <span>YouTube Walkthrough</span>
                       </div>
                     </div>
                   </div>
@@ -943,14 +926,13 @@ export default function LandingPage() {
 
               {/* Right: Walkthrough Overview */}
               <div className="landing-tutorial-details">
-                <span className="landing-section-eyebrow">VIDEO WALKTHROUGH</span>
+                <span className="landing-section-eyebrow">WALKTHROUGH</span>
                 <h2 className="landing-tutorial-heading">
-                  See multi-source triage &amp; Socratic staging live
+                  See multi-source triage live
                 </h2>
                 <p className="landing-tutorial-copy">
-                  Watch the full walkthrough of MaxiText AI Studio: workspace onboarding,
-                  natural-language dataset queries, cross-document RAG policy citations, Socratic
-                  conflict resolution, Stage 1 diff &amp; email previews, and customer inquiry triage.
+                  Quick tour of workspace setup, natural-language sheet queries, policy citations,
+                  and Stage 1 diff previews.
                 </p>
 
                 <div className="landing-tutorial-cta-row">
@@ -973,7 +955,7 @@ export default function LandingPage() {
       </main>
 
       {/* =================================================================
-          LANDING-PAGE-ONLY FOOTER + DEVELOPER INFORMATION PLACEHOLDER
+          LANDING-PAGE-ONLY FOOTER + DEVELOPER CREDENTIALS
           ================================================================= */}
       <footer className="landing-footer">
         <div className="landing-footer-inner">
@@ -987,24 +969,13 @@ export default function LandingPage() {
                 <div>
                   <div className="landing-footer-brand-name">MaxiText AI Studio</div>
                   <div className="landing-footer-brand-sub">
-                    Autonomous B2B Operations Platform
+                    Autonomous B2B Operations
                   </div>
                 </div>
               </div>
               <p className="landing-footer-desc">
-                Production-grade AI operations infrastructure combining email triage, natural-language
-                dataset queries, cross-document RAG provenance, and human-approved commits.
+                Human-governed AI workspace uniting email triage, spreadsheets, and policy docs.
               </p>
-              <div className="landing-footer-badges">
-                <span className="landing-footer-mini-pill">
-                  <Database size={11} />
-                  Multi-Tenant Workspaces
-                </span>
-                <span className="landing-footer-mini-pill">
-                  <Send size={11} />
-                  Human-Approved Writes
-                </span>
-              </div>
             </div>
 
             {/* Column 2: Navigation */}
@@ -1018,39 +989,28 @@ export default function LandingPage() {
                 </li>
                 <li>
                   <button type="button" onClick={() => scrollToSection('capabilities')}>
-                    Core Capabilities
+                    Capabilities
                   </button>
                 </li>
                 <li>
                   <button type="button" onClick={() => scrollToSection('workflow')}>
-                    Execution Pipeline
+                    Workflow
                   </button>
                 </li>
                 <li>
                   <button type="button" onClick={() => scrollToSection('tutorial')}>
-                    YouTube Tutorial
+                    Walkthrough
                   </button>
                 </li>
               </ul>
             </div>
 
-            {/* Column 3: Service Capabilities */}
-            <div className="landing-footer-col">
-              <h4 className="landing-footer-heading">Capabilities</h4>
-              <ul className="landing-footer-list-static">
-                <li>Gmail Triage &amp; Draft Studio</li>
-                <li>NL Sheet Query &amp; Mutations</li>
-                <li>Socratic Conflict Resolution</li>
-                <li>Google Sheets &amp; Docs Sync</li>
-              </ul>
-            </div>
-
-            {/* Column 4: Developer Information Placeholder */}
+            {/* Column 3: Developer Credentials & Issue Reporting */}
             <div id="developer-info" className="landing-footer-dev-card">
               <div className="landing-footer-dev-header">
                 <span className="landing-footer-dev-badge">
                   <Code2 size={12} />
-                  <span>Developer Info Placeholder</span>
+                  <span>Developer &amp; Support</span>
                 </span>
                 <Layers size={14} color="#818cf8" />
               </div>
@@ -1063,47 +1023,50 @@ export default function LandingPage() {
 
                 <div className="landing-footer-dev-meta">
                   <div>
-                    <Mail size={12} />
-                    <span>{DEVELOPER_INFO.email}</span>
+                    <Mail size={12} style={{ flexShrink: 0 }} />
+                    <a
+                      href={`mailto:${DEVELOPER_INFO.email}`}
+                      className="landing-footer-dev-link"
+                    >
+                      {DEVELOPER_INFO.email}
+                    </a>
                   </div>
                   <div>
-                    <Globe size={12} />
-                    <span>
-                      {DEVELOPER_INFO.portfolioUrl || 'Portfolio / Website (Placeholder)'}
-                    </span>
+                    <Globe size={12} style={{ flexShrink: 0 }} />
+                    <a
+                      href={DEVELOPER_INFO.portfolioUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="landing-footer-dev-link"
+                    >
+                      {DEVELOPER_INFO.portfolioUrl}
+                    </a>
                   </div>
                 </div>
 
-                <div className="landing-footer-dev-links">
-                  {DEVELOPER_INFO.githubUrl ? (
-                    <a
-                      href={DEVELOPER_INFO.githubUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="landing-dev-chip"
-                    >
-                      GitHub
-                    </a>
-                  ) : (
-                    <span className="landing-dev-chip is-placeholder">
-                      GitHub URL Placeholder
-                    </span>
-                  )}
+                <p className="landing-footer-report-note">
+                  Notice a bug or unexpected behavior? Please report the issue directly using the
+                  developer credentials above.
+                </p>
 
-                  {DEVELOPER_INFO.linkedinUrl ? (
-                    <a
-                      href={DEVELOPER_INFO.linkedinUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="landing-dev-chip"
-                    >
-                      LinkedIn
-                    </a>
-                  ) : (
-                    <span className="landing-dev-chip is-placeholder">
-                      LinkedIn URL Placeholder
-                    </span>
-                  )}
+                <div className="landing-footer-dev-links">
+                  <a
+                    href={`mailto:${DEVELOPER_INFO.email}?subject=${encodeURIComponent('MaxiText AI Studio - Issue Report')}`}
+                    className="landing-dev-chip"
+                  >
+                    <Mail size={11} />
+                    <span>Report Issue ({DEVELOPER_INFO.email})</span>
+                  </a>
+
+                  <a
+                    href={DEVELOPER_INFO.portfolioUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="landing-dev-chip is-secondary"
+                  >
+                    <ExternalLink size={11} />
+                    <span>Portfolio</span>
+                  </a>
                 </div>
               </div>
             </div>
@@ -1111,11 +1074,11 @@ export default function LandingPage() {
 
           <div className="landing-footer-bottom">
             <span>
-              &copy; {new Date().getFullYear()} MaxiText AI Studio. All rights reserved.
+              &copy; {new Date().getFullYear()} MaxiText AI Studio. Built by {DEVELOPER_INFO.name}.
             </span>
             <span className="landing-footer-status">
               <Check size={12} color="#34d399" />
-              <span>Service Provider Edition • Production Workspace Ready</span>
+              <span>Workspace Ready</span>
             </span>
           </div>
         </div>

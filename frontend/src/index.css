@@ -2154,6 +2154,43 @@ button:disabled {
   box-shadow: 0 1px 2px rgba(45, 38, 28, 0.03);
 }
 
+.b2b-chat-tips-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px 13px;
+  border-radius: 10px;
+  background-color: #ffffff;
+  border: 1px solid var(--border-warm);
+  box-shadow: 0 1px 2px rgba(45, 38, 28, 0.03);
+}
+
+.b2b-chat-tips-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--primary-indigo-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.b2b-chat-tips-list {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.b2b-chat-tips-list strong {
+  color: var(--text-primary);
+}
+
 .b2b-chat-sample-chip {
   text-align: left;
   padding: 6px 10px;
@@ -2933,24 +2970,25 @@ button:disabled {
 .landing-main-container {
   position: relative;
   z-index: 1;
-  max-width: 1240px;
+  max-width: 1200px;
   width: 100%;
   margin: 0 auto;
-  padding: 36px 24px 64px 24px;
+  padding: 48px 28px 84px 28px;
   display: flex;
   flex-direction: column;
-  gap: 56px;
+  gap: 72px;
 }
 
 /* Hero Section */
 .landing-hero-section {
   width: 100%;
+  padding-top: 6px;
 }
 
 .landing-hero-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.18fr) minmax(350px, 0.88fr);
-  gap: 36px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(350px, 0.85fr);
+  gap: 44px;
   align-items: center;
 }
 
@@ -2958,7 +2996,7 @@ button:disabled {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 18px;
+  gap: 20px;
 }
 
 .landing-eyebrow-pill {
@@ -3642,9 +3680,9 @@ button:disabled {
 }
 
 .landing-footer-inner {
-  max-width: 1240px;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 46px 24px 26px 24px;
+  padding: 52px 28px 28px 28px;
   display: flex;
   flex-direction: column;
   gap: 32px;
@@ -3652,8 +3690,8 @@ button:disabled {
 
 .landing-footer-grid {
   display: grid;
-  grid-template-columns: 1.35fr 0.75fr 0.85fr 1.35fr;
-  gap: 28px;
+  grid-template-columns: 1.15fr 0.7fr 1.35fr;
+  gap: 32px;
   align-items: start;
 }
 
@@ -3742,9 +3780,9 @@ button:disabled {
 
 .landing-footer-dev-card {
   background-color: rgba(255, 255, 255, 0.04);
-  border: 1px dashed rgba(165, 176, 242, 0.35);
+  border: 1px solid rgba(165, 176, 242, 0.25);
   border-radius: 14px;
-  padding: 16px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -3769,7 +3807,7 @@ button:disabled {
 
 .landing-footer-dev-name {
   font-family: 'Plus Jakarta Sans', sans-serif;
-  font-size: 14.5px;
+  font-size: 15px;
   font-weight: 700;
   color: #ffffff;
 }
@@ -3783,7 +3821,7 @@ button:disabled {
 .landing-footer-dev-meta {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
   margin-top: 10px;
   font-size: 12px;
   color: #cbd5e1;
@@ -3792,32 +3830,64 @@ button:disabled {
 .landing-footer-dev-meta > div {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
+  min-width: 0;
+}
+
+.landing-footer-dev-link {
+  color: #e2e8f0;
+  text-decoration: none;
+  word-break: break-word;
+  transition: color 0.15s ease;
+}
+
+.landing-footer-dev-link:hover {
+  color: #a5b4fc;
+  text-decoration: underline;
+}
+
+.landing-footer-report-note {
+  margin-top: 10px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #9ca3af;
 }
 
 .landing-footer-dev-links {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   margin-top: 12px;
 }
 
 .landing-dev-chip {
-  padding: 3px 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
   border-radius: var(--radius-pill);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
   text-decoration: none;
   color: #ffffff;
-  background-color: rgba(99, 102, 241, 0.25);
-  border: 1px solid rgba(129, 140, 248, 0.45);
+  background-color: rgba(99, 102, 241, 0.28);
+  border: 1px solid rgba(129, 140, 248, 0.5);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
-.landing-dev-chip.is-placeholder {
-  color: #9ca3af;
-  background-color: rgba(255, 255, 255, 0.05);
-  border-style: dashed;
-  border-color: rgba(255, 255, 255, 0.16);
+.landing-dev-chip:hover {
+  background-color: rgba(99, 102, 241, 0.45);
+  border-color: rgba(165, 180, 252, 0.75);
+}
+
+.landing-dev-chip.is-secondary {
+  color: #e2e8f0;
+  background-color: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.landing-dev-chip.is-secondary:hover {
+  background-color: rgba(255, 255, 255, 0.14);
 }
 
 .landing-footer-bottom {
@@ -3839,9 +3909,14 @@ button:disabled {
 }
 
 @media (max-width: 1040px) {
+  .landing-main-container {
+    padding: 36px 20px 64px 20px;
+    gap: 56px;
+  }
+
   .landing-hero-grid {
     grid-template-columns: minmax(0, 1fr);
-    gap: 26px;
+    gap: 28px;
   }
 
   .landing-hero-copy,
@@ -3870,31 +3945,12 @@ button:disabled {
 
 @media (max-width: 680px) {
   .landing-main-container {
-    padding: 20px 14px 44px 14px;
-    gap: 36px;
+    padding: 24px 16px 48px 16px;
+    gap: 44px;
   }
 
   .landing-hero-copy {
-    gap: 14px;
-  }
-
-  .landing-eyebrow-pill {
-    font-size: 9.5px;
-    line-height: 1.35;
-    letter-spacing: 0.03em;
-    padding: 5px 11px;
-    gap: 6px;
-    white-space: normal;
-    max-width: 100%;
-  }
-
-  .landing-eyebrow-pill > svg {
-    flex-shrink: 0;
-  }
-
-  .landing-eyebrow-pill > span {
-    min-width: 0;
-    overflow-wrap: break-word;
+    gap: 16px;
   }
 
   .landing-hero-title {
@@ -3911,6 +3967,10 @@ button:disabled {
     max-width: 100%;
   }
 
+  .landing-section-header {
+    margin-bottom: 22px;
+  }
+
   .landing-section-title,
   .landing-tutorial-heading {
     font-size: clamp(20px, 5.4vw, 25px);
@@ -3922,11 +3982,17 @@ button:disabled {
   .landing-pipeline-grid,
   .landing-footer-grid {
     grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
   }
 
   .landing-pipeline-surface,
   .landing-tutorial-card,
   .landing-auth-card {
-    padding: 18px 14px;
+    padding: 20px 16px;
+  }
+
+  .landing-footer-inner {
+    padding: 36px 16px 24px 16px;
+    gap: 26px;
   }
 }
