@@ -15,6 +15,7 @@ const {
 } = require('./emailService');
 const {
   generateStructuredJsonWithRetry,
+  hasCustomWorkspaceGeminiGenerator,
 } = require('./geminiService');
 const {
   routeWorkspaceIntent,
@@ -32,6 +33,7 @@ const {
 } = require('./crossRagService');
 const {
   generateCrossSourceReadAnswer,
+  executePreplannedSheetQuery,
 } = require('./workspaceReadService');
 const {
   tryExecuteFastTableQuery,
@@ -3083,12 +3085,16 @@ async function executeWorkspaceOperation({
   }
 
   const normalizedHistory = normalizeConversationHistory(history);
+  const metadataRows = hasCustomWorkspaceGeminiGenerator()
+    ? null
+    : await listWorkspaceTableMetadataCached(businessId);
 
   const fastQueryResult = await tryExecuteFastTableQuery({
     businessId,
     prompt,
     entity,
     history: normalizedHistory,
+    metadataRows,
   });
   if (fastQueryResult) {
     return fastQueryResult;
@@ -3099,6 +3105,7 @@ async function executeWorkspaceOperation({
     prompt,
     entity,
     history: normalizedHistory,
+    metadataRows,
   });
   if (fastMutationRoute) return fastMutationRoute;
 
@@ -3117,6 +3124,7 @@ async function executeWorkspaceOperation({
     prompt,
     entity,
     history: normalizedHistory,
+    metadataRows,
   });
 
   if (routed.intent === 'cross_source_read') {
@@ -3127,7 +3135,10 @@ async function executeWorkspaceOperation({
       conversationHistory: normalizedHistory,
       prefetchedTables: routed.context?.tables || null,
       prefetchedChunks: routed.context?.chunks || null,
+      prefetchedMetadata: metadataRows,
       preferredEntity: routed.entity || entity || null,
+      prevalidatedPlan: routed.prevalidatedPlan || null,
+      interpretationNote: routed.interpretation_note || '',
     });
     return {
       status: 'CONVERSATIONAL',
@@ -3141,16 +3152,60 @@ async function executeWorkspaceOperation({
     };
   }
 
-  if (routed.intent === 'sheet_query' || routed.intent === 'sheet_mutation') {
+  if (routed.intent === 'sheet_query') {
+    if (Array.isArray(routed.prevalidatedPlan) && routed.prevalidatedPlan.length === 1) {
+      return await executePreplannedSheetQuery({
+        businessId,
+        prompt,
+        plan: routed.prevalidatedPlan,
+        interpretationNote: routed.interpretation_note || '',
+        conversationHistory: normalizedHistory,
+      });
+    }
+    if (
+      (Array.isArray(routed.prevalidatedPlan) && routed.prevalidatedPlan.length > 1) ||
+      (!hasCustomWorkspaceGeminiGenerator() && routed.context?.tables?.length > 0)
+    ) {
+      const result = await generateCrossSourceReadAnswer({
+        businessId,
+        prompt,
+        targetEntities: routed.target_entities || [],
+        conversationHistory: normalizedHistory,
+        prefetchedTables: routed.context?.tables || null,
+        prefetchedChunks: routed.context?.chunks || null,
+        prefetchedMetadata: metadataRows,
+        preferredEntity: routed.entity || entity || null,
+        prevalidatedPlan: routed.prevalidatedPlan || null,
+        interpretationNote: routed.interpretation_note || '',
+      });
+      return {
+        status: 'CONVERSATIONAL',
+        conversational: true,
+        intent: 'cross_source_read',
+        message: result.message,
+        answer: result.answer,
+        rows: result.rows,
+        highlighted_rows: result.highlighted_rows,
+        citations: result.citations,
+      };
+    }
     return {
-      status: routed.intent === 'sheet_query' ? 'SHEET_QUERY' : 'SHEET_MUTATION',
-      intent: routed.intent,
+      status: 'SHEET_QUERY',
+      intent: 'sheet_query',
       entity: routed.entity,
       prompt,
-      message:
-        routed.intent === 'sheet_query'
-          ? 'Running this request through the spreadsheet query workflow.'
-          : 'Preparing a validated spreadsheet mutation preview.',
+      message: 'Running this request through the spreadsheet query workflow.',
+      citations: [],
+    };
+  }
+
+  if (routed.intent === 'sheet_mutation') {
+    return {
+      status: 'SHEET_MUTATION',
+      intent: 'sheet_mutation',
+      entity: routed.entity,
+      prompt,
+      message: 'Preparing a validated spreadsheet mutation preview.',
       citations: [],
     };
   }

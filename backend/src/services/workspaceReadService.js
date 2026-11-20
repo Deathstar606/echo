@@ -17,6 +17,11 @@ const {
   formatConversationHistoryForPrompt,
   resolveIdentifierFilterForIds,
 } = require('../utils/conversationHistory');
+const { serializeTableForPrompt } = require('../utils/schemaPromptSerializer');
+const {
+  buildDeterministicQuerySummary,
+  buildHighlightedRows,
+} = require('./fastTableQueryService');
 
 const READ_PLAN_SCHEMA = {
   type: 'OBJECT',
@@ -693,6 +698,45 @@ function selectPassagesForRead(
   }));
 }
 
+async function applyFollowUpIdChaining(
+  tablePlan,
+  businessId,
+  prompt,
+  normalizedHistory,
+  activeCtx
+) {
+  const shouldChainPriorIds =
+    normalizedHistory.length > 0 &&
+    Array.isArray(activeCtx?.matchedRowIds) &&
+    activeCtx.matchedRowIds.length > 0 &&
+    hasFollowUpReference(prompt) &&
+    !hasExplicitScopeReset(prompt);
+  const logic = String(tablePlan.filterLogic || tablePlan.filter_logic || 'AND').toUpperCase();
+  if (
+    !shouldChainPriorIds ||
+    logic !== 'AND' ||
+    (activeCtx.activeTargetTable &&
+      tablePlan.table.tableName.toLowerCase() !== activeCtx.activeTargetTable.toLowerCase())
+  ) {
+    return;
+  }
+  const idFilter = await resolveIdentifierFilterForIds(
+    tablePlan.table.schema,
+    businessId,
+    activeCtx.matchedRowIds,
+    query,
+    quoteIdentifier
+  );
+  if (
+    idFilter &&
+    !tablePlan.filters.some(
+      (f) => String(f.field || '').toLowerCase() === idFilter.field.toLowerCase()
+    )
+  ) {
+    tablePlan.filters.push(validateFilter(tablePlan.table.schema, idFilter));
+  }
+}
+
 async function generateCrossSourceReadAnswer({
   businessId,
   prompt,
@@ -700,7 +744,10 @@ async function generateCrossSourceReadAnswer({
   conversationHistory = [],
   prefetchedTables = null,
   prefetchedChunks = null,
+  prefetchedMetadata = null,
   preferredEntity = null,
+  prevalidatedPlan = null,
+  interpretationNote = '',
 }) {
   const normalizedHistory = normalizeConversationHistory(conversationHistory);
   const activeCtx = getLatestActiveContext(
@@ -741,6 +788,7 @@ async function generateCrossSourceReadAnswer({
     const discovered = await discoverWorkspaceSources(businessId, {
       targetEntities: effectiveTargetEntities,
       includeRows: false,
+      prefetchedMetadata,
     });
     tables =
       effectiveTargetEntities.length > 0
@@ -768,35 +816,33 @@ async function generateCrossSourceReadAnswer({
     ? `\nCONVERSATION CONTEXT (last ${normalizedHistory.length} turn(s); prior active table: ${activeCtx.activeTargetTable || 'none'}; prior matched_row_ids: ${JSON.stringify((activeCtx.matchedRowIds || []).slice(0, 40))}; prior filter summary: ${JSON.stringify(activeCtx.appliedFilterSummary || '')}):\n${formattedHistory}\n- FOLLOW-UP CHAINING RULE: If LATEST USER REQUEST uses pronouns/narrowing cues ("those", "them", "these", "of those", "only the ones...") referring to prior results on ${activeCtx.activeTargetTable || 'a prior table'}, chain the prior active filters/matched_row_ids with any new filter conditions.\n`
     : '';
 
-  const systemSchemaCols = new Set([
-    'business_id',
-    'workspace_id',
-    'user_id',
-    'created_at',
-    'updated_at',
-    '_google_row_index',
-  ]);
-  const compactSchemas = tables.map((table) => ({
-    table_name: table.tableName,
-    row_count: table.rowCount,
-    columns: Object.values(table.schema.columns || {})
-      .filter((column) => !systemSchemaCols.has(String(column.exactName || '').toLowerCase()))
-      .map((column) => ({
-        name: column.exactName,
-        type: column.type,
-        queryable: Boolean(column.queryable),
-        description: column.description || undefined,
-        values: table.schema.representativeValues?.[column.exactName]?.slice(0, 5),
-      })),
-  }));
-  const planPassages = selectPassagesForRead(chunks, { maxChunks: 8, maxChars: 950 });
-  const synthesisPassages = selectPassagesForRead(chunks, { maxChunks: 8, maxChars: 850 });
+  const compactSchemas = tables.map((table) => {
+    const { table: tableNameKey, ...rest } = serializeTableForPrompt(table, {
+      includeMutability: false,
+    });
+    return {
+      table_name: tableNameKey,
+      ...rest,
+    };
+  });
+  const planPassages = selectPassagesForRead(chunks, { maxChunks: 6, maxChars: 800 });
+  const hasPrevalidatedPlan =
+    Array.isArray(prevalidatedPlan) && prevalidatedPlan.length > 0;
+  const synthesisPassages = selectPassagesForRead(
+    chunks,
+    hasPrevalidatedPlan
+      ? { maxChunks: 5, maxChars: 650 }
+      : { maxChunks: 8, maxChars: 850 }
+  );
 
-  const planPrompt = `Create a read-only query plan for the latest user request using only these active workspace sources.
+  let plan = hasPrevalidatedPlan ? prevalidatedPlan : null;
+  if (!plan) {
+    const planPrompt = `Create a read-only query plan for the latest user request using only these active workspace sources.
 Return structured JSON only. Never return SQL.
 CURRENT_DATE (UTC): ${currentDateIso}
 - Select only tables needed to answer the request.
 - Use exact column names and supported filter operators from the schema.
+- If the user uses conceptual, colloquial, or status-adjacent terms that do not match an exact column name, inspect all column names, summary, range, and categorical values in ACTIVE TABLE SCHEMAS to infer the closest valid column(s) and enum value(s) on the first attempt—never invent non-existent column names.
 - Apply document-derived eligibility criteria as filters and use AND/OR only as requested by the documents or user.
 - DOCUMENT-ENUMERATED CODES / EXCLUSIONS RULE: When the documents list specific batch codes, SKUs, unit IDs, or identifiers as qualifying/recalled (check ALL pages/addendums in RELEVANT DOCUMENT PASSAGES) and exclude others, filter explicitly on those qualifying codes (e.g., "in" filter) rather than running an unfiltered full-table scan.
 - DATE / DORMANCY DIRECTION RULE: When checking "inactive for > N days", "no payment in N+ days", or "older than N days" against CURRENT_DATE (${currentDateIso}), a date column MUST be EARLIER (use "less_than_or_equal" or "less_than" with YYYY-MM-DD = CURRENT_DATE minus N days, never "greater_than").
@@ -805,6 +851,7 @@ CURRENT_DATE (UTC): ${currentDateIso}
 - Numeric summaries must use aggregates; row formulas must list exact numeric columns and an arithmetic operation. Derived numeric thresholds (for example, column A minus column B >= a policy threshold) must be emitted as calculation_filters so PostgreSQL applies them before returning rows.
 - Do not infer fields absent from the schemas. If no safe query can be formed, return an empty table_queries array.
 - A query with no filters is allowed only when the user explicitly asks for a full-table listing or a whole-table aggregate.
+- Return ONLY JSON with key "table_queries": array of { "table_name": string, "filters": [{ "field": string, "operator": "equals"|"not_equals"|"contains"|"not_contains"|"starts_with"|"ends_with"|"in"|"greater_than"|"greater_than_or_equal"|"less_than"|"less_than_or_equal"|"between"|"relative_days_ago"|"this_month", "value": string }], "calculation_filters": [{ "operation": "add"|"subtract"|"multiply"|"divide", "fields": [string, string], "operator": "greater_than"|"greater_than_or_equal"|"less_than"|"less_than_or_equal"|"equals"|"not_equals"|"between", "value": string }], "filter_logic": "AND"|"OR", "sort": [{ "field": string, "direction": "asc"|"desc" }], "limit": number, "aggregates": [{ "operation": "count"|"sum"|"average"|"min"|"max", "field": string }], "calculations": [{ "operation": "add"|"subtract"|"multiply"|"divide", "fields": [string, string], "aggregate": "count"|"sum"|"average"|"min"|"max" }] }.
 
 ACTIVE TABLE SCHEMAS:
 ${JSON.stringify(compactSchemas)}
@@ -815,11 +862,12 @@ ${historySection}
 LATEST USER REQUEST:
 ${prompt}`;
 
-  const plan = await generateStructuredJsonWithRetry(
-    planPrompt,
-    (parsed) => validateReadPlan(parsed, tables, prompt, chunks),
-    { maxRetries: 1, responseSchema: READ_PLAN_SCHEMA, stage: 'cross_source_read_plan' }
-  );
+    plan = await generateStructuredJsonWithRetry(
+      planPrompt,
+      (parsed) => validateReadPlan(parsed, tables, prompt, chunks),
+      { maxRetries: 1, responseSchema: null, stage: 'cross_source_read_plan' }
+    );
+  }
   if (plan.length === 0 && tables.length > 0) {
     return {
       message: 'I could not safely translate this question into a query over the active workspace columns. Please clarify the table or criteria.',
@@ -830,36 +878,15 @@ ${prompt}`;
     };
   }
 
-  const shouldChainPriorIds =
-    normalizedHistory.length > 0 &&
-    activeCtx.matchedRowIds.length > 0 &&
-    hasFollowUpReference(prompt) &&
-    !hasExplicitScopeReset(prompt);
-
   const results = [];
   for (const tablePlan of plan) {
-    if (
-      shouldChainPriorIds &&
-      tablePlan.filter_logic === 'AND' &&
-      (!activeCtx.activeTargetTable ||
-        tablePlan.table.tableName.toLowerCase() === activeCtx.activeTargetTable.toLowerCase())
-    ) {
-      const idFilter = await resolveIdentifierFilterForIds(
-        tablePlan.table.schema,
-        businessId,
-        activeCtx.matchedRowIds,
-        query,
-        quoteIdentifier
-      );
-      if (
-        idFilter &&
-        !tablePlan.filters.some(
-          (f) => String(f.field || '').toLowerCase() === idFilter.field.toLowerCase()
-        )
-      ) {
-        tablePlan.filters.push(validateFilter(tablePlan.table.schema, idFilter));
-      }
-    }
+    await applyFollowUpIdChaining(
+      tablePlan,
+      businessId,
+      prompt,
+      normalizedHistory,
+      activeCtx
+    );
     const execution = await executeReadQuery(businessId, tablePlan);
     results.push({
       table_name: tablePlan.table.tableName,
@@ -958,6 +985,7 @@ Return JSON with:
 2. "matched_row_ids": array of exact "_row_id" strings from VERIFIED SQL OUTPUT whose rows ACTUALLY qualify and satisfy the user question and ALL governing document criteria (return [] if zero rows qualify or if excluded; never include rejected or merely contextual rows).
 
 CURRENT_DATE (UTC): ${currentDateIso}
+${interpretationNote ? `\nMAPPING NOTE FROM PLANNER: ${interpretationNote}` : ''}
 
 USER QUESTION:
 ${prompt}
@@ -977,19 +1005,7 @@ ${JSON.stringify(synthesisPassages)}`;
     },
     {
       maxRetries: 1,
-      responseSchema: {
-        type: 'OBJECT',
-        properties: {
-          answer: { type: 'STRING' },
-          matched_row_ids: {
-            type: 'ARRAY',
-            items: { type: 'STRING' },
-            description:
-              'Exact _row_id values from VERIFIED SQL OUTPUT that satisfy the user question and document rules. Return [] if zero rows qualify.',
-          },
-        },
-        required: ['answer', 'matched_row_ids'],
-      },
+      responseSchema: null,
       stage: 'cross_source_read_synthesis',
     }
   );
@@ -1047,6 +1063,116 @@ ${JSON.stringify(synthesisPassages)}`;
   };
 }
 
+/**
+ * Executes a single-table read plan already validated during unified `route_and_plan`,
+ * completing SQL execution and deterministic response formatting in 0 extra LLM calls (1 LLM call total).
+ *
+ * @param {object} params
+ * @returns {Promise<object>}
+ */
+async function executePreplannedSheetQuery({
+  businessId,
+  prompt,
+  plan = [],
+  interpretationNote = '',
+  conversationHistory = [],
+}) {
+  const tablePlan = Array.isArray(plan) ? plan[0] : plan;
+  if (!tablePlan?.table) {
+    throw new AppError('Invalid preplanned single-table query.', 400);
+  }
+  const normalizedHistory = normalizeConversationHistory(conversationHistory);
+  const activeCtx = getLatestActiveContext(normalizedHistory, tablePlan.table.tableName);
+  await applyFollowUpIdChaining(
+    tablePlan,
+    businessId,
+    prompt,
+    normalizedHistory,
+    activeCtx
+  );
+
+  const execution = await executeReadQuery(businessId, tablePlan);
+  const rows = Array.isArray(execution.rows) ? execution.rows : [];
+  const tableName = tablePlan.table.tableName;
+  const schema = tablePlan.table.schema;
+
+  const highlightedRows = buildHighlightedRows(tableName, rows).map((entry, idx) => ({
+    ...entry,
+    row_identifier: resolveRowIdentifier(entry.row_data, idx + 1, schema),
+  }));
+
+  const interpretedSummary = {
+    filters: tablePlan.filters,
+    filter_logic: tablePlan.filterLogic,
+  };
+  const baseSummary = buildDeterministicQuerySummary({
+    prompt: String(prompt || '').trim(),
+    tableName,
+    interpreted: interpretedSummary,
+    rows,
+    schema,
+  });
+
+  const metricParts = [];
+  for (let i = 0; i < (tablePlan.aggregates || []).length; i += 1) {
+    const agg = tablePlan.aggregates[i];
+    const val = execution.summary?.[`_aggregate_${i + 1}`];
+    if (val !== undefined && val !== null) {
+      metricParts.push(`${agg.operation}(${agg.field || '*'}) = ${val}`);
+    }
+  }
+  for (let i = 0; i < (tablePlan.calculations || []).length; i += 1) {
+    const calc = tablePlan.calculations[i];
+    if (calc.aggregate) {
+      const val = execution.summary?.[`_calculation_aggregate_${i + 1}`];
+      if (val !== undefined && val !== null) {
+        metricParts.push(`${calc.aggregate}(${calc.operation}(${calc.fields.join(', ')})) = ${val}`);
+      }
+    }
+  }
+
+  const note = String(interpretationNote || '').trim();
+  const metricSuffix = metricParts.length > 0 ? ` [${metricParts.join('; ')}]` : '';
+  const answer = note
+    ? `${note} ${baseSummary}${metricSuffix}`
+    : `${baseSummary}${metricSuffix}`;
+
+  const appliedFilterParts = [
+    ...tablePlan.filters.map((f) => `${f.field} ${f.operator} ${JSON.stringify(f.value)}`),
+    ...(tablePlan.calculationFilters || []).map(
+      (cf) => `${cf.expression} ${cf.operator} ${JSON.stringify(cf.value)}`
+    ),
+  ];
+  const appliedFilterSummary = appliedFilterParts.join(` ${tablePlan.filterLogic || 'AND'} `);
+
+  return {
+    status: 'SHEET_QUERY',
+    query_status: 'ok',
+    intent: 'sheet_query',
+    entity: schema.entity || tableName,
+    prompt,
+    message: answer,
+    answer,
+    count: rows.length,
+    rows,
+    matched_ids: highlightedRows.map((h) => h.row_identifier),
+    highlighted_rows: highlightedRows,
+    interpretedQuery: {
+      entity: schema.entity || tableName,
+      operation: 'filter',
+      filter_logic: tablePlan.filterLogic || 'AND',
+      filters: tablePlan.filters,
+      sort: tablePlan.sort || [],
+      limit: tablePlan.limit || null,
+    },
+    applied_filter_summary: appliedFilterSummary,
+    fast_path: false,
+    citations: rows.slice(0, 8).map((row, idx) =>
+      buildTableRowCitation(tableName, row, idx + 1)
+    ),
+  };
+}
+
 module.exports = {
   READ_PLAN_SCHEMA,
   selectRelevantTablesForRead,
@@ -1055,5 +1181,6 @@ module.exports = {
   buildArithmeticExpression,
   extractDocumentArithmeticFilters,
   executeReadQuery,
+  executePreplannedSheetQuery,
   generateCrossSourceReadAnswer,
 };

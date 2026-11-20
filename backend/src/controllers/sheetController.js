@@ -17,6 +17,7 @@ const {
   executeSpreadsheetQuery,
 } = require('../services/sheetQueryService');
 const { discoverWorkspaceSources } = require('../services/queryRouterService');
+const { prewarmWorkspaceDocumentCaches } = require('../services/documentIngestionService');
 const { interpretNaturalLanguageQuery } = require('../services/sheetQueryPromptBuilder');
 const { executeMutation } = require('../services/sheetMutationService');
 const {
@@ -305,7 +306,7 @@ async function getBusinessTablesList(req, res, next) {
     const business = await resolveBusiness(req);
     const { tables: discoveredTables } = await discoverWorkspaceSources(
       business.id,
-      { includeRows: true }
+      { includeRows: true, includeDocuments: false }
     );
 
     const businessTables = [];
@@ -346,6 +347,8 @@ async function getBusinessTablesList(req, res, next) {
         rows: normalizedRows,
       });
     }
+
+    prewarmWorkspaceDocumentCaches(business.id);
 
     return res.status(200).json({
       status: 'ok',

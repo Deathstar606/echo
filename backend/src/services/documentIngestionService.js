@@ -1331,6 +1331,33 @@ function getInMemoryChunksForBusiness(businessId) {
   return CHUNKS_BY_BUSINESS.get(businessId) || [];
 }
 
+const PREWARM_IN_FLIGHT = new Set();
+
+/**
+ * Non-blocking background pre-warmer for workspace document & chunk caches.
+ * Ensures first chat query after server start avoids cold DB chunk hydration without delaying UI listing requests.
+ *
+ * @param {string} businessId
+ */
+function prewarmWorkspaceDocumentCaches(businessId) {
+  const cleanId = String(businessId || '').trim();
+  if (!cleanId || PREWARM_IN_FLIGHT.has(cleanId)) return;
+  if (DOCUMENTS_BY_BUSINESS.has(cleanId) && CHUNKS_BY_BUSINESS.has(cleanId)) return;
+  PREWARM_IN_FLIGHT.add(cleanId);
+  setImmediate(async () => {
+    try {
+      await Promise.all([
+        listDocumentsForBusiness(cleanId),
+        getChunksForBusiness(cleanId),
+      ]);
+    } catch {
+      // Ignore background pre-warm errors
+    } finally {
+      PREWARM_IN_FLIGHT.delete(cleanId);
+    }
+  });
+}
+
 module.exports = {
   tokenizeDocumentText,
   buildTextVector,
@@ -1346,6 +1373,7 @@ module.exports = {
   listDocumentsForBusiness,
   getChunksForBusiness,
   getInMemoryChunksForBusiness,
+  prewarmWorkspaceDocumentCaches,
   updateDocumentContentById,
   deleteDocumentById,
   clearDocumentsForBusiness,

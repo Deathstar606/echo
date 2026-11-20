@@ -14,10 +14,18 @@ const {
   normalizeProfileType,
   choosePrimaryIdentifier,
   redactSampleRows,
+  listWorkspaceTableMetadataCached,
+  invalidateWorkspaceMetadataCache,
 } = require('../src/services/workspaceTableMetadataService');
+const {
+  discoverTableSchema,
+  getOperatorsForType,
+} = require('../src/services/sheetSchemaService');
+const { serializeTableForPrompt } = require('../src/utils/schemaPromptSerializer');
 const {
   enforceOperationalIntentPrecedence,
   isUnambiguousCrossSourceReadCandidate,
+  formatWorkspaceSources,
 } = require('../src/services/workspaceIntentRouter');
 const { loadTableRowsForSchema } = require('../src/services/crossRagService');
 const {
@@ -30,7 +38,12 @@ const {
   formatWorkspaceSupportContext,
 } = require('../src/services/promptBuilderService');
 const { setPool } = require('../db');
-const { callGeminiModelWithSchema } = require('../src/services/geminiService');
+const env = require('../src/config/env');
+const {
+  callGeminiModelWithSchema,
+  generateStructuredJsonWithRetry,
+  setWorkspaceGeminiGenerator,
+} = require('../src/services/geminiService');
 const {
   explicitlyRequestsNotifications,
   executeWorkspaceOperation,
@@ -39,6 +52,7 @@ const {
   isBasicTableQueryCandidate,
   isBasicTableMutationCandidate,
   resolveSingleTableTarget,
+  arePromptConceptsCoveredByTable,
 } = require('../src/services/fastTableQueryService');
 const { buildSheetQueryPrompt } = require('../src/services/sheetQueryPromptBuilder');
 
@@ -969,4 +983,374 @@ test('selectPassagesForRead filters zero-score chunks when positive matches exis
     { filename: 'Policy.pdf', page_number: 1, chunk_index: 0, hybrid_score: 0, raw_text: 'Fallback chunk' },
   ];
   assert.equal(selectPassagesForRead(allZero, { maxChunks: 3, maxChars: 200 }).length, 1);
+});
+
+test('duck-typed BoundPool cache caches metadata and schemas and clears on invalidation', async () => {
+  const wsId = '00000000-0000-4000-8000-000000000901';
+  let queryCount = 0;
+  const boundPoolLike = {
+    async connect() {
+      return { query: async () => ({ rows: [] }), release() {} };
+    },
+    async query(sql) {
+      queryCount += 1;
+      if (/FROM workspace_table_metadata/i.test(sql)) {
+        return {
+          rows: [
+            {
+              table_name: 'orders',
+              primary_key_column: 'order_id',
+              columns_profile: [
+                { column_name: 'order_id', data_type: 'text', semantic_role: 'identifier', categorical_values: ['ORD-1'] },
+                { column_name: 'status', data_type: 'text', semantic_role: 'status_flag', categorical_values: ['Pending', 'Shipped'] },
+              ],
+            },
+          ],
+        };
+      }
+      if (/FROM information_schema\.columns/i.test(sql)) {
+        return {
+          rows: [
+            { column_name: 'business_id', data_type: 'uuid', udt_name: 'uuid', is_nullable: 'NO' },
+            { column_name: 'order_id', data_type: 'text', udt_name: 'text', is_nullable: 'NO' },
+            { column_name: 'status', data_type: 'text', udt_name: 'text', is_nullable: 'YES' },
+          ],
+        };
+      }
+      return { rows: [] };
+    },
+  };
+  Object.defineProperty(boundPoolLike.constructor, 'name', { value: 'BoundPool', configurable: true });
+  setPool(boundPoolLike);
+  try {
+    const firstMeta = await listWorkspaceTableMetadataCached(wsId);
+    const secondMeta = await listWorkspaceTableMetadataCached(wsId);
+    assert.equal(firstMeta.length, 1);
+    assert.equal(secondMeta.length, 1);
+    assert.equal(queryCount, 1);
+
+    await discoverTableSchema('orders', wsId, { prefetchedMetadata: firstMeta[0] });
+    await discoverTableSchema('orders', wsId);
+    assert.equal(queryCount, 2);
+
+    invalidateWorkspaceMetadataCache(wsId);
+    await listWorkspaceTableMetadataCached(wsId);
+    assert.equal(queryCount, 3);
+  } finally {
+    setPool(null);
+  }
+});
+
+test('serializeTableForPrompt strips prose, JSON blobs, UUIDs, and system columns while keeping compact enums', () => {
+  const serialized = serializeTableForPrompt({
+    tableName: 'products',
+    displayName: 'Products',
+    rowCount: 20,
+    metadata: {
+      table_summary: 'Products catalog summary',
+      primary_key_column: 'id',
+      email_column: 'vendor_email',
+      columns_profile: [
+        {
+          column_name: 'id',
+          data_type: 'text',
+          semantic_role: 'identifier',
+          categorical_values: ['045daf64-e2b4-4068-bce0-97dfdfb34ab9'],
+        },
+        {
+          column_name: 'description',
+          data_type: 'text',
+          semantic_role: 'descriptive_text',
+          categorical_values: ['A'.repeat(180)],
+        },
+        {
+          column_name: 'size',
+          data_type: 'jsonb',
+          semantic_role: 'json_map',
+          categorical_values: ['{"L": 4, "M": 2}'],
+          nested_structure: { observed_keys: [{ name: 'M' }, { name: 'L' }] },
+        },
+        {
+          column_name: 'category',
+          data_type: 'text',
+          semantic_role: 'descriptive_text',
+          categorical_values: ['luxury shirt', 'A'.repeat(75)],
+        },
+        {
+          column_name: 'price',
+          data_type: 'numeric',
+          semantic_role: 'financial_metric',
+          categorical_values: ['990', '4990'],
+          numeric_stats: { min: 990, max: 4990 },
+        },
+        { column_name: 'vendor_email', data_type: 'text', semantic_role: 'email', categorical_values: ['a@b.test'] },
+        { column_name: 'created_at', data_type: 'date', semantic_role: 'descriptive_text', categorical_values: ['2026-11-12 17:04:26+00'] },
+      ],
+    },
+    schema: {
+      columns: {
+        id: { exactName: 'id', type: 'uuid', modifiable: false, queryable: true },
+        business_id: { exactName: 'business_id', type: 'uuid', modifiable: false, queryable: true },
+        created_at: { exactName: 'created_at', type: 'date', modifiable: false, queryable: true },
+        description: { exactName: 'description', type: 'string', modifiable: true, queryable: true },
+        size: { exactName: 'size', type: 'json', modifiable: true, queryable: true },
+        category: { exactName: 'category', type: 'string', modifiable: true, queryable: true },
+        price: { exactName: 'price', type: 'number', modifiable: true, queryable: true },
+        vendor_email: { exactName: 'vendor_email', type: 'string', modifiable: true, queryable: true },
+      },
+    },
+  });
+
+  const colNames = serialized.columns.map((c) => c.name);
+  assert.equal(colNames.includes('business_id'), false);
+  assert.equal(colNames.includes('created_at'), false);
+  assert.equal(colNames.includes('id'), true);
+  assert.equal(serialized.columns.find((c) => c.name === 'id').examples, undefined);
+  assert.equal(serialized.columns.find((c) => c.name === 'description').values, undefined);
+  const sizeCol = serialized.columns.find((c) => c.name === 'size');
+  assert.equal(sizeCol.values, undefined);
+  assert.deepEqual(sizeCol.nested_keys, ['M', 'L']);
+  const catCol = serialized.columns.find((c) => c.name === 'category');
+  assert.equal(catCol.values[0], 'luxury shirt');
+  assert.equal(catCol.values[1].length, 50);
+  assert.deepEqual(serialized.columns.find((c) => c.name === 'price').range, [990, 4990]);
+  assert.equal(serialized.columns.find((c) => c.name === 'vendor_email').values, undefined);
+  assert.equal(serialized.primary_key, 'id');
+  assert.equal(serialized.email_column, 'vendor_email');
+});
+
+test('scoring fix eliminates orders double-count tie and coverage gate routes conceptual words to route_and_plan', () => {
+  const velouraMeta = [
+    {
+      table_name: 'products',
+      columns_profile: [{ column_name: 'category', categorical_values: ['polo', 'shirt'] }],
+    },
+    {
+      table_name: 'backorders_dataset',
+      columns_profile: [
+        { column_name: 'backorder_id', categorical_values: [] },
+        { column_name: 'buyer_tier', categorical_values: ['Priority', 'Standard'] },
+        { column_name: 'fulfillment_status', categorical_values: ['Pending', 'Fulfilled', 'Shipped', 'On Hold'] },
+      ],
+    },
+    {
+      table_name: 'supplier_purchase_orders',
+      columns_profile: [
+        { column_name: 'po_id', categorical_values: [] },
+        { column_name: 'po_status', categorical_values: ['In Transit - Sea'] },
+      ],
+    },
+  ];
+
+  const target = resolveSingleTableTarget(
+    'Find all the priority orders that have been delayed',
+    'backorders_dataset',
+    velouraMeta
+  );
+  assert.equal(target?.meta.table_name, 'backorders_dataset');
+
+  assert.equal(
+    arePromptConceptsCoveredByTable('show orders with buyer tier priority and already shipped', velouraMeta[1]),
+    true
+  );
+  assert.equal(
+    arePromptConceptsCoveredByTable('Find all the priority orders that have been delayed', velouraMeta[1]),
+    false
+  );
+  assert.equal(
+    arePromptConceptsCoveredByTable('Find all orders delayed more than 48 hours', {
+      table_name: 'orders',
+      columns_profile: [{ column_name: 'delay_hours', categorical_values: [] }],
+    }),
+    true
+  );
+});
+
+test('enforceOperationalIntentPrecedence keeps ungrounded single-table sheet_query on 1-call path', () => {
+  const chunks = [{ filename: 'Allocation Priority Policy.pdf', hybrid_score: 34.3 }];
+  const singleTableRouted = {
+    intent: 'sheet_query',
+    entity: 'backorders_dataset',
+    target_entities: ['backorders_dataset'],
+    document_grounded: false,
+  };
+  assert.equal(
+    enforceOperationalIntentPrecedence(
+      singleTableRouted,
+      'Find all the priority orders that have been delayed',
+      chunks
+    ).intent,
+    'sheet_query'
+  );
+  assert.equal(
+    enforceOperationalIntentPrecedence(
+      { ...singleTableRouted, document_grounded: true },
+      'Find all the priority orders that have been delayed',
+      chunks
+    ).intent,
+    'cross_source_read'
+  );
+  assert.equal(
+    enforceOperationalIntentPrecedence(
+      { ...singleTableRouted, target_entities: ['backorders_dataset', 'supplier_purchase_orders'] },
+      'Find delayed orders linked to supplier purchase orders',
+      chunks
+    ).intent,
+    'cross_source_read'
+  );
+});
+
+test('unified route_and_plan runs sheet_query in 1 LLM call and cross_source_read in 2 LLM calls', async () => {
+  const wsId = '00000000-0000-4000-8000-000000000902';
+  let llmCalls = 0;
+  setPool({
+    async query(sql) {
+      if (/FROM workspace_table_metadata/i.test(sql)) {
+        return {
+          rows: [
+            {
+              table_name: 'backorders_dataset',
+              row_count: 2,
+              primary_key_column: 'backorder_id',
+              columns_profile: [
+                { column_name: 'backorder_id', data_type: 'text', semantic_role: 'identifier', categorical_values: ['BO-1'] },
+                { column_name: 'buyer_tier', data_type: 'text', semantic_role: 'descriptive_text', categorical_values: ['Priority', 'Standard'] },
+                { column_name: 'fulfillment_status', data_type: 'text', semantic_role: 'status_flag', categorical_values: ['Pending', 'On Hold', 'Shipped'] },
+              ],
+            },
+          ],
+        };
+      }
+      if (/FROM information_schema\.columns/i.test(sql)) {
+        return {
+          rows: [
+            { column_name: 'business_id', data_type: 'uuid', udt_name: 'uuid', is_nullable: 'NO' },
+            { column_name: 'backorder_id', data_type: 'text', udt_name: 'text', is_nullable: 'NO' },
+            { column_name: 'buyer_tier', data_type: 'text', udt_name: 'text', is_nullable: 'YES' },
+            { column_name: 'fulfillment_status', data_type: 'text', udt_name: 'text', is_nullable: 'YES' },
+          ],
+        };
+      }
+      if (/FROM "backorders_dataset"/i.test(sql)) {
+        return {
+          rows: [
+            {
+              _row_count: '1',
+              _rows: [{ business_id: wsId, backorder_id: 'BO-2001', buyer_tier: 'Priority', fulfillment_status: 'Pending' }],
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    },
+  });
+
+  try {
+    llmCalls = 0;
+    setWorkspaceGeminiGenerator(async (_promptText, { stage }) => {
+      llmCalls += 1;
+      assert.equal(stage, 'route_and_plan');
+      return JSON.stringify({
+        intent: 'sheet_query',
+        entity: 'backorders_dataset',
+        target_entities: ['backorders_dataset'],
+        document_grounded: false,
+        interpretation_note: 'Mapped delayed priority orders to Priority tier with Pending or On Hold status.',
+        table_queries: [
+          {
+            table_name: 'backorders_dataset',
+            filters: [
+              { field: 'buyer_tier', operator: 'equals', value: 'Priority' },
+              { field: 'fulfillment_status', operator: 'in', value: '["Pending","On Hold"]' },
+            ],
+            filter_logic: 'AND',
+          },
+        ],
+      });
+    });
+    const sheetRes = await executeWorkspaceOperation({
+      businessId: wsId,
+      prompt: 'Find all the priority orders that have been delayed',
+      entity: 'backorders_dataset',
+    });
+    assert.equal(llmCalls, 1);
+    assert.equal(sheetRes.status, 'SHEET_QUERY');
+    assert.equal(sheetRes.rows.length, 1);
+    assert.match(sheetRes.answer, /Pending or On Hold/);
+
+    llmCalls = 0;
+    setWorkspaceGeminiGenerator(async (_promptText, { stage }) => {
+      llmCalls += 1;
+      if (stage === 'route_and_plan') {
+        return JSON.stringify({
+          intent: 'cross_source_read',
+          entity: 'backorders_dataset',
+          target_entities: ['backorders_dataset'],
+          document_grounded: true,
+          interpretation_note: 'Checked Pending and On Hold orders.',
+          table_queries: [
+            {
+              table_name: 'backorders_dataset',
+              filters: [{ field: 'fulfillment_status', operator: 'in', value: '["Pending","On Hold"]' }],
+              filter_logic: 'AND',
+            },
+          ],
+        });
+      }
+      assert.equal(stage, 'cross_source_read_synthesis');
+      return JSON.stringify({
+        answer: 'BO-2001 is Pending under priority allocation rules.',
+        matched_row_ids: ['BO-2001'],
+      });
+    });
+    const readRes = await executeWorkspaceOperation({
+      businessId: wsId,
+      prompt: 'Find all delayed priority orders per allocation rules',
+      entity: 'backorders_dataset',
+    });
+    assert.equal(llmCalls, 2);
+    assert.equal(readRes.status, 'CONVERSATIONAL');
+    assert.equal(readRes.intent, 'cross_source_read');
+    assert.equal(readRes.rows.length, 1);
+  } finally {
+    setWorkspaceGeminiGenerator(null);
+    setPool(null);
+  }
+});
+
+test('Gemini fallback enforces strict 3-model ceiling on upstream 503', async () => {
+  const originalFetch = global.fetch;
+  const originalKey = env.geminiApiKey;
+  const attemptedModels = [];
+  env.geminiApiKey = 'test-key';
+  global.fetch = async (url) => {
+    const match = String(url).match(/\/models\/([^:/?]+)/);
+    attemptedModels.push(match ? match[1] : 'unknown');
+    return {
+      ok: false,
+      status: 503,
+      async json() {
+        return { error: { message: 'High demand' } };
+      },
+    };
+  };
+  try {
+    await assert.rejects(
+      () =>
+        generateStructuredJsonWithRetry('return json', null, {
+          stage: 'route_and_plan',
+          maxRetries: 0,
+        }),
+      /High demand/
+    );
+    assert.equal(attemptedModels.length, 3);
+    assert.deepEqual(attemptedModels, [
+      'gemini-3.5-flash-lite',
+      'gemini-3.5-flash',
+      'gemini-3.1-flash-lite',
+    ]);
+  } finally {
+    global.fetch = originalFetch;
+    env.geminiApiKey = originalKey;
+  }
 });

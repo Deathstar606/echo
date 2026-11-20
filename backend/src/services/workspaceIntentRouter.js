@@ -19,6 +19,8 @@ const {
   getLatestActiveContext,
   formatConversationHistoryForPrompt,
 } = require('../utils/conversationHistory');
+const { serializeTableForPrompt } = require('../utils/schemaPromptSerializer');
+const { READ_PLAN_SCHEMA, validateReadPlan } = require('./workspaceReadService');
 const AppError = require('../utils/AppError');
 
 const WORKSPACE_INTENTS = new Set([
@@ -48,6 +50,21 @@ const WORKSPACE_INTENT_SCHEMA = {
       description:
         'All exact table names from ACTIVE BUSINESS SOURCES involved in the request (include multiple table names ONLY when the user instruction explicitly asks to inspect or update more than one table).',
     },
+    document_grounded: {
+      type: 'BOOLEAN',
+      description:
+        'True ONLY when uploaded document excerpts contain rules, thresholds, batch/SKU lists, or policy definitions required to answer or explain the request.',
+    },
+    interpretation_note: {
+      type: 'STRING',
+      description:
+        'When the user prompt uses conceptual, colloquial, or status-adjacent terms that do not match an exact column name, state a concise 1-sentence explanation of how those terms map to the queried column(s) and enum values.',
+    },
+    table_queries: {
+      ...READ_PLAN_SCHEMA.properties.table_queries,
+      description:
+        'REQUIRED non-empty parameterized query plan whenever intent is sheet_query or cross_source_read; return [] for other intents.',
+    },
     answer: {
       type: 'STRING',
       description: 'A concise grounded reply for conversational or document questions',
@@ -57,39 +74,13 @@ const WORKSPACE_INTENT_SCHEMA = {
       description: 'What needs clarification when intent or target is genuinely ambiguous',
     },
   },
-  required: ['intent'],
+  required: ['intent', 'document_grounded', 'table_queries'],
 };
 
 function formatWorkspaceSources(tables, documents, chunks) {
-  const tableContext = tables.map(({ tableName, displayName, rowCount, schema, metadata }) => {
-    const profileByCol = new Map();
-    for (const colProfile of metadata?.columns_profile || []) {
-      if (colProfile?.column_name) {
-        profileByCol.set(String(colProfile.column_name).toLowerCase(), colProfile);
-      }
-    }
-    return {
-      table: tableName,
-      display_name: displayName,
-      row_count: typeof rowCount === 'number' ? rowCount : undefined,
-      primary_key: metadata?.primary_key_column || undefined,
-      columns: Object.values(schema.columns || {}).map((column) => {
-        const prof = profileByCol.get(String(column.exactName).toLowerCase());
-        const isEmail = prof?.semantic_role === 'email';
-        return {
-          name: column.exactName,
-          type: column.type,
-          mutable: Boolean(column.modifiable && !column.virtual),
-          role: prof?.semantic_role || undefined,
-          values:
-            !isEmail && Array.isArray(prof?.categorical_values) && prof.categorical_values.length > 0
-              ? prof.categorical_values.slice(0, 4)
-              : undefined,
-          nested_keys: prof?.nested_structure || undefined,
-        };
-      }),
-    };
-  });
+  const tableContext = tables.map((tableEntry) =>
+    serializeTableForPrompt(tableEntry, { includeMutability: true })
+  );
   const documentContext = documents.map((document) => ({
     filename: document.filename,
     page_count: document.page_count,
@@ -174,11 +165,36 @@ function enforceOperationalIntentPrecedence(
   ) {
     return { ...routed, intent: 'sheet_mutation', entity: resolvedEntity };
   }
+  const citesGoverningDocInRead =
+    (/\b(?:policy|policies|procedure|SOP|manifest|memo|brief|bulletin|recall|protocol|guideline|addendum|notice|document|handbook|manual|rulebook|section\s+\d+|clause|according\s+to)\b/i.test(
+      text
+    ) ||
+      /\b(?:per|under)\s+(?:the\s+|our\s+)?(?:[A-Z][A-Za-z0-9_-]*|policy|policies|sop|protocol|brief|sla|manifest|memo|recall|section|clause|rule|rules|guideline|guidelines)\b/.test(
+        text
+      )) &&
+    Array.isArray(chunks) &&
+    chunks.some((chunk) => Number(chunk.hybrid_score) > 0);
+  const spansMultipleTables =
+    Array.isArray(routed?.target_entities) && routed.target_entities.length > 1;
+  const requiresCrossSourceSynthesis =
+    Boolean(routed?.document_grounded) || citesGoverningDocInRead || spansMultipleTables;
+
   if (
     analyticalLead &&
     !directAction &&
-    ((Array.isArray(chunks) && chunks.length > 0) ||
-      (Array.isArray(routed?.target_entities) && routed.target_entities.length > 1))
+    requiresCrossSourceSynthesis &&
+    ['sheet_query', 'cross_source_read', 'cross_document_operation', 'document_question'].includes(
+      routed?.intent
+    )
+  ) {
+    return { ...routed, intent: 'cross_source_read' };
+  }
+  if (
+    analyticalLead &&
+    !directAction &&
+    routed?.intent === 'cross_document_operation' &&
+    Array.isArray(chunks) &&
+    chunks.length > 0
   ) {
     return { ...routed, intent: 'cross_source_read' };
   }
@@ -303,6 +319,7 @@ async function routeWorkspaceIntent({
   prompt,
   entity = null,
   history = [],
+  metadataRows = null,
 }) {
   if (!businessId) {
     throw new AppError('A business ID is required to route a workspace instruction.', 400);
@@ -328,6 +345,7 @@ async function routeWorkspaceIntent({
     targetEntity: entity,
     includeRows: false,
     allowEmptyTarget: Boolean(entity),
+    prefetchedMetadata: metadataRows,
   });
   const chunks = await retrieveHybridDocumentChunks(businessId, prompt, {
     topK: 8,
@@ -358,37 +376,45 @@ async function routeWorkspaceIntent({
     };
   }
 
+  const currentDateIso = new Date().toISOString().slice(0, 10);
   const sourceContext = formatWorkspaceSources(tables, documents, chunks);
   const formattedHistory = formatConversationHistoryForPrompt(normalizedHistory);
 
-  const promptText = `Route the latest user request in this business workspace.
+  const promptText = `Route the latest user request in this business workspace (CURRENT_DATE UTC: ${currentDateIso}).
 
 Choose exactly one intent:
-- sheet_query: read or search rows in a spreadsheet/table.
-- cross_source_read: answer a read-only analytical question by cross-referencing workspace documents and one or more structured tables. This is for questions/calculations only; never propose or perform mutations.
+- sheet_query: read or search rows in a spreadsheet/table (when no document rule is needed).
+- cross_source_read: answer a read-only analytical question by cross-referencing workspace documents and one or more structured tables. Never propose or perform mutations.
 - sheet_mutation: change spreadsheet/table rows, without a document-derived cross-source dependency.
-- cross_document_operation: use relevant business documents together with table data to plan/execute an operation, including requested notifications. ALWAYS select cross_document_operation whenever the user asks to apply/update/upgrade/allocate/process records using rules from memos, policies, manifests, briefs, SOPs, or recalls — EVEN IF the documents contain policy conflicts, governance options, caps, deficits, "CLARIFICATION_REQUIRED" rules, or dataset/column mismatches (the downstream Socratic engine handles those!).
+- cross_document_operation: use relevant business documents together with table data to plan/execute an operation, including requested notifications. ALWAYS select cross_document_operation whenever the user asks to apply/update/upgrade/allocate/process records using rules from memos, policies, manifests, briefs, SOPs, or recalls — EVEN IF the documents contain policy conflicts, governance options, caps, deficits, "CLARIFICATION_REQUIRED" rules, or dataset/column mismatches.
 - document_question: answer a question grounded in uploaded documents, without changing table data.
 - conversation: greetings, follow-ups, or general conversation not requesting data changes.
-- clarification_needed: ONLY when no tables exist or the user's message is too vague to identify any intended action (NEVER use clarification_needed for policy conflicts, option choices, or column mismatches during a cross-document operation).
+- clarification_needed: ONLY when no tables exist, the user's message is too vague to identify any intended action, or genuine conflict between interpretations cannot be resolved from the schema/excerpts (NEVER use clarification_needed for policy conflicts or column mismatches during a cross_document_operation).
 
 Rules:
-- Use only exact table names ("table" field) listed in ACTIVE BUSINESS SOURCES; if the user's message names or describes a specific table/domain (such as catalog/products, backorders, wholesale accounts, or orders), select that matching table from ACTIVE BUSINESS SOURCES even if ACTIVE TABLE differs. Use RECENT CONVERSATION target_table when resolving implicit follow-ups ("those", "them", "that unit", "increase the discount..."); otherwise use ACTIVE TABLE only when the user says "this sheet" or does not identify a different table.
-- If the user's message explicitly instructs updating or reconciling MULTIPLE tables in ACTIVE BUSINESS SOURCES (for example, reconciling open backorders in "backorders_dataset" AND updating remaining available stock in "products"), set "entity" to the primary transactional table (e.g., "backorders_dataset") and list ALL required table names in "target_entities". Do NOT add a second table to "target_entities" unless the user's message itself asks to inspect or update that second table.
-- A request to query or mutate a table is not automatically a cross_document_operation just because documents exist.
-- For analytical questions such as "which rows need a status update?" or "what would the policy require?", use cross_source_read unless the user directly instructs you to make a state change or send a notification.
-- Select cross_document_operation whenever the requested table update/notification depends on facts, thresholds, batches, SKUs, or rules in one or more uploaded documents.
+- Use only exact table names ("table" field) listed in ACTIVE BUSINESS SOURCES; if the user's message names or describes a specific table/domain (such as catalog/products, backorders, wholesale accounts, hospital units, or orders), select that matching table from ACTIVE BUSINESS SOURCES even if ACTIVE TABLE differs. Use RECENT CONVERSATION target_table when resolving implicit follow-ups ("those", "them", "that unit", "increase the discount..."); otherwise use ACTIVE TABLE only when the user says "this sheet" or does not identify a different table.
+- If the user's message explicitly instructs updating or reconciling MULTIPLE tables in ACTIVE BUSINESS SOURCES, set "entity" to the primary table and list ALL required table names in "target_entities". Do NOT add a second table to "target_entities" unless the user asks to inspect or update that second table.
+- Loose people nouns ("customers", "buyers", "users", "clients", "accounts") map dynamically to whichever table/column holds buyers/customers/accounts in ACTIVE BUSINESS SOURCES; use RECENT CONVERSATION to stay anchored when following up.
+- FIRST-TRY CONCEPTUAL MAPPING RULE: If the user uses conceptual, colloquial, or status-adjacent terms that do not match an exact column name (e.g., vague status, urgency, delay, risk, overload, trouble), inspect all column names, summary, range, and "values" (categorical enums) in ACTIVE BUSINESS SOURCES to infer the closest valid column(s) and enum value(s) on the first attempt—never invent non-existent column names. When multiple valid enum values fit the concept, use operator "in" with a JSON array string (e.g. '["Pending","On Hold"]') and explain the mapping in "interpretation_note".
+- UNIFIED READ PLAN RULE (MANDATORY FOR sheet_query AND cross_source_read): Whenever intent is sheet_query or cross_source_read, you MUST return a non-empty "table_queries" array in this same JSON response using exact column names and supported operators from ACTIVE BUSINESS SOURCES (never return SQL). Never omit "table_queries" on a read intent. Apply DATE / DORMANCY DIRECTION RULE ("inactive/older than N days" => date column "less_than_or_equal" CURRENT_DATE minus N days) and DOCUMENT-ENUMERATED CODES RULE ("in" filter on explicit codes from excerpts). Return "table_queries": [] for sheet_mutation, cross_document_operation, document_question, conversation, or clarification_needed.
+- Set "document_grounded": true ONLY when answering requires rules, thresholds, or identifiers from relevant_document_excerpts (or explicitly cites a policy/SOP/manifest/document); set "document_grounded": false when table columns and enum values alone answer the question.
 - Never infer permission to mutate, send email, or other external actions from a pure question. Only classify the requested intent.
-- Never invent a table, column, document, rule, or answer.
-- Nested-map keys in metadata are examples observed in sampled records, not guarantees that each record contains those keys. Apply operations on existing entries per matching record; create missing keys only when the user explicitly asks for creation.
-- Use RECENT CONVERSATION (up to 5 prior turns) to resolve anaphoric/implicit follow-ups ("those", "them", "only the ones...", "that unit", "increase the discount to 20%"), clarification replies (when the prior turn asked for clarification and the user supplies the missing column/value fragment like "occupied bed", inherit that prior turn's intent such as sheet_mutation and target_table), or inherited scope; NEVER emit clarification_needed merely because the target table, action, or filter was specified in a prior turn in RECENT CONVERSATION.
-- For document_question and conversation, provide a concise answer in "answer". For other intents, "answer" should be empty.
-- Return JSON matching the requested response schema only.
+- Use RECENT CONVERSATION (up to 5 prior turns) to resolve anaphoric/implicit follow-ups ("those", "them", "only the ones...", "that unit"), clarification replies (when prior turn asked for clarification and user supplies the missing fragment like "occupied bed", inherit that prior turn's intent such as sheet_mutation and target_table), or inherited scope.
+- For document_question and conversation, provide a concise answer in "answer". For other intents, "answer" should be "".
+- Return ONLY a JSON object with these keys:
+  - "intent": one of ["sheet_query","cross_source_read","sheet_mutation","cross_document_operation","document_question","conversation","clarification_needed"]
+  - "entity": exact primary table name from ACTIVE BUSINESS SOURCES (or "")
+  - "target_entities": array of exact table names involved
+  - "document_grounded": boolean (true ONLY if uploaded document rules/thresholds/codes are required to answer)
+  - "interpretation_note": 1-sentence explanation when mapping conceptual/colloquial terms to columns and enum values (or "")
+  - "table_queries": array of { "table_name": string, "filters": [{ "field": string, "operator": "equals"|"not_equals"|"contains"|"not_contains"|"starts_with"|"ends_with"|"in"|"greater_than"|"greater_than_or_equal"|"less_than"|"less_than_or_equal"|"between"|"relative_days_ago"|"this_month", "value": string }], "calculation_filters": [{ "operation": "add"|"subtract"|"multiply"|"divide", "fields": [string, string], "operator": "greater_than"|"greater_than_or_equal"|"less_than"|"less_than_or_equal"|"equals"|"not_equals"|"between", "value": string }], "filter_logic": "AND"|"OR", "sort": [{ "field": string, "direction": "asc"|"desc" }], "limit": number, "aggregates": [{ "operation": "count"|"sum"|"average"|"min"|"max", "field": string }], "calculations": [{ "operation": "add"|"subtract"|"multiply"|"divide", "fields": [string, string], "aggregate": "count"|"sum"|"average"|"min"|"max" }] } — REQUIRED non-empty array when intent is sheet_query or cross_source_read; [] for other intents
+  - "answer": concise grounded reply ONLY for document_question or conversation ("" otherwise)
+  - "clarification": concise question ONLY for clarification_needed ("" otherwise)
 
 ACTIVE BUSINESS SOURCES:
 ${sourceContext}
 
-RECENT CONVERSATION (5-turn sliding window):
+RECENT CONVERSATION (5-turn sliding window; prior matched_row_ids: ${JSON.stringify((activeHistoryContext.matchedRowIds || []).slice(0, 30))}):
 ${formattedHistory || '[]'}
 
 PRIOR ACTIVE TABLE FROM CONVERSATION (if any): ${activeHistoryContext.activeTargetTable || 'none'}
@@ -470,6 +496,9 @@ ${prompt.trim()}`;
           intent: 'clarification_needed',
           entity: null,
           target_entities: [],
+          document_grounded: false,
+          interpretation_note: '',
+          prevalidatedPlan: null,
           answer: '',
           clarification:
             'I could not identify a matching table in this business workspace. Please select or name the table.',
@@ -478,10 +507,35 @@ ${prompt.trim()}`;
         };
       }
 
+      let prevalidatedPlan = null;
+      if (
+        ['sheet_query', 'cross_source_read'].includes(intent) &&
+        Array.isArray(parsed?.table_queries) &&
+        parsed.table_queries.length > 0
+      ) {
+        try {
+          const validated = validateReadPlan(
+            { table_queries: parsed.table_queries },
+            tables,
+            prompt,
+            chunks
+          );
+          if (Array.isArray(validated) && validated.length > 0) {
+            prevalidatedPlan = validated;
+          }
+        } catch {
+          // Soft fallback: downstream read planner will re-plan cleanly if needed
+          prevalidatedPlan = null;
+        }
+      }
+
       return {
         intent,
         entity: resolvedEntity,
         target_entities: resolvedTargetEntities,
+        document_grounded: Boolean(parsed?.document_grounded),
+        interpretation_note: String(parsed?.interpretation_note || '').trim(),
+        prevalidatedPlan,
         answer: String(parsed?.answer || '').trim(),
         clarification: String(parsed?.clarification || '').trim(),
         citations: chunks.map((chunk) => chunk.citation).filter(Boolean),
@@ -490,8 +544,8 @@ ${prompt.trim()}`;
     },
     {
       maxRetries: 1,
-      responseSchema: WORKSPACE_INTENT_SCHEMA,
-      stage: 'intent_routing',
+      responseSchema: null,
+      stage: 'route_and_plan',
     }
   );
 

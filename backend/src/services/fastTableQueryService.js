@@ -232,18 +232,26 @@ function scoreTableAgainstPrompt(prompt, promptLower, promptWords, activeEntity,
     const nameTokens = expandTokenVariants(tableLower).filter(
       (t) => !['dataset', 'data', 'table', 'sheet', 'management'].includes(t)
     );
+    const matchedNameRoots = new Set();
     for (const token of nameTokens) {
       if (new RegExp(`\\b${escapeRegex(token)}\\b`, 'i').test(promptLower)) {
         score += 3;
+        matchedNameRoots.add(token.replace(/s$/, ''));
       }
     }
+    const orderTokenAlreadyMatched = matchedNameRoots.has('order');
     if (
+      !orderTokenAlreadyMatched &&
       tableLower.includes('order') &&
       !tableLower.includes('backorder') &&
       /\borders?\b/i.test(promptLower)
     ) {
       score += 4;
-    } else if (tableLower.includes('backorder') && /\borders?\b/i.test(promptLower)) {
+    } else if (
+      !orderTokenAlreadyMatched &&
+      tableLower.includes('backorder') &&
+      /\borders?\b/i.test(promptLower)
+    ) {
       score += 2;
     }
   }
@@ -538,6 +546,125 @@ async function summarizeQueryRowsWithAi(params) {
   return buildDeterministicQuerySummary(params);
 }
 
+const QUERY_GRAMMAR_WORDS = new Set([
+  ...STOP_WORDS,
+  'record', 'records', 'row', 'rows', 'entry', 'entries', 'table', 'sheet',
+  'dataset', 'csv', 'count', 'total', 'sum', 'average', 'avg', 'min', 'max',
+  'minimum', 'maximum', 'most', 'least', 'top', 'bottom', 'first', 'last',
+  'between', 'before', 'after', 'since', 'until', 'today', 'month', 'year',
+  'day', 'days', 'hour', 'hours', 'more', 'fewer', 'many', 'much', 'any',
+  'every', 'each', 'both', 'either', 'neither', 'only', 'just', 'also',
+  'please', 'can', 'could', 'would', 'you', 'your', 'our', 'their', 'its',
+  'who', 'whom', 'whose', 'what', 'which', 'where', 'when', 'how', 'number',
+  'amount', 'value', 'values', 'status', 'state', 'type', 'category', 'level',
+  'rate', 'date', 'time', 'name', 'names', 'code', 'id', 'ids', 'unit',
+  'units', 'stock', 'stocks', 'inventory', 'price', 'priced', 'prices',
+  'cost', 'order', 'orders', 'product', 'products', 'item', 'items',
+  'customer', 'customers', 'buyer', 'buyers', 'account', 'accounts', 'user',
+  'users', 'client', 'clients', 'have', 'has', 'had', 'been', 'being', 'does',
+  'did', 'will', 'them', 'those', 'these', 'there', 'here', 'exist', 'exists',
+  'available', 'currently', 'still', 'right', 'now', 'true', 'false', 'yes',
+  'lowest', 'highest', 'larger', 'smaller', 'exceed', 'exceeds', 'exceeding',
+  'within', 'across', 'per', 'containing', 'contain', 'contains', 'starting',
+  'ending', 'matching', 'match', 'sort', 'sorted', 'descending', 'ascending',
+]);
+
+function addWordStemVariants(word, targetSet) {
+  const clean = String(word || '').toLowerCase().trim();
+  if (clean.length < 3) return;
+  targetSet.add(clean);
+  if (clean.endsWith('ies') && clean.length > 4) targetSet.add(`${clean.slice(0, -3)}y`);
+  if (clean.endsWith('ied') && clean.length > 4) targetSet.add(`${clean.slice(0, -3)}y`);
+  if (clean.endsWith('es') && clean.length > 4) targetSet.add(clean.slice(0, -2));
+  if (clean.endsWith('s') && clean.length > 3) targetSet.add(clean.slice(0, -1));
+  if (clean.endsWith('ed') && clean.length > 4) {
+    const base = clean.slice(0, -2);
+    targetSet.add(base);
+    targetSet.add(`${base}e`);
+    if (/([a-z])\1$/.test(base)) targetSet.add(base.slice(0, -1));
+  }
+  if (clean.endsWith('d') && clean.length > 4) targetSet.add(clean.slice(0, -1));
+  if (clean.endsWith('ing') && clean.length > 5) {
+    const base = clean.slice(0, -3);
+    targetSet.add(base);
+    targetSet.add(`${base}e`);
+    if (/([a-z])\1$/.test(base)) targetSet.add(base.slice(0, -1));
+  }
+  if (clean.endsWith('ly') && clean.length > 4) targetSet.add(clean.slice(0, -2));
+}
+
+/**
+ * Checks generically (with zero hardcoded domain synonyms) whether every
+ * content word in the user's prompt maps directly onto the resolved table's
+ * own schema vocabulary (table name, column names, categorical values, nested keys).
+ * Unmapped conceptual words (e.g. "delayed", "stuck", "overwhelmed") return false
+ * so the request flows straight to `route_and_plan` instead of failing or dumping rows.
+ *
+ * @param {string} prompt
+ * @param {object} meta
+ * @param {Array<object>} [history=[]]
+ * @returns {boolean}
+ */
+function arePromptConceptsCoveredByTable(prompt, meta, history = []) {
+  const text = String(prompt || '').trim();
+  if (!text || !meta) return false;
+
+  const normalizedHistory = normalizeConversationHistory(history);
+  const activeCtx = getLatestActiveContext(normalizedHistory);
+  if (activeCtx.pendingClarification || hasFollowUpReference(text)) {
+    return true;
+  }
+
+  const vocabRoots = new Set();
+  for (const tok of String(meta.table_name || '').toLowerCase().split(/[^a-z0-9]+/)) {
+    addWordStemVariants(tok, vocabRoots);
+  }
+  const cols = Array.isArray(meta.columns_profile) ? meta.columns_profile : [];
+  for (const col of cols) {
+    for (const tok of String(col.column_name || '').toLowerCase().split(/[^a-z0-9]+/)) {
+      addWordStemVariants(tok, vocabRoots);
+    }
+    if (Array.isArray(col.categorical_values)) {
+      for (const val of col.categorical_values) {
+        const valStr = String(val ?? '');
+        if (valStr.length > 80 || /^\s*[{[]/.test(valStr)) continue;
+        for (const tok of valStr.toLowerCase().split(/[^a-z0-9]+/)) {
+          addWordStemVariants(tok, vocabRoots);
+        }
+      }
+    }
+    if (Array.isArray(col.nested_structure?.observed_keys)) {
+      for (const kObj of col.nested_structure.observed_keys) {
+        for (const tok of String(kObj?.name || '').toLowerCase().split(/[^a-z0-9]+/)) {
+          addWordStemVariants(tok, vocabRoots);
+        }
+      }
+    }
+  }
+
+  // Raw alphanumeric/hyphenated codes (SKUs, order IDs, etc.) and numbers pass automatically
+  const tokens = text
+    .split(/[^a-zA-Z0-9_-]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  for (const rawTok of tokens) {
+    if (rawTok.length < 3) continue;
+    if (/^\d/.test(rawTok) || /[_-]/.test(rawTok) || /\d/.test(rawTok)) continue;
+    const lower = rawTok.toLowerCase();
+    if (QUERY_GRAMMAR_WORDS.has(lower)) continue;
+
+    const candidates = new Set();
+    addWordStemVariants(lower, candidates);
+    const matchesVocab = [...candidates].some((c) => vocabRoots.has(c));
+    if (!matchesVocab) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 /**
  * Attempts to satisfy a basic single-table read query directly without entering the
  * multi-table + document RAG B2B pipeline. Returns `null` when normal routing should run.
@@ -547,6 +674,7 @@ async function summarizeQueryRowsWithAi(params) {
  * @param {string} params.prompt
  * @param {string | null} [params.entity]
  * @param {Array<object>} [params.history]
+ * @param {Array<object> | null} [params.metadataRows]
  * @returns {Promise<object | null>}
  */
 async function tryExecuteFastTableQuery({
@@ -554,6 +682,7 @@ async function tryExecuteFastTableQuery({
   prompt,
   entity = null,
   history = [],
+  metadataRows = null,
 }) {
   if (hasCustomWorkspaceGeminiGenerator()) {
     return null;
@@ -563,15 +692,17 @@ async function tryExecuteFastTableQuery({
     return null;
   }
 
-  const metadataRows = await listWorkspaceTableMetadataCached(businessId);
-  if (!Array.isArray(metadataRows) || metadataRows.length === 0) {
+  const resolvedMetadata = Array.isArray(metadataRows)
+    ? metadataRows
+    : await listWorkspaceTableMetadataCached(businessId);
+  if (!Array.isArray(resolvedMetadata) || resolvedMetadata.length === 0) {
     return null;
   }
 
   const targetMatch = resolveSingleTableTarget(
     prompt,
     entity,
-    metadataRows,
+    resolvedMetadata,
     normalizedHistory
   );
   if (!targetMatch?.meta) {
@@ -579,6 +710,10 @@ async function tryExecuteFastTableQuery({
   }
 
   const meta = targetMatch.meta;
+  if (!arePromptConceptsCoveredByTable(prompt, meta, normalizedHistory)) {
+    return null;
+  }
+
   const tableName = meta.table_name;
   const hasCategoricalProfiles =
     Array.isArray(meta?.columns_profile) &&
@@ -602,6 +737,10 @@ async function tryExecuteFastTableQuery({
   });
 
   if (!interpreted || interpreted.status === 'clarification_needed') {
+    const activeCtx = getLatestActiveContext(normalizedHistory, entity);
+    if (!activeCtx.pendingClarification && !hasFollowUpReference(prompt)) {
+      return null;
+    }
     const clarifyMsg =
       interpreted?.message ||
       `I could not map that query clearly onto columns in ${tableName}. Please clarify your filter criteria.`;
@@ -703,6 +842,7 @@ async function tryRouteBasicTableMutation({
   prompt,
   entity = null,
   history = [],
+  metadataRows = null,
 }) {
   if (
     hasCustomWorkspaceGeminiGenerator() ||
@@ -712,13 +852,15 @@ async function tryRouteBasicTableMutation({
   }
 
   const normalizedHistory = normalizeConversationHistory(history);
-  const metadataRows = await listWorkspaceTableMetadataCached(businessId);
-  if (!Array.isArray(metadataRows) || metadataRows.length === 0) return null;
+  const resolvedMetadata = Array.isArray(metadataRows)
+    ? metadataRows
+    : await listWorkspaceTableMetadataCached(businessId);
+  if (!Array.isArray(resolvedMetadata) || resolvedMetadata.length === 0) return null;
 
   const targetMatch = resolveSingleTableTarget(
     prompt,
     entity,
-    metadataRows,
+    resolvedMetadata,
     normalizedHistory
   );
   if (!targetMatch?.meta) return null;
@@ -738,6 +880,7 @@ module.exports = {
   isBasicTableQueryCandidate,
   isBasicTableMutationCandidate,
   resolveSingleTableTarget,
+  arePromptConceptsCoveredByTable,
   buildDeterministicQuerySummary,
   summarizeQueryRowsWithAi,
   buildHighlightedRows,

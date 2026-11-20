@@ -1,13 +1,15 @@
 const AppError = require('../utils/AppError');
 const { query, getPool } = require('../../db');
 
-const SCHEMA_CACHE_TTL_MS = 60000;
+const SCHEMA_CACHE_TTL_MS = 300000;
 const SCHEMA_CACHE_BY_POOL = new WeakMap();
 
 function getPoolSchemaCache() {
   try {
     const pool = getPool();
-    if (!pool || pool.constructor?.name !== 'Pool') {
+    // Duck-typed: live pg pools are `BoundPool` (having query + connect), whereas
+    // unit-test mock pools typically only define `query` and remain uncached.
+    if (!pool || typeof pool.query !== 'function' || typeof pool.connect !== 'function') {
       return null;
     }
     let store = SCHEMA_CACHE_BY_POOL.get(pool);
@@ -734,7 +736,8 @@ async function discoverTableSchema(tableName, businessId, options = {}) {
     return tableName;
   }
   const normName = normalizeEntityName(tableName);
-  const schemaStore = options.useCache && businessId ? getPoolSchemaCache() : null;
+  const useCache = options.useCache !== false;
+  const schemaStore = useCache && businessId ? getPoolSchemaCache() : null;
   const cacheKey = businessId ? `${String(businessId)}::${normName}` : null;
   if (schemaStore && cacheKey) {
     const cached = schemaStore.get(cacheKey);

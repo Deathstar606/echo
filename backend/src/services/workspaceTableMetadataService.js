@@ -5,13 +5,15 @@ const {
   invalidateTableSchemaCache,
 } = require('./sheetSchemaService');
 
-const METADATA_CACHE_TTL_MS = 60000;
+const METADATA_CACHE_TTL_MS = 300000;
 const METADATA_CACHE_BY_POOL = new WeakMap();
 
 function getPoolMetadataCache() {
   try {
     const pool = getPool();
-    if (!pool || pool.constructor?.name !== 'Pool') {
+    // Duck-typed: live pg pools are `BoundPool` (having query + connect), whereas
+    // unit-test mock pools typically only define `query` and remain uncached.
+    if (!pool || typeof pool.query !== 'function' || typeof pool.connect !== 'function') {
       return null;
     }
     let store = METADATA_CACHE_BY_POOL.get(pool);

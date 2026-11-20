@@ -216,7 +216,9 @@ function classifyTableColumns(schema, sampleRows = []) {
  * @returns {Promise<{ tables: Array<object>, documents: Array<object> }>}
  */
 async function discoverWorkspaceSources(businessId, options = {}) {
-  const allTableMetadata = await listWorkspaceTableMetadataCached(businessId);
+  const allTableMetadata = Array.isArray(options.prefetchedMetadata)
+    ? options.prefetchedMetadata
+    : await listWorkspaceTableMetadataCached(businessId);
   const requestedTargets = (Array.isArray(options.targetEntities) ? options.targetEntities : [])
     .map((name) => normalizeEntityName(String(name || '').replace(/\.(csv|xlsx?|tsv)$/i, '')))
     .filter(Boolean);
@@ -415,7 +417,10 @@ async function discoverWorkspaceSources(businessId, options = {}) {
     tables.push(emptyTargetFallback);
   }
 
-  const documents = await listDocumentsForBusiness(businessId);
+  const documents =
+    options.includeDocuments === false
+      ? []
+      : await listDocumentsForBusiness(businessId);
   return { tables, documents };
 }
 

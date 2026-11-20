@@ -355,21 +355,22 @@ const unavailableModels = new Set();
 const modelCooldownUntil = new Map();
 const FAST_STAGE_SET = new Set([
   'intent_routing',
+  'route_and_plan',
   'cross_source_read_plan',
   'cross_source_read_synthesis',
 ]);
 
 function buildCandidateModelsForStage(stage, preferredModel) {
-  const fullCandidates = [
-    preferredModel || 'gemini-3.5-flash',
-    'gemini-3.5-flash',
-  ];
-  // Prioritize fast yet high-accuracy 3.5-flash-lite first on lightweight stages,
-  // falling back to 3.5-flash -> 3.1-flash-lite before 3.8-flash (which often 503s slowly).
-  const ordered = FAST_STAGE_SET.has(stage)
-    ? ['gemini-3.5-flash-lite', ...fullCandidates, 'gemini-3.1-flash-lite', 'gemini-3.8-flash']
-    : [...fullCandidates, 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
-  return Array.from(new Set(ordered)).filter((m) => !unavailableModels.has(m));
+  const primary = FAST_STAGE_SET.has(stage)
+    ? 'gemini-3.5-flash-lite'
+    : preferredModel || 'gemini-3.5-flash';
+  const secondary =
+    primary === 'gemini-3.5-flash'
+      ? 'gemini-3.5-flash-lite'
+      : 'gemini-3.5-flash';
+  return Array.from(
+    new Set([primary, secondary, 'gemini-3.1-flash-lite'])
+  ).filter((m) => !unavailableModels.has(m));
 }
 
 /**
@@ -394,17 +395,10 @@ async function executeGeminiWithFallback(promptText, responseSchema, options = {
   const readyCandidates = allCandidates.filter(
     (m) => (modelCooldownUntil.get(m) || 0) <= now
   );
-  // Try ready models first; if all ready models fail transiently and other non-429 cooled models exist,
-  // allow one safety-net pass through cooled-down models before failing the user request.
-  const cooledNonRateLimited = allCandidates.filter(
-    (m) =>
-      !readyCandidates.includes(m) &&
-      (modelCooldownUntil.get(m) || 0) - now <= 20000
+  const cooledCandidates = allCandidates.filter(
+    (m) => !readyCandidates.includes(m)
   );
-  const candidateModels =
-    readyCandidates.length > 0
-      ? [...readyCandidates, ...cooledNonRateLimited]
-      : allCandidates;
+  const candidateModels = [...readyCandidates, ...cooledCandidates].slice(0, 3);
 
   let lastError = null;
   for (const modelName of candidateModels) {
@@ -523,7 +517,7 @@ async function generateStructuredJsonWithRetry(
     Number.isFinite(Number(options.timeoutMs)) && Number(options.timeoutMs) > 0
       ? Number(options.timeoutMs)
       : FAST_STAGE_SET.has(stage)
-        ? 8500
+        ? 16000
         : 25000;
 
   let currentPrompt = String(promptText ?? '');

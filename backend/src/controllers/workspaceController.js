@@ -8,6 +8,7 @@ const {
   ingestDocument,
   listDocumentsForBusiness,
   getChunksForBusiness,
+  prewarmWorkspaceDocumentCaches,
   updateDocumentContentById,
   deleteDocumentById,
   clearDocumentsForBusiness,
@@ -269,7 +270,7 @@ async function getDocuments(req, res, next) {
   try {
     const businessId = await requireBusinessId(req);
     const documents = await listDocumentsForBusiness(businessId);
-    await getChunksForBusiness(businessId);
+    prewarmWorkspaceDocumentCaches(businessId);
     return res.status(200).json({
       status: 'success',
       documents: documents.map((document) => ({
