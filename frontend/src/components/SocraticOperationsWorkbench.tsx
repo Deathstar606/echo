@@ -148,7 +148,7 @@ export default function SocraticOperationsWorkbench({
             aria-label="Prompting tips"
           >
             <div className="b2b-chat-tips-header">
-              <Lightbulb size={13} color="#4f46e5" style={{ flexShrink: 0 }} />
+              <Lightbulb size={13} color="#581AFF" style={{ flexShrink: 0 }} />
               <span>Prompting Tips</span>
             </div>
             <ul className="b2b-chat-tips-list">
@@ -220,7 +220,7 @@ export default function SocraticOperationsWorkbench({
                 style={{
                   fontSize: "12px",
                   fontWeight: 600,
-                  color: "var(--primary-indigo-dark)",
+                  color: "var(--primary-indigo-text)",
                 }}
               >
                 Evaluating operation...

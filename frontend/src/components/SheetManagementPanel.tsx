@@ -1726,6 +1726,7 @@ export default function SheetManagementPanel(): React.ReactElement {
   const copilotWorkbenchRef = useRef<HTMLElement | null>(null);
   const copilotTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [isCopilotInViewport, setIsCopilotInViewport] = useState(true);
+  const [showMobileCopilotModal, setShowMobileCopilotModal] = useState(false);
 
   useEffect(() => {
     const el = copilotWorkbenchRef.current;
@@ -1733,6 +1734,7 @@ export default function SheetManagementPanel(): React.ReactElement {
 
     const checkViewportFallback = () => {
       if (!copilotWorkbenchRef.current || copilotWorkbenchRef.current.offsetParent === null) {
+        setIsCopilotInViewport(false);
         return;
       }
       const rect = copilotWorkbenchRef.current.getBoundingClientRect();
@@ -1745,7 +1747,10 @@ export default function SheetManagementPanel(): React.ReactElement {
       (entries) => {
         const entry = entries[0];
         if (!entry) return;
-        if (el.offsetParent === null) return;
+        if (el.offsetParent === null) {
+          setIsCopilotInViewport(false);
+          return;
+        }
         setIsCopilotInViewport(entry.isIntersecting);
       },
       { threshold: 0.1 }
@@ -1993,9 +1998,9 @@ export default function SheetManagementPanel(): React.ReactElement {
               className="alert-banner"
               role="alert"
               style={{
-                backgroundColor: '#fffbeb',
+                backgroundColor: 'var(--status-warning-bg)',
                 borderColor: '#f59e0b',
-                color: '#92400e',
+                color: 'var(--status-warning)',
                 alignItems: 'flex-start',
               }}
             >
@@ -2044,10 +2049,10 @@ export default function SheetManagementPanel(): React.ReactElement {
                 flexDirection: 'column',
                 gap: 12,
                 padding: 16,
-                background: '#fff',
+                background: 'var(--bg-card)',
                 border: '2px solid var(--primary-indigo)',
                 borderRadius: 10,
-                boxShadow: '0 4px 14px rgba(57, 70, 211, 0.12)',
+                boxShadow: '0 4px 14px rgba(88, 26, 255, 0.16)',
               }}
             >
               <div
@@ -2060,7 +2065,7 @@ export default function SheetManagementPanel(): React.ReactElement {
                 }}
               >
                 <div>
-                  <strong style={{ color: 'var(--primary-indigo-dark)' }}>
+                  <strong style={{ color: 'var(--primary-indigo-text)' }}>
                     Mutation preview — confirmation required
                   </strong>
                   <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-secondary)' }}>
@@ -2140,7 +2145,7 @@ export default function SheetManagementPanel(): React.ReactElement {
                               style={{
                                 padding: '7px 8px',
                                 verticalAlign: 'top',
-                                color: '#15803d',
+                                color: 'var(--status-success)',
                                 fontWeight: 700,
                               }}
                             >
@@ -2235,9 +2240,9 @@ export default function SheetManagementPanel(): React.ReactElement {
                   flexWrap: 'wrap',
                   gap: '8px',
                   padding: '10px 14px',
-                  backgroundColor: '#f8fafc',
+                  backgroundColor: 'var(--bg-subtle-warm)',
                   borderRadius: '8px',
-                  border: '1px solid #bfdbfe',
+                  border: '1px solid var(--accent-lavender-border)',
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', minWidth: 0 }}>
@@ -2251,9 +2256,9 @@ export default function SheetManagementPanel(): React.ReactElement {
                       borderRadius: '999px',
                       fontSize: '11px',
                       fontWeight: 600,
-                      backgroundColor: '#eff6ff',
-                      color: '#1d4ed8',
-                      border: '1px solid #bfdbfe',
+                      backgroundColor: 'var(--accent-lavender-bg)',
+                      color: '#a78bfa',
+                      border: '1px solid var(--accent-lavender-border)',
                     }}
                   >
                     Full Document (Non-Chunked)
@@ -2383,7 +2388,7 @@ export default function SheetManagementPanel(): React.ReactElement {
                 style={{
                   border: '1px solid var(--border-warm)',
                   borderRadius: '8px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--bg-card)',
                   overflow: 'hidden',
                 }}
               >
@@ -2422,7 +2427,7 @@ export default function SheetManagementPanel(): React.ReactElement {
                       resize: 'vertical',
                       fontFamily: 'inherit',
                       color: 'var(--text-primary)',
-                      backgroundColor: '#fffdf9',
+                      backgroundColor: 'var(--bg-panel)',
                       boxSizing: 'border-box',
                     }}
                   />
@@ -2457,20 +2462,20 @@ export default function SheetManagementPanel(): React.ReactElement {
               padding: '10px 14px',
               backgroundColor:
                 queryResult?.status === 'clarification_needed'
-                  ? '#fffbeb'
+                  ? 'var(--status-warning-bg)'
                   : queryResult && queryResult.count === 0
-                    ? '#fef2f2'
+                    ? 'var(--status-error-bg)'
                     : isQueryFilterActive
-                      ? '#eff6ff'
+                      ? 'var(--accent-lavender-bg)'
                       : 'var(--bg-subtle-warm)',
               borderRadius: '8px',
               border:
                 queryResult?.status === 'clarification_needed'
-                  ? '1px solid #f59e0b'
+                  ? '1px solid rgba(251, 191, 36, 0.45)'
                   : queryResult && queryResult.count === 0
-                    ? '1px solid #fecaca'
+                    ? '1px solid rgba(248, 113, 113, 0.45)'
                     : isQueryFilterActive
-                      ? '1px solid #bfdbfe'
+                      ? '1px solid var(--accent-lavender-border)'
                       : '1px solid var(--border-warm)',
             }}
           >
@@ -2480,7 +2485,7 @@ export default function SheetManagementPanel(): React.ReactElement {
                 {!activeEntity
                   ? 'No table loaded in the current workspace yet.'
                   : !queryResult
-                    ? `Showing all ${activeRows.length} record(s) from ${activeDisplayName || activeEntity} (${activeFileName || `${activeEntity}.csv`}).`
+                    ? `(${activeFileName || `${activeEntity}.csv`}) all (${activeRows.length})`
                     : queryResult.status === 'clarification_needed'
                       ? `Clarification Needed: ${queryResult.message}`
                       : queryResult.count === 0
@@ -2503,9 +2508,9 @@ export default function SheetManagementPanel(): React.ReactElement {
                     gap: '6px',
                     padding: '3px 9px',
                     borderRadius: '999px',
-                    backgroundColor: '#ecfdf5',
+                    backgroundColor: 'var(--status-success-bg)',
                     border: '1px solid #10b981',
-                    color: '#065f46',
+                    color: 'var(--status-success)',
                     fontSize: '11px',
                     fontWeight: 600,
                   }}
@@ -2535,7 +2540,7 @@ export default function SheetManagementPanel(): React.ReactElement {
               <span
                 style={{
                   fontSize: '12px',
-                  color: isQueryFilterActive ? 'var(--primary-indigo)' : 'var(--text-secondary)',
+                  color: isQueryFilterActive ? 'var(--primary-indigo-text)' : 'var(--text-secondary)',
                   fontWeight: 600,
                 }}
               >
@@ -2929,7 +2934,7 @@ export default function SheetManagementPanel(): React.ReactElement {
                                       border: `1.5px solid ${
                                         isDirtyCell ? 'var(--primary-indigo)' : 'var(--border-warm)'
                                       }`,
-                                      backgroundColor: isDirtyCell ? '#eef2ff' : '#ffffff',
+                                      backgroundColor: isDirtyCell ? 'var(--accent-lavender-bg)' : 'var(--bg-card)',
                                       color: 'var(--text-primary)',
                                     }}
                                   >
@@ -2954,7 +2959,7 @@ export default function SheetManagementPanel(): React.ReactElement {
                                       border: `1.5px solid ${
                                         isDirtyCell ? 'var(--primary-indigo)' : 'var(--border-warm)'
                                       }`,
-                                      backgroundColor: isDirtyCell ? '#eef2ff' : '#ffffff',
+                                      backgroundColor: isDirtyCell ? 'var(--accent-lavender-bg)' : 'var(--bg-card)',
                                       color: 'var(--text-primary)',
                                     }}
                                   />
@@ -3335,7 +3340,7 @@ export default function SheetManagementPanel(): React.ReactElement {
               exit={{ scale: 0.95, opacity: 0, y: 10 }}
               onClick={(e) => e.stopPropagation()}
               style={{
-                backgroundColor: '#ffffff',
+                backgroundColor: 'var(--bg-card)',
                 borderRadius: '14px',
                 boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
                 width: '100%',
@@ -3361,7 +3366,7 @@ export default function SheetManagementPanel(): React.ReactElement {
                       width: 28,
                       height: 28,
                       borderRadius: 6,
-                      backgroundColor: '#ecfdf5',
+                      backgroundColor: 'var(--status-success-bg)',
                       border: '1px solid #10b981',
                       display: 'flex',
                       alignItems: 'center',
@@ -3416,9 +3421,9 @@ export default function SheetManagementPanel(): React.ReactElement {
                     style={{
                       padding: '14px',
                       borderRadius: '10px',
-                      backgroundColor: '#ecfdf5',
-                      border: '1px solid #a7f3d0',
-                      color: '#065f46',
+                      backgroundColor: 'var(--status-success-bg)',
+                      border: '1px solid rgba(52, 211, 153, 0.38)',
+                      color: 'var(--status-success)',
                       fontSize: '13px',
                       lineHeight: 1.5,
                       display: 'flex',
@@ -3443,9 +3448,9 @@ export default function SheetManagementPanel(): React.ReactElement {
                         gap: '8px',
                         padding: '8px 12px',
                         borderRadius: '8px',
-                        backgroundColor: '#fef2f2',
-                        border: '1px solid #fecaca',
-                        color: '#b91c1c',
+                        backgroundColor: 'var(--status-error-bg)',
+                        border: '1px solid rgba(248, 113, 113, 0.38)',
+                        color: 'var(--status-error)',
                         fontSize: '12px',
                       }}
                     >
@@ -3507,9 +3512,9 @@ export default function SheetManagementPanel(): React.ReactElement {
                         gap: '8px',
                         padding: '8px 12px',
                         borderRadius: '8px',
-                        backgroundColor: '#fffbeb',
-                        border: '1px solid #fde68a',
-                        color: '#92400e',
+                        backgroundColor: 'var(--status-warning-bg)',
+                        border: '1px solid rgba(251, 191, 36, 0.38)',
+                        color: 'var(--status-warning)',
                         fontSize: '11.5px',
                       }}
                     >
@@ -3631,9 +3636,9 @@ export default function SheetManagementPanel(): React.ReactElement {
                           gap: '8px',
                           padding: '8px 12px',
                           borderRadius: '8px',
-                          backgroundColor: '#fef2f2',
-                          border: '1px solid #fecaca',
-                          color: '#b91c1c',
+                          backgroundColor: 'var(--status-error-bg)',
+                          border: '1px solid rgba(248, 113, 113, 0.38)',
+                          color: 'var(--status-error)',
                           fontSize: '12px',
                         }}
                       >
@@ -3701,15 +3706,128 @@ export default function SheetManagementPanel(): React.ReactElement {
         )}
       </AnimatePresence>
 
-      {/* Mobile Floating Animated Copilot Jump Button (Visible when chatbox is out of viewport) */}
+      {/* Mobile Chat Pop-up Modal (Opened via Floating Action Button) */}
       <AnimatePresence>
-        {!isCopilotInViewport && (
+        {showMobileCopilotModal && (
+          <motion.div
+            className="modal-backdrop mobile-copilot-modal-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            onClick={() => setShowMobileCopilotModal(false)}
+            style={{ zIndex: 1200, padding: '12px', alignItems: 'flex-end' }}
+          >
+            <motion.div
+              className="modal-card mobile-copilot-modal-card"
+              initial={{ opacity: 0, y: 40, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 40, scale: 0.96 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: '100%',
+                maxWidth: '540px',
+                height: 'auto',
+                maxHeight: '88dvh',
+                padding: '10px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px',
+                overflow: 'hidden',
+                borderRadius: '16px',
+                backgroundColor: 'var(--bg-panel)',
+                border: '1px solid var(--border-warm)',
+                boxShadow: 'var(--shadow-modal)',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '2px 4px 8px 4px',
+                  borderBottom: '1px solid var(--border-subtle)',
+                  gap: '8px',
+                  flexShrink: 0,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
+                  <Sparkles size={15} color="var(--primary-indigo)" style={{ flexShrink: 0 }} />
+                  <span
+                    style={{
+                      fontWeight: 700,
+                      fontSize: '13.5px',
+                      color: 'var(--text-primary)',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    B2B Operations Copilot
+                  </span>
+                  {activeEntity && (
+                    <span
+                      style={{
+                        padding: '2px 7px',
+                        borderRadius: '999px',
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        backgroundColor: 'var(--accent-lavender-bg)',
+                        border: '1px solid var(--accent-lavender-border)',
+                        color: 'var(--primary-indigo-text)',
+                        textTransform: 'uppercase',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        maxWidth: '135px',
+                      }}
+                    >
+                      {activeDisplayName || activeEntity}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="icon-action-btn"
+                  onClick={() => setShowMobileCopilotModal(false)}
+                  aria-label="Close AI chat popup"
+                  style={{ flexShrink: 0 }}
+                >
+                  <X size={17} />
+                </button>
+              </div>
+              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <SocraticOperationsWorkbench
+                  activeEntity={activeEntity}
+                  activeDisplayName={activeDisplayName}
+                  workflowStatus={b2bWorkflow.workflowStatus}
+                  executingStep={b2bWorkflow.executingStep}
+                  workflowError={b2bWorkflow.workflowError}
+                  conversationHistory={b2bWorkflow.conversationHistory}
+                  isBusy={isBusy}
+                  nlPrompt={nlPrompt}
+                  onPromptChange={(prompt) => dispatch(setSheetNlPrompt(prompt))}
+                  samplePrompts={samplePrompts}
+                  onExecuteOperation={b2bWorkflow.handleExecuteOperation}
+                  onDismissError={b2bWorkflow.handleDismissError}
+                  onResetWorkflow={b2bWorkflow.handleResetWorkflow}
+                />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Mobile Floating Animated Copilot Chat Pop-up Button */}
+      <AnimatePresence>
+        {!isCopilotInViewport && !showMobileCopilotModal && (
           <motion.button
             type="button"
             className="mobile-copilot-fab"
-            onClick={handleScrollAndFocusCopilot}
-            aria-label="Scroll to B2B Operations Copilot chatbox"
-            title="Jump to AI Copilot Chatbox"
+            onClick={() => setShowMobileCopilotModal(true)}
+            aria-label="Open B2B Operations Copilot chat popup"
+            title="Open AI Copilot Chat"
             initial={{ opacity: 0, scale: 0.75, y: 16 }}
             animate={{ opacity: 1, scale: 1, y: [0, -5, 0] }}
             exit={{ opacity: 0, scale: 0.75, y: 16 }}

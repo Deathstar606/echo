@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Building2,
   KeyRound,
@@ -24,7 +24,7 @@ import {
   Globe,
   ExternalLink,
   Check,
-} from 'lucide-react';
+} from "lucide-react";
 import {
   getActiveWorkspaceId,
   getActiveWorkspaceName,
@@ -32,8 +32,14 @@ import {
   clearActiveWorkspace,
   setLoggedInUser,
   getLoggedInUser,
-} from '../config/constants';
-import { loginApi, registerApi, demoLoginApi, getGoogleAuthUrlApi } from '../services/api';
+} from "../config/constants";
+import {
+  loginApi,
+  registerApi,
+  demoLoginApi,
+  getGoogleAuthUrlApi,
+} from "../services/api";
+import logoImg from "../assets/logo.png";
 
 // =============================================================================
 // Landing Page Placeholders (Easy to update later)
@@ -42,124 +48,126 @@ import { loginApi, registerApi, demoLoginApi, getGoogleAuthUrlApi } from '../ser
 /**
  * YouTube product walkthrough URL embedded on the home screen.
  */
-const YOUTUBE_TUTORIAL_URL = 'https://youtu.be/LTYa9HEe8Ps?si=4UUWmJKFomZKBN-B';
+const YOUTUBE_TUTORIAL_URL = "https://youtu.be/LTYa9HEe8Ps?si=4UUWmJKFomZKBN-B";
 
 /**
  * Developer / maintainer credentials displayed in the landing footer.
  */
 const DEVELOPER_INFO = {
-  name: 'Fardin Rahman',
-  role: 'Developer & Creator',
-  organization: 'MaxiText AI Studio',
-  email: 'dsfardin606@gmail.com',
-  portfolioUrl: 'https://deathstar606.github.io/PortFolio/',
+  name: "Fardin Rahman",
+  role: "Developer & Creator",
+  organization: "Echo B2B Assistant",
+  email: "dsfardin606@gmail.com",
+  portfolioUrl: "https://deathstar606.github.io/PortFolio/",
 };
 
 const CORE_CAPABILITIES = [
   {
-    id: 'inquiry-triage',
-    title: 'Customer Inquiry Studio',
-    tag: 'Support & Gmail',
+    id: "inquiry-triage",
+    title: "Customer Inquiry Studio",
+    tag: "Support & Gmail",
     description:
-      'Manage Gmail threads and customer tickets with policy-grounded AI reply drafts.',
+      "Manage Gmail threads and customer tickets with policy-grounded AI reply drafts.",
     icon: Mail,
-    accentClass: 'is-indigo',
+    accentClass: "is-indigo",
   },
   {
-    id: 'sheet-copilot',
-    title: 'Natural-Language Sheets',
-    tag: 'Data Copilot',
+    id: "sheet-copilot",
+    title: "Natural-Language Sheets",
+    tag: "Data Copilot",
     description:
-      'Filter rows and stage updates in plain English with live table highlighting.',
+      "Filter rows and stage updates in plain English with live table highlighting.",
     icon: FileSpreadsheet,
-    accentClass: 'is-blue',
+    accentClass: "is-blue",
   },
   {
-    id: 'cross-doc-rag',
-    title: 'Cross-Document RAG',
-    tag: 'Provenance',
+    id: "cross-doc-rag",
+    title: "Cross-Document RAG",
+    tag: "Provenance",
     description:
-      'Cross-reference PDFs, Docs, and tables with clickable source citations.',
+      "Cross-reference PDFs, Docs, and tables with clickable source citations.",
     icon: FileText,
-    accentClass: 'is-teal',
+    accentClass: "is-teal",
   },
   {
-    id: 'socratic-gate',
-    title: 'Socratic Resolution Gate',
-    tag: 'Governance',
+    id: "socratic-gate",
+    title: "Socratic Resolution Gate",
+    tag: "Governance",
     description:
-      'Pauses for human clarification whenever rules conflict or scope is unclear.',
+      "Pauses for human clarification whenever rules conflict or scope is unclear.",
     icon: GitBranch,
-    accentClass: 'is-amber',
+    accentClass: "is-amber",
   },
   {
-    id: 'stage-preview',
-    title: 'Stage 1 Diff Previews',
-    tag: 'Safe Writes',
+    id: "stage-preview",
+    title: "Stage 1 Diff Previews",
+    tag: "Safe Writes",
     description:
-      'Inspect Before/After table diffs and email drafts before atomic execution.',
+      "Inspect Before/After table diffs and email drafts before atomic execution.",
     icon: ShieldCheck,
-    accentClass: 'is-emerald',
+    accentClass: "is-emerald",
   },
   {
-    id: 'google-bulk',
-    title: 'Google Workspace Sync',
-    tag: 'Integrations',
+    id: "google-bulk",
+    title: "Google Workspace Sync",
+    tag: "Integrations",
     description:
-      'Import Google Sheets and Docs via OAuth and run targeted campaigns.',
+      "Import Google Sheets and Docs via OAuth and run targeted campaigns.",
     icon: Cloud,
-    accentClass: 'is-violet',
+    accentClass: "is-violet",
   },
 ];
 
 const WORKFLOW_STEPS = [
   {
-    step: '01',
-    title: 'Connect Sources',
-    description: 'Link Gmail, upload CSVs or Google Sheets, and index SLA docs.',
+    step: "01",
+    title: "Connect Sources",
+    description:
+      "Link Gmail, upload CSVs or Google Sheets, and index SLA docs.",
   },
   {
-    step: '02',
-    title: 'Prompt & Clarify',
-    description: 'Ask in natural language; resolve policy conflicts interactively.',
+    step: "02",
+    title: "Prompt & Clarify",
+    description:
+      "Ask in natural language; resolve policy conflicts interactively.",
   },
   {
-    step: '03',
-    title: 'Inspect Stage 1 Diffs',
-    description: 'Review matched rows, table changes, emails, and citations.',
+    step: "03",
+    title: "Inspect Stage 1 Diffs",
+    description: "Review matched rows, table changes, emails, and citations.",
   },
   {
-    step: '04',
-    title: 'Approve & Execute',
-    description: 'Commit verified updates and send emails with audit trails.',
+    step: "04",
+    title: "Approve & Execute",
+    description: "Commit verified updates and send emails with audit trails.",
   },
 ];
 
 const HERO_PILLARS = [
-  { value: 'Stage 1 -> Stage 2', label: 'Preview diffs before commit' },
-  { value: '5-Turn Memory', label: 'Context-aware table queries' },
-  { value: 'Full Provenance', label: 'Row & document citations' },
+  { value: "Stage 1 -> Stage 2", label: "Preview diffs before commit" },
+  { value: "5-Turn Memory", label: "Context-aware table queries" },
+  { value: "Full Provenance", label: "Row & document citations" },
 ];
 
 function extractYouTubeEmbedUrl(rawUrl) {
-  const trimmed = String(rawUrl || '').trim();
-  if (!trimmed) return '';
-  if (trimmed.includes('youtube.com/embed/')) return trimmed;
+  const trimmed = String(rawUrl || "").trim();
+  if (!trimmed) return "";
+  if (trimmed.includes("youtube.com/embed/")) return trimmed;
 
   try {
     const parsed = new URL(trimmed);
-    if (parsed.hostname.includes('youtu.be')) {
-      const id = parsed.pathname.replace(/^\//, '').split('/')[0];
-      return id ? `https://www.youtube.com/embed/${id}` : '';
+    if (parsed.hostname.includes("youtu.be")) {
+      const id = parsed.pathname.replace(/^\//, "").split("/")[0];
+      return id ? `https://www.youtube.com/embed/${id}` : "";
     }
-    const videoId = parsed.searchParams.get('v');
+    const videoId = parsed.searchParams.get("v");
     if (videoId) {
       return `https://www.youtube.com/embed/${videoId}`;
     }
   } catch {
-    return '';
+    return "";
   }
-  return '';
+  return "";
 }
 
 const fadeUpVariant = {
@@ -185,10 +193,10 @@ export default function LandingPage() {
   const [activeWsName, setActiveWsName] = useState(getActiveWorkspaceName());
   const [currentUser, setCurrentUserState] = useState(getLoggedInUser());
 
-  const [authMode, setAuthMode] = useState('login'); // 'login' | 'register'
-  const [emailInput, setEmailInput] = useState('');
-  const [passwordInput, setPasswordInput] = useState('');
-  const [nameInput, setNameInput] = useState('');
+  const [authMode, setAuthMode] = useState("login"); // 'login' | 'register'
+  const [emailInput, setEmailInput] = useState("");
+  const [passwordInput, setPasswordInput] = useState("");
+  const [nameInput, setNameInput] = useState("");
 
   const [isLoading, setIsLoading] = useState(false);
   const [isDemoLoading, setIsDemoLoading] = useState(false);
@@ -200,7 +208,7 @@ export default function LandingPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    const gErr = params.get('google_auth_error');
+    const gErr = params.get("google_auth_error");
     if (gErr) {
       setAuthError(gErr);
       navigate(location.pathname, { replace: true });
@@ -213,11 +221,11 @@ export default function LandingPage() {
       setActiveWsId(getActiveWorkspaceId());
       setActiveWsName(getActiveWorkspaceName());
     };
-    window.addEventListener('authChanged', syncState);
-    window.addEventListener('workspaceChanged', syncState);
+    window.addEventListener("authChanged", syncState);
+    window.addEventListener("workspaceChanged", syncState);
     return () => {
-      window.removeEventListener('authChanged', syncState);
-      window.removeEventListener('workspaceChanged', syncState);
+      window.removeEventListener("authChanged", syncState);
+      window.removeEventListener("workspaceChanged", syncState);
     };
   }, []);
 
@@ -238,16 +246,21 @@ export default function LandingPage() {
         setActiveWsName(primaryWs.name);
       } else {
         clearActiveWorkspace(true);
-        setActiveWsId('');
-        setActiveWsName('No Workspace Selected');
+        setActiveWsId("");
+        setActiveWsName("No Workspace Selected");
       }
 
-      window.dispatchEvent(new Event('authChanged'));
-      window.dispatchEvent(new Event('workspaceChanged'));
-      navigate('/company');
+      window.dispatchEvent(new Event("authChanged"));
+      window.dispatchEvent(new Event("workspaceChanged"));
+      navigate("/company");
     } catch (err) {
-      setAuthError(err?.message || 'Unable to launch the shared demo workspace right now.');
-      authSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setAuthError(
+        err?.message || "Unable to launch the shared demo workspace right now.",
+      );
+      authSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
     } finally {
       setIsDemoLoading(false);
     }
@@ -262,7 +275,7 @@ export default function LandingPage() {
     const email = emailInput.trim();
     const pass = passwordInput;
     if (!email || !pass) {
-      setAuthError('Please enter both your email address and password.');
+      setAuthError("Please enter both your email address and password.");
       return;
     }
 
@@ -279,19 +292,21 @@ export default function LandingPage() {
         setActiveWsName(primaryWs.name);
       } else {
         clearActiveWorkspace(true);
-        setActiveWsId('');
-        setActiveWsName('No Workspace Selected');
+        setActiveWsId("");
+        setActiveWsName("No Workspace Selected");
       }
 
-      window.dispatchEvent(new Event('authChanged'));
-      window.dispatchEvent(new Event('workspaceChanged'));
+      window.dispatchEvent(new Event("authChanged"));
+      window.dispatchEvent(new Event("workspaceChanged"));
 
       setAuthSuccessMessage(`Welcome back, ${res.user.name}! Redirecting...`);
       setTimeout(() => {
-        navigate('/company');
+        navigate("/company");
       }, 700);
     } catch (err) {
-      setAuthError(err?.message || 'Login failed. Please check your credentials.');
+      setAuthError(
+        err?.message || "Login failed. Please check your credentials.",
+      );
     } finally {
       setIsLoading(false);
     }
@@ -308,7 +323,7 @@ export default function LandingPage() {
     const pass = passwordInput;
 
     if (!name || !email || !pass) {
-      setAuthError('Please fill out all fields to register.');
+      setAuthError("Please fill out all fields to register.");
       return;
     }
 
@@ -325,19 +340,21 @@ export default function LandingPage() {
         setActiveWsName(primaryWs.name);
       } else {
         clearActiveWorkspace(true);
-        setActiveWsId('');
-        setActiveWsName('No Workspace Selected');
+        setActiveWsId("");
+        setActiveWsName("No Workspace Selected");
       }
 
-      window.dispatchEvent(new Event('authChanged'));
-      window.dispatchEvent(new Event('workspaceChanged'));
+      window.dispatchEvent(new Event("authChanged"));
+      window.dispatchEvent(new Event("workspaceChanged"));
 
-      setAuthSuccessMessage(`Account created for ${res.user.name}! Provisioning workspace...`);
+      setAuthSuccessMessage(
+        `Account created for ${res.user.name}! Provisioning workspace...`,
+      );
       setTimeout(() => {
-        navigate('/company');
+        navigate("/company");
       }, 800);
     } catch (err) {
-      setAuthError(err?.message || 'Registration failed.');
+      setAuthError(err?.message || "Registration failed.");
     } finally {
       setIsLoading(false);
     }
@@ -348,21 +365,21 @@ export default function LandingPage() {
     setAuthError(null);
     setIsGoogleLoading(true);
     try {
-      const url = await getGoogleAuthUrlApi('');
+      const url = await getGoogleAuthUrlApi("");
       if (url) {
         window.location.href = url;
       } else {
-        throw new Error('Could not obtain Google authentication URL.');
+        throw new Error("Could not obtain Google authentication URL.");
       }
     } catch (err) {
-      setAuthError(err?.message || 'Failed to initiate Google sign-in.');
+      setAuthError(err?.message || "Failed to initiate Google sign-in.");
       setIsGoogleLoading(false);
     }
   };
 
   const scrollToSection = (sectionId) => {
     const el = document.getElementById(sectionId);
-    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   return (
@@ -385,13 +402,15 @@ export default function LandingPage() {
               custom={0}
             >
               <h1 className="landing-hero-title">
-                Turn support queues &amp; company data into{' '}
-                <span className="landing-hero-accent">verified B2B action.</span>
+                Turn support queues &amp; company data into{" "}
+                <span className="landing-hero-accent">
+                  verified B2B action.
+                </span>
               </h1>
 
               <p className="landing-hero-subtitle">
-                Unite Gmail threads, live spreadsheets, and policy docs with human-approved Stage 1
-                diffs before committing.
+                Unite Gmail threads, live spreadsheets, and policy docs with
+                human-approved Stage 1 diffs before committing.
               </p>
 
               {/* Active Session Status Bar (Shown only when user is signed in) */}
@@ -401,21 +420,42 @@ export default function LandingPage() {
                   animate={{ opacity: 1, y: 0 }}
                   className="landing-active-session-bar"
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      minWidth: 0,
+                    }}
+                  >
                     {activeWsId ? (
                       <>
                         <Building2 size={15} color="var(--primary-indigo)" />
-                        <span style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                          Active Workspace:{' '}
-                          <strong style={{ color: 'var(--text-primary)' }}>{activeWsName}</strong>
+                        <span
+                          style={{
+                            fontSize: "12.5px",
+                            color: "var(--text-secondary)",
+                          }}
+                        >
+                          Active Workspace:{" "}
+                          <strong style={{ color: "var(--text-primary)" }}>
+                            {activeWsName}
+                          </strong>
                         </span>
                       </>
                     ) : (
                       <>
                         <User size={15} color="var(--primary-indigo)" />
-                        <span style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                          Signed in as{' '}
-                          <strong style={{ color: 'var(--text-primary)' }}>{currentUser.name}</strong>
+                        <span
+                          style={{
+                            fontSize: "12.5px",
+                            color: "var(--text-secondary)",
+                          }}
+                        >
+                          Signed in as{" "}
+                          <strong style={{ color: "var(--text-primary)" }}>
+                            {currentUser.name}
+                          </strong>
                         </span>
                       </>
                     )}
@@ -423,11 +463,11 @@ export default function LandingPage() {
                   <button
                     type="button"
                     className="btn-primary-indigo"
-                    onClick={() => navigate('/company')}
+                    onClick={() => navigate("/company")}
                     style={{
-                      padding: '6px 14px',
-                      fontSize: '12px',
-                      borderRadius: '999px',
+                      padding: "6px 14px",
+                      fontSize: "12px",
+                      borderRadius: "999px",
                       flexShrink: 0,
                     }}
                   >
@@ -439,32 +479,34 @@ export default function LandingPage() {
 
               {/* Hero CTAs */}
               <div className="landing-hero-actions">
-                <button
-                  type="button"
-                  className="btn-primary-indigo landing-cta-primary"
-                  onClick={handleTryDemo}
-                  disabled={isDemoLoading}
-                >
-                  {isDemoLoading ? (
-                    <>
-                      <Loader2 size={15} className="animate-spin" />
-                      <span>Opening Demo Workspace...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>Try Now</span>
-                      <ArrowRight size={15} />
-                    </>
-                  )}
-                </button>
+                {!currentUser?.id && (
+                  <button
+                    type="button"
+                    className="btn-primary-indigo landing-cta-primary"
+                    onClick={handleTryDemo}
+                    disabled={isDemoLoading}
+                  >
+                    {isDemoLoading ? (
+                      <>
+                        <Loader2 size={15} className="animate-spin" />
+                        <span>Opening Demo Workspace...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Try Now</span>
+                        <ArrowRight size={15} />
+                      </>
+                    )}
+                  </button>
+                )}
 
                 <button
                   type="button"
                   className="btn-warm-outlined landing-cta-secondary"
-                  onClick={() => scrollToSection('tutorial')}
+                  onClick={() => scrollToSection("tutorial")}
                 >
                   <PlayCircle size={16} color="var(--primary-indigo)" />
-                  <span>Watch Video Walkthrough</span>
+                  <span>Walkthrough</span>
                 </button>
               </div>
 
@@ -491,26 +533,36 @@ export default function LandingPage() {
             >
               <div className="landing-auth-header">
                 <div>
-                  <h2 className="landing-auth-title">Access MaxiText AI Studio</h2>
+                  <h2 className="landing-auth-title">
+                    Access Echo B2B Assistant
+                  </h2>
                   <p className="landing-auth-caption">
-                    Sign in or provision a private workspace for your operations team.
+                    Sign in or provision a private workspace for your operations
+                    team.
                   </p>
                 </div>
-                <span className="landing-security-chip" title="Workspace-scoped access control">
+                <span
+                  className="landing-security-chip"
+                  title="Workspace-scoped access control"
+                >
                   <ShieldCheck size={13} />
                   <span>Private</span>
                 </span>
               </div>
 
               {/* Segmented Mode Tabs */}
-              <div className="landing-auth-tabs" role="tablist" aria-label="Authentication mode">
+              <div
+                className="landing-auth-tabs"
+                role="tablist"
+                aria-label="Authentication mode"
+              >
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={authMode === 'login'}
-                  className={`landing-auth-tab-btn ${authMode === 'login' ? 'is-active' : ''}`}
+                  aria-selected={authMode === "login"}
+                  className={`landing-auth-tab-btn ${authMode === "login" ? "is-active" : ""}`}
                   onClick={() => {
-                    setAuthMode('login');
+                    setAuthMode("login");
                     setAuthError(null);
                     setAuthSuccessMessage(null);
                   }}
@@ -522,10 +574,10 @@ export default function LandingPage() {
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={authMode === 'register'}
-                  className={`landing-auth-tab-btn ${authMode === 'register' ? 'is-active' : ''}`}
+                  aria-selected={authMode === "register"}
+                  className={`landing-auth-tab-btn ${authMode === "register" ? "is-active" : ""}`}
                   onClick={() => {
-                    setAuthMode('register');
+                    setAuthMode("register");
                     setAuthError(null);
                     setAuthSuccessMessage(null);
                   }}
@@ -543,7 +595,12 @@ export default function LandingPage() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -6 }}
                     className="error-banner"
-                    style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12.5px' }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      fontSize: "12.5px",
+                    }}
                   >
                     <AlertCircle size={15} style={{ flexShrink: 0 }} />
                     <span>{authError}</span>
@@ -555,18 +612,22 @@ export default function LandingPage() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -6 }}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      fontSize: '12.5px',
-                      padding: '10px 12px',
-                      borderRadius: '8px',
-                      backgroundColor: '#ecfdf5',
-                      color: '#065f46',
-                      border: '1px solid #a7f3d0',
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      fontSize: "12.5px",
+                      padding: "10px 12px",
+                      borderRadius: "8px",
+                      backgroundColor: "var(--status-success-bg)",
+                      color: "var(--status-success)",
+                      border: "1px solid rgba(52, 211, 153, 0.35)",
                     }}
                   >
-                    <CheckCircle2 size={15} color="#059669" style={{ flexShrink: 0 }} />
+                    <CheckCircle2
+                      size={15}
+                      color="#059669"
+                      style={{ flexShrink: 0 }}
+                    />
                     <span>{authSuccessMessage}</span>
                   </motion.div>
                 )}
@@ -586,7 +647,12 @@ export default function LandingPage() {
                   </>
                 ) : (
                   <>
-                    <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true">
+                    <svg
+                      width="17"
+                      height="17"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                    >
                       <path
                         fill="#4285F4"
                         d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -615,14 +681,18 @@ export default function LandingPage() {
                 <span />
               </div>
 
-              {authMode === 'login' ? (
+              {authMode === "login" ? (
                 <form
                   onSubmit={handleLoginSubmit}
-                  style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "12px",
+                  }}
                 >
                   <div className="form-group">
                     <label className="form-label" htmlFor="email-input">
-                      Email Address <span style={{ color: '#dc2626' }}>*</span>
+                      Email Address <span style={{ color: "#dc2626" }}>*</span>
                     </label>
                     <div className="landing-input-wrap">
                       <Mail size={14} className="landing-input-icon" />
@@ -642,7 +712,7 @@ export default function LandingPage() {
 
                   <div className="form-group">
                     <label className="form-label" htmlFor="password-input">
-                      Password <span style={{ color: '#dc2626' }}>*</span>
+                      Password <span style={{ color: "#dc2626" }}>*</span>
                     </label>
                     <div className="landing-input-wrap">
                       <Lock size={14} className="landing-input-icon" />
@@ -681,11 +751,15 @@ export default function LandingPage() {
               ) : (
                 <form
                   onSubmit={handleRegisterSubmit}
-                  style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "12px",
+                  }}
                 >
                   <div className="form-group">
                     <label className="form-label" htmlFor="name-input">
-                      Full Name <span style={{ color: '#dc2626' }}>*</span>
+                      Full Name <span style={{ color: "#dc2626" }}>*</span>
                     </label>
                     <div className="landing-input-wrap">
                       <User size={14} className="landing-input-icon" />
@@ -704,7 +778,7 @@ export default function LandingPage() {
 
                   <div className="form-group">
                     <label className="form-label" htmlFor="reg-email-input">
-                      Work Email <span style={{ color: '#dc2626' }}>*</span>
+                      Work Email <span style={{ color: "#dc2626" }}>*</span>
                     </label>
                     <div className="landing-input-wrap">
                       <Mail size={14} className="landing-input-icon" />
@@ -724,7 +798,8 @@ export default function LandingPage() {
 
                   <div className="form-group">
                     <label className="form-label" htmlFor="reg-password-input">
-                      Password (min. 6 characters) <span style={{ color: '#dc2626' }}>*</span>
+                      Password (min. 6 characters){" "}
+                      <span style={{ color: "#dc2626" }}>*</span>
                     </label>
                     <div className="landing-input-wrap">
                       <Lock size={14} className="landing-input-icon" />
@@ -745,7 +820,10 @@ export default function LandingPage() {
                     type="submit"
                     className="btn-primary-indigo landing-auth-submit"
                     disabled={
-                      isLoading || !nameInput.trim() || !emailInput.trim() || !passwordInput
+                      isLoading ||
+                      !nameInput.trim() ||
+                      !emailInput.trim() ||
+                      !passwordInput
                     }
                   >
                     {isLoading ? (
@@ -778,12 +856,12 @@ export default function LandingPage() {
             viewport={{ once: true, amount: 0.25 }}
             variants={fadeUpVariant}
           >
-            <span className="landing-section-eyebrow">CAPABILITIES</span>
             <h2 className="landing-section-title">
               Built for verified B2B execution
             </h2>
             <p className="landing-section-subtitle">
-              Grounded answers, policy citations, and human-approved updates in one workspace.
+              Grounded answers, policy citations, and human-approved updates in
+              one workspace.
             </p>
           </motion.div>
 
@@ -802,13 +880,19 @@ export default function LandingPage() {
                   whileHover={{ y: -4, transition: { duration: 0.18 } }}
                 >
                   <div className="landing-capability-top">
-                    <div className={`landing-capability-icon ${feature.accentClass}`}>
+                    <div
+                      className={`landing-capability-icon ${feature.accentClass}`}
+                    >
                       <IconComponent size={19} />
                     </div>
-                    <span className="landing-capability-tag">{feature.tag}</span>
+                    <span className="landing-capability-tag">
+                      {feature.tag}
+                    </span>
                   </div>
                   <h3 className="landing-capability-title">{feature.title}</h3>
-                  <p className="landing-capability-desc">{feature.description}</p>
+                  <p className="landing-capability-desc">
+                    {feature.description}
+                  </p>
                 </motion.article>
               );
             })}
@@ -826,7 +910,10 @@ export default function LandingPage() {
             viewport={{ once: true, amount: 0.15 }}
             variants={fadeUpVariant}
           >
-            <div className="landing-section-header" style={{ marginBottom: '26px' }}>
+            <div
+              className="landing-section-header"
+              style={{ marginBottom: "26px" }}
+            >
               <span className="landing-section-eyebrow">WORKFLOW</span>
               <h2 className="landing-section-title">
                 From prompt to audited commit in four steps
@@ -880,20 +967,23 @@ export default function LandingPage() {
                   <div className="landing-video-frame">
                     <iframe
                       src={embedUrl}
-                      title="MaxiText AI Studio Product Walkthrough"
+                      title="Echo B2B Assistant Product Walkthrough"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                       allowFullScreen
                     />
                   </div>
                 ) : (
                   <div className="landing-video-placeholder">
-                    <div className="landing-video-grid-overlay" aria-hidden="true" />
+                    <div
+                      className="landing-video-grid-overlay"
+                      aria-hidden="true"
+                    />
                     <div className="landing-video-topbar">
                       <span className="landing-video-dot is-red" />
                       <span className="landing-video-dot is-amber" />
                       <span className="landing-video-dot is-green" />
                       <span className="landing-video-url-bar">
-                        youtube.com / maxitext-ai-studio-walkthrough
+                        youtube.com / echo-b2b-assistant-walkthrough
                       </span>
                     </div>
 
@@ -901,10 +991,19 @@ export default function LandingPage() {
                       <motion.div
                         className="landing-video-play-ring"
                         animate={{ scale: [1, 1.07, 1] }}
-                        transition={{ duration: 2.6, repeat: Infinity, ease: 'easeInOut' }}
+                        transition={{
+                          duration: 2.6,
+                          repeat: Infinity,
+                          ease: "easeInOut",
+                        }}
                       >
                         <div className="landing-video-play-circle">
-                          <Play size={24} fill="#ffffff" color="#ffffff" style={{ marginLeft: 3 }} />
+                          <Play
+                            size={24}
+                            fill="#ffffff"
+                            color="#ffffff"
+                            style={{ marginLeft: 3 }}
+                          />
                         </div>
                       </motion.div>
 
@@ -912,7 +1011,7 @@ export default function LandingPage() {
                         Product Walkthrough
                       </div>
                       <p className="landing-video-placeholder-caption">
-                        Guided video walkthrough of MaxiText AI Studio.
+                        Guided video walkthrough of Echo B2B Assistant.
                       </p>
 
                       <div className="landing-youtube-link-pill">
@@ -931,8 +1030,8 @@ export default function LandingPage() {
                   See multi-source triage live
                 </h2>
                 <p className="landing-tutorial-copy">
-                  Quick tour of workspace setup, natural-language sheet queries, policy citations,
-                  and Stage 1 diff previews.
+                  Quick tour of workspace setup, natural-language sheet queries,
+                  policy citations, and Stage 1 diff previews.
                 </p>
 
                 <div className="landing-tutorial-cta-row">
@@ -941,7 +1040,11 @@ export default function LandingPage() {
                     target="_blank"
                     rel="noopener noreferrer"
                     className="btn-primary-indigo"
-                    style={{ textDecoration: 'none', padding: '9px 16px', fontSize: '13px' }}
+                    style={{
+                      textDecoration: "none",
+                      padding: "9px 16px",
+                      fontSize: "13px",
+                    }}
                   >
                     <PlayCircle size={15} />
                     <span>Watch on YouTube</span>
@@ -963,18 +1066,29 @@ export default function LandingPage() {
             {/* Column 1: Service Provider Identity */}
             <div className="landing-footer-brand-col">
               <div className="landing-footer-brand-row">
-                <div className="brand-logo-box" style={{ width: 34, height: 34, fontSize: 17 }}>
-                  M
-                </div>
+                <img
+                  src={logoImg}
+                  alt="Echo B2B Assistant"
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: "9px",
+                    objectFit: "cover",
+                    flexShrink: 0,
+                  }}
+                />
                 <div>
-                  <div className="landing-footer-brand-name">MaxiText AI Studio</div>
+                  <div className="landing-footer-brand-name">
+                    Echo B2B Assistant
+                  </div>
                   <div className="landing-footer-brand-sub">
                     Autonomous B2B Operations
                   </div>
                 </div>
               </div>
               <p className="landing-footer-desc">
-                Human-governed AI workspace uniting email triage, spreadsheets, and policy docs.
+                Human-governed AI workspace uniting email triage, spreadsheets,
+                and policy docs.
               </p>
             </div>
 
@@ -983,22 +1097,31 @@ export default function LandingPage() {
               <h4 className="landing-footer-heading">Platform</h4>
               <ul className="landing-footer-links">
                 <li>
-                  <button type="button" onClick={() => scrollToSection('hero')}>
+                  <button type="button" onClick={() => scrollToSection("hero")}>
                     Overview &amp; Sign In
                   </button>
                 </li>
                 <li>
-                  <button type="button" onClick={() => scrollToSection('capabilities')}>
+                  <button
+                    type="button"
+                    onClick={() => scrollToSection("capabilities")}
+                  >
                     Capabilities
                   </button>
                 </li>
                 <li>
-                  <button type="button" onClick={() => scrollToSection('workflow')}>
+                  <button
+                    type="button"
+                    onClick={() => scrollToSection("workflow")}
+                  >
                     Workflow
                   </button>
                 </li>
                 <li>
-                  <button type="button" onClick={() => scrollToSection('tutorial')}>
+                  <button
+                    type="button"
+                    onClick={() => scrollToSection("tutorial")}
+                  >
                     Walkthrough
                   </button>
                 </li>
@@ -1016,7 +1139,9 @@ export default function LandingPage() {
               </div>
 
               <div className="landing-footer-dev-body">
-                <div className="landing-footer-dev-name">{DEVELOPER_INFO.name}</div>
+                <div className="landing-footer-dev-name">
+                  {DEVELOPER_INFO.name}
+                </div>
                 <div className="landing-footer-dev-role">
                   {DEVELOPER_INFO.role} • {DEVELOPER_INFO.organization}
                 </div>
@@ -1045,13 +1170,13 @@ export default function LandingPage() {
                 </div>
 
                 <p className="landing-footer-report-note">
-                  Notice a bug or unexpected behavior? Please report the issue directly using the
-                  developer credentials above.
+                  Notice a bug or unexpected behavior? Please report the issue
+                  directly using the developer credentials above.
                 </p>
 
                 <div className="landing-footer-dev-links">
                   <a
-                    href={`mailto:${DEVELOPER_INFO.email}?subject=${encodeURIComponent('MaxiText AI Studio - Issue Report')}`}
+                    href={`mailto:${DEVELOPER_INFO.email}?subject=${encodeURIComponent("Echo B2B Assistant - Issue Report")}`}
                     className="landing-dev-chip"
                   >
                     <Mail size={11} />
@@ -1074,7 +1199,8 @@ export default function LandingPage() {
 
           <div className="landing-footer-bottom">
             <span>
-              &copy; {new Date().getFullYear()} MaxiText AI Studio. Built by {DEVELOPER_INFO.name}.
+              &copy; {new Date().getFullYear()} Echo B2B Assistant. Built by{" "}
+              {DEVELOPER_INFO.name}.
             </span>
             <span className="landing-footer-status">
               <Check size={12} color="#34d399" />

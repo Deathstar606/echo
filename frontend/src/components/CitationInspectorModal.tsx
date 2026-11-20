@@ -71,7 +71,7 @@ function highlightMatches(text: string, query: string): React.ReactNode {
       <mark
         key={i}
         style={{
-          backgroundColor: '#fef08a',
+          backgroundColor: 'rgba(250, 204, 21, 0.25)',
           color: '#854d0e',
           borderRadius: '2px',
           padding: '0 2px',
@@ -339,7 +339,7 @@ export default function CitationInspectorModal({
             maxWidth: isDoc ? '840px' : '620px',
             width: '94%',
             maxHeight: '90vh',
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--bg-card)',
             borderRadius: '14px',
             border: '1px solid var(--border-warm)',
             boxShadow: 'var(--shadow-modal)',
@@ -367,8 +367,8 @@ export default function CitationInspectorModal({
                   width: '36px',
                   height: '36px',
                   borderRadius: '10px',
-                  backgroundColor: isDoc ? '#eff6ff' : '#f0fdf4',
-                  color: isDoc ? 'var(--primary-indigo)' : '#16a34a',
+                  backgroundColor: isDoc ? 'var(--accent-lavender-bg)' : 'var(--status-success-bg)',
+                  color: isDoc ? 'var(--primary-indigo-text)' : '#34d399',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -400,9 +400,9 @@ export default function CitationInspectorModal({
                         borderRadius: '999px',
                         fontSize: '11px',
                         fontWeight: 700,
-                        backgroundColor: '#eff6ff',
-                        color: 'var(--primary-indigo)',
-                        border: '1px solid #bfdbfe',
+                        backgroundColor: 'var(--accent-lavender-bg)',
+                        color: 'var(--primary-indigo-text)',
+                        border: '1px solid var(--accent-lavender-border)',
                       }}
                     >
                       {documentMeta?.total_chunks || chunks.length || citation.excerpt?.match(/(\d+)\s*chunk/i)?.[1] || 1}{' '}
@@ -416,9 +416,9 @@ export default function CitationInspectorModal({
                         borderRadius: '999px',
                         fontSize: '11px',
                         fontWeight: 600,
-                        backgroundColor: hasCitationFocus ? '#fef3c7' : '#f1f5f9',
-                        color: hasCitationFocus ? '#92400e' : '#475569',
-                        border: `1px solid ${hasCitationFocus ? '#fde68a' : '#e2e8f0'}`,
+                        backgroundColor: hasCitationFocus ? 'var(--status-warning-bg)' : 'var(--bg-subtle-warm)',
+                        color: hasCitationFocus ? 'var(--status-warning)' : 'var(--text-secondary)',
+                        border: `1px solid ${hasCitationFocus ? 'rgba(251, 191, 36, 0.4)' : 'var(--border-warm)'}`,
                       }}
                     >
                       {hasCitationFocus ? '★ Citation Focus' : 'Full Document View'}
@@ -444,11 +444,11 @@ export default function CitationInspectorModal({
                         gap: '6px',
                         padding: '4px 8px',
                         borderRadius: '8px',
-                        backgroundColor: '#fef2f2',
-                        border: '1px solid #fecaca',
+                        backgroundColor: 'var(--status-error-bg)',
+                        border: '1px solid rgba(248, 113, 113, 0.38)',
                       }}
                     >
-                      <span style={{ fontSize: '11px', color: '#b91c1c', fontWeight: 600 }}>
+                      <span style={{ fontSize: '11px', color: 'var(--status-error)', fontWeight: 600 }}>
                         Remove doc?
                       </span>
                       <button
@@ -490,7 +490,7 @@ export default function CitationInspectorModal({
                         alignItems: 'center',
                         gap: '5px',
                         color: '#dc2626',
-                        borderColor: '#fca5a5',
+                        borderColor: 'rgba(248, 113, 113, 0.45)',
                       }}
                       onClick={() => setConfirmDelete(true)}
                       title="Remove this document from the workspace"
@@ -521,8 +521,8 @@ export default function CitationInspectorModal({
               justifyContent: 'space-between',
               padding: '9px 13px',
               borderRadius: '9px',
-              backgroundColor: '#fffbeb',
-              border: '1px solid #fef3c7',
+              backgroundColor: 'var(--status-warning-bg)',
+              border: '1px solid rgba(251, 191, 36, 0.38)',
               boxShadow: '0 1px 2px rgba(245, 158, 11, 0.05)',
               gap: '12px',
               flexShrink: 0,
@@ -551,7 +551,7 @@ export default function CitationInspectorModal({
               <span
                 style={{
                   fontSize: '11.5px',
-                  color: '#92400e',
+                  color: 'var(--status-warning)',
                   fontWeight: 500,
                   minWidth: 0,
                   overflow: 'hidden',
@@ -566,15 +566,15 @@ export default function CitationInspectorModal({
               style={{
                 fontSize: '10.5px',
                 fontWeight: 600,
-                color: '#b45309',
+                color: 'var(--status-warning)',
                 padding: '2px 8px',
                 borderRadius: '999px',
-                backgroundColor: '#fef3c7',
-                border: '1px solid #fde68a',
+                backgroundColor: 'var(--status-warning-bg)',
+                border: '1px solid rgba(251, 191, 36, 0.38)',
                 flexShrink: 0,
               }}
             >
-              MaxiText AI Studio
+              Echo B2B Assistant
             </span>
           </div>
 
@@ -642,7 +642,7 @@ export default function CitationInspectorModal({
                       gap: '5px',
                       padding: '7px 10px',
                       borderRadius: '8px',
-                      backgroundColor: '#f8fafc',
+                      backgroundColor: 'var(--bg-subtle-warm)',
                       border: '1px solid var(--border-subtle)',
                       flexShrink: 0,
                     }}
@@ -667,7 +667,7 @@ export default function CitationInspectorModal({
                           onClick={() => setSelectedEntity(null)}
                           style={{
                             fontSize: '10.5px',
-                            color: 'var(--primary-indigo)',
+                            color: 'var(--primary-indigo-text)',
                             background: 'none',
                             border: 'none',
                             cursor: 'pointer',
@@ -703,7 +703,7 @@ export default function CitationInspectorModal({
                               borderRadius: '999px',
                               fontSize: '10.5px',
                               fontWeight: 600,
-                              backgroundColor: isSelected ? 'var(--primary-indigo)' : '#ffffff',
+                              backgroundColor: isSelected ? 'var(--primary-indigo)' : 'var(--bg-card)',
                               color: isSelected ? '#ffffff' : 'var(--text-secondary)',
                               border: `1px solid ${isSelected ? 'var(--primary-indigo)' : 'var(--border-warm)'}`,
                               cursor: 'pointer',
@@ -723,8 +723,8 @@ export default function CitationInspectorModal({
                             borderRadius: '999px',
                             fontSize: '10px',
                             fontWeight: 600,
-                            backgroundColor: '#e2e8f0',
-                            color: '#475569',
+                            backgroundColor: 'var(--bg-button-warm)',
+                            color: 'var(--text-secondary)',
                             border: 'none',
                             cursor: 'pointer',
                           }}
@@ -792,7 +792,7 @@ export default function CitationInspectorModal({
                         style={{
                           borderRadius: '10px',
                           border: isCited ? '2px solid #059669' : '1px solid var(--border-warm)',
-                          backgroundColor: isCited ? '#f0fdf4' : '#ffffff',
+                          backgroundColor: isCited ? 'var(--status-success-bg)' : 'var(--bg-card)',
                           boxShadow: isCited
                             ? '0 0 0 3px rgba(16, 185, 129, 0.15)'
                             : '0 1px 3px rgba(0,0,0,0.03)',
@@ -810,8 +810,8 @@ export default function CitationInspectorModal({
                             alignItems: 'center',
                             justifyContent: 'space-between',
                             padding: '8px 12px',
-                            backgroundColor: isCited ? '#ecfdf5' : '#f8fafc',
-                            borderBottom: isCited ? '1px solid #a7f3d0' : '1px solid var(--border-subtle)',
+                            backgroundColor: isCited ? 'var(--status-success-bg)' : 'var(--bg-subtle-warm)',
+                            borderBottom: isCited ? '1px solid rgba(52, 211, 153, 0.35)' : '1px solid var(--border-subtle)',
                             fontSize: '12px',
                             gap: '10px',
                             flexShrink: 0,
@@ -824,8 +824,8 @@ export default function CitationInspectorModal({
                                 borderRadius: '6px',
                                 fontWeight: 700,
                                 fontSize: '11px',
-                                backgroundColor: isCited ? '#10b981' : '#e2e8f0',
-                                color: isCited ? '#ffffff' : '#334155',
+                                backgroundColor: isCited ? '#10b981' : 'var(--bg-button-warm)',
+                                color: isCited ? '#ffffff' : 'var(--text-secondary)',
                                 flexShrink: 0,
                               }}
                             >
@@ -854,9 +854,9 @@ export default function CitationInspectorModal({
                                   borderRadius: '999px',
                                   fontSize: '11px',
                                   fontWeight: 700,
-                                  backgroundColor: '#dcfce7',
-                                  color: '#15803d',
-                                  border: '1px solid #86efac',
+                                  backgroundColor: 'var(--status-success-bg)',
+                                  color: 'var(--status-success)',
+                                  border: '1px solid rgba(52, 211, 153, 0.45)',
                                   flexShrink: 0,
                                 }}
                               >
@@ -927,12 +927,12 @@ export default function CitationInspectorModal({
                           <div
                             style={{
                               padding: '7px 12px',
-                              backgroundColor: '#f1f5f9',
-                              color: '#334155',
+                              backgroundColor: 'var(--bg-subtle-warm)',
+                              color: 'var(--text-secondary)',
                               fontSize: '11.5px',
                               fontFamily: 'monospace, sans-serif',
                               borderLeft: '3px solid var(--primary-indigo)',
-                              borderBottom: '1px solid #e2e8f0',
+                              borderBottom: '1px solid var(--border-warm)',
                               lineHeight: 1.5,
                               whiteSpace: 'pre-wrap',
                               wordBreak: 'break-word',
@@ -942,7 +942,7 @@ export default function CitationInspectorModal({
                               flexShrink: 0,
                             }}
                           >
-                            <BookOpen size={13} style={{ color: 'var(--primary-indigo)', flexShrink: 0, marginTop: '2px' }} />
+                            <BookOpen size={13} style={{ color: 'var(--primary-indigo-text)', flexShrink: 0, marginTop: '2px' }} />
                             <div style={{ flex: 1, minWidth: 0 }}>
                               {highlightMatches(chunk.breadcrumb_header, searchQuery)}
                             </div>
@@ -953,7 +953,7 @@ export default function CitationInspectorModal({
                         <div
                           style={{
                             padding: '12px 14px',
-                            backgroundColor: isCited ? '#f9fefb' : '#faf8f5',
+                            backgroundColor: isCited ? 'rgba(16, 185, 129, 0.08)' : 'var(--bg-subtle-warm)',
                             fontSize: '12.5px',
                             lineHeight: 1.65,
                             color: 'var(--text-primary)',
@@ -970,8 +970,8 @@ export default function CitationInspectorModal({
                           <div
                             style={{
                               padding: '6px 12px',
-                              backgroundColor: '#ffffff',
-                              borderTop: '1px solid #f1f5f9',
+                              backgroundColor: 'var(--bg-card)',
+                              borderTop: '1px solid var(--border-subtle)',
                               display: 'flex',
                               flexWrap: 'wrap',
                               gap: '4px',
@@ -989,8 +989,8 @@ export default function CitationInspectorModal({
                                   fontSize: '10.5px',
                                   padding: '1px 6px',
                                   borderRadius: '4px',
-                                  backgroundColor: selectedEntity === ent ? '#e0e7ff' : '#f1f5f9',
-                                  color: selectedEntity === ent ? 'var(--primary-indigo)' : '#475569',
+                                  backgroundColor: selectedEntity === ent ? 'var(--accent-lavender-bg)' : 'var(--bg-subtle-warm)',
+                                  color: selectedEntity === ent ? 'var(--primary-indigo-text)' : 'var(--text-secondary)',
                                   fontWeight: 600,
                                   cursor: 'pointer',
                                 }}
@@ -1034,7 +1034,7 @@ export default function CitationInspectorModal({
                               width: '100%',
                               padding: '12px',
                               borderRadius: '8px',
-                              backgroundColor: '#faf8f5',
+                              backgroundColor: 'var(--bg-subtle-warm)',
                               border: '1px solid var(--border-warm)',
                               whiteSpace: 'pre-wrap',
                             }}
@@ -1066,9 +1066,9 @@ export default function CitationInspectorModal({
                     borderRadius: '999px',
                     fontSize: '12px',
                     fontWeight: 700,
-                    backgroundColor: '#f0fdf4',
-                    color: '#166534',
-                    border: '1px solid #bbf7d0',
+                    backgroundColor: 'var(--status-success-bg)',
+                    color: 'var(--status-success)',
+                    border: '1px solid rgba(52, 211, 153, 0.35)',
                   }}
                 >
                   <Table2 size={13} />
@@ -1128,7 +1128,7 @@ export default function CitationInspectorModal({
                           <thead>
                             <tr
                               style={{
-                                backgroundColor: '#f8fafc',
+                                backgroundColor: 'var(--bg-subtle-warm)',
                                 borderBottom: '1px solid var(--border-warm)',
                               }}
                             >
@@ -1137,7 +1137,7 @@ export default function CitationInspectorModal({
                                   textAlign: 'left',
                                   padding: '8px 12px',
                                   fontWeight: 700,
-                                  color: '#475569',
+                                  color: 'var(--text-secondary)',
                                   width: '38%',
                                 }}
                               >
@@ -1148,7 +1148,7 @@ export default function CitationInspectorModal({
                                   textAlign: 'left',
                                   padding: '8px 12px',
                                   fontWeight: 700,
-                                  color: '#475569',
+                                  color: 'var(--text-secondary)',
                                 }}
                               >
                                 Record Value
@@ -1160,9 +1160,9 @@ export default function CitationInspectorModal({
                               <tr
                                 key={key + i}
                                 style={{
-                                  backgroundColor: i % 2 === 0 ? '#ffffff' : '#faf8f5',
+                                  backgroundColor: i % 2 === 0 ? 'var(--bg-card)' : 'var(--bg-panel)',
                                   borderBottom:
-                                    i < pairs.length - 1 ? '1px solid #f1f5f9' : 'none',
+                                    i < pairs.length - 1 ? '1px solid var(--border-subtle)' : 'none',
                                 }}
                               >
                                 <td
@@ -1177,7 +1177,7 @@ export default function CitationInspectorModal({
                                 <td
                                   style={{
                                     padding: '8px 12px',
-                                    color: '#1e293b',
+                                    color: 'var(--text-primary)',
                                     fontFamily: 'monospace, sans-serif',
                                   }}
                                 >
@@ -1241,8 +1241,8 @@ export default function CitationInspectorModal({
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '6px',
-                    borderColor: 'var(--primary-indigo)',
-                    color: 'var(--primary-indigo)',
+                    borderColor: 'var(--accent-lavender-border)',
+                    color: 'var(--primary-indigo-text)',
                   }}
                   onClick={() => {
                     onHighlightRow(citation.locator);

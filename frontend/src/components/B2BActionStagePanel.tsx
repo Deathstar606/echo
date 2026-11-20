@@ -107,7 +107,7 @@ export default function B2BActionStagePanel({
           flexDirection: 'column',
           gap: '12px',
           padding: '16px 18px',
-          backgroundColor: '#fffdfa',
+          backgroundColor: 'var(--bg-panel)',
           borderRadius: '10px',
           border: '2px solid #f59e0b',
           boxShadow: '0 4px 12px rgba(245, 158, 11, 0.1)',
@@ -131,8 +131,8 @@ export default function B2BActionStagePanel({
               borderRadius: '999px',
               fontSize: '11px',
               fontWeight: 800,
-              backgroundColor: '#fef3c7',
-              color: '#92400e',
+              backgroundColor: 'var(--status-warning-bg)',
+              color: 'var(--status-warning)',
               border: '1px solid #fcd34d',
             }}
           >
@@ -147,9 +147,9 @@ export default function B2BActionStagePanel({
                 borderRadius: '999px',
                 fontSize: '11px',
                 fontWeight: 700,
-                backgroundColor: '#fee2e2',
-                color: '#991b1b',
-                border: '1px solid #fecaca',
+                backgroundColor: 'var(--status-error-bg)',
+                color: 'var(--status-error)',
+                border: '1px solid rgba(248, 113, 113, 0.38)',
               }}
             >
               {clarificationData.conflicting_rows_count} Policy Conflict(s)
@@ -160,9 +160,9 @@ export default function B2BActionStagePanel({
                 borderRadius: '999px',
                 fontSize: '11px',
                 fontWeight: 700,
-                backgroundColor: '#eff6ff',
-                color: '#1e40af',
-                border: '1px solid #bfdbfe',
+                backgroundColor: 'var(--accent-lavender-bg)',
+                color: 'var(--primary-indigo-text)',
+                border: '1px solid var(--accent-lavender-border)',
               }}
             >
               {clarificationData.affected_rows_count} Affected Row(s)
@@ -173,12 +173,12 @@ export default function B2BActionStagePanel({
         <div
           style={{
             padding: '10px 12px',
-            backgroundColor: '#fffbeb',
+            backgroundColor: 'var(--status-warning-bg)',
             borderRadius: '8px',
-            border: '1px solid #fde68a',
+            border: '1px solid rgba(251, 191, 36, 0.38)',
             fontSize: '12.5px',
             lineHeight: 1.5,
-            color: '#92400e',
+            color: 'var(--status-warning)',
           }}
         >
           <strong>Conflict Summary:</strong> {clarificationData.conflict_summary}
@@ -219,7 +219,7 @@ export default function B2BActionStagePanel({
                         padding: '10px 12px',
                         borderRadius: '8px',
                         border: `1.5px solid ${isSelected ? 'var(--primary-indigo)' : 'var(--border-warm)'}`,
-                        backgroundColor: isSelected ? 'var(--accent-lavender-bg)' : '#ffffff',
+                        backgroundColor: isSelected ? 'var(--accent-lavender-bg)' : 'var(--bg-card)',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'flex-start',
@@ -234,7 +234,7 @@ export default function B2BActionStagePanel({
                           height: '18px',
                           borderRadius: '50%',
                           border: `2px solid ${isSelected ? 'var(--primary-indigo)' : 'var(--border-warm-strong)'}`,
-                          backgroundColor: isSelected ? 'var(--primary-indigo)' : '#ffffff',
+                          backgroundColor: isSelected ? 'var(--primary-indigo)' : 'var(--bg-subtle-warm)',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
@@ -336,7 +336,7 @@ export default function B2BActionStagePanel({
           flexDirection: 'column',
           gap: '12px',
           padding: '16px 18px',
-          backgroundColor: '#ffffff',
+          backgroundColor: 'var(--bg-card)',
           borderRadius: '10px',
           border: '2px solid var(--primary-indigo)',
           boxShadow: '0 4px 14px rgba(57, 70, 211, 0.12)',
@@ -361,7 +361,7 @@ export default function B2BActionStagePanel({
               fontSize: '11px',
               fontWeight: 800,
               backgroundColor: 'var(--accent-lavender-bg)',
-              color: 'var(--primary-indigo-dark)',
+              color: 'var(--primary-indigo-text)',
               border: '1px solid var(--accent-lavender-border)',
             }}
           >
@@ -386,9 +386,9 @@ export default function B2BActionStagePanel({
                 borderRadius: '6px',
                 fontSize: '12px',
                 fontWeight: previewTab === 'mutations' ? 700 : 500,
-                backgroundColor: previewTab === 'mutations' ? '#ffffff' : 'transparent',
-                color: previewTab === 'mutations' ? 'var(--primary-indigo)' : 'var(--text-secondary)',
-                boxShadow: previewTab === 'mutations' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                backgroundColor: previewTab === 'mutations' ? 'var(--primary-indigo)' : 'transparent',
+                color: previewTab === 'mutations' ? '#ffffff' : 'var(--text-secondary)',
+                boxShadow: previewTab === 'mutations' ? '0 2px 6px rgba(88, 26, 255, 0.25)' : 'none',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '5px',
@@ -406,9 +406,9 @@ export default function B2BActionStagePanel({
                 borderRadius: '6px',
                 fontSize: '12px',
                 fontWeight: previewTab === 'emails' ? 700 : 500,
-                backgroundColor: previewTab === 'emails' ? '#ffffff' : 'transparent',
-                color: previewTab === 'emails' ? 'var(--primary-indigo)' : 'var(--text-secondary)',
-                boxShadow: previewTab === 'emails' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                backgroundColor: previewTab === 'emails' ? 'var(--primary-indigo)' : 'transparent',
+                color: previewTab === 'emails' ? '#ffffff' : 'var(--text-secondary)',
+                boxShadow: previewTab === 'emails' ? '0 2px 6px rgba(88, 26, 255, 0.25)' : 'none',
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '5px',
@@ -453,7 +453,7 @@ export default function B2BActionStagePanel({
                     gap: '6px',
                   }}
                 >
-                  <div style={{ fontWeight: 700, color: 'var(--primary-indigo-dark)' }}>
+                  <div style={{ fontWeight: 700, color: 'var(--primary-indigo-text)' }}>
                     Row Identifier: {mut.row_identifier}
                   </div>
 
@@ -465,7 +465,7 @@ export default function B2BActionStagePanel({
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: '4px',
-                          backgroundColor: '#ffffff',
+                          backgroundColor: 'var(--bg-card)',
                           padding: '3px 7px',
                           borderRadius: '5px',
                           border: '1px solid var(--border-subtle)',
@@ -476,7 +476,7 @@ export default function B2BActionStagePanel({
                         <del
                           style={{
                             color: '#dc2626',
-                            backgroundColor: '#fee2e2',
+                            backgroundColor: 'var(--status-error-bg)',
                             padding: '1px 5px',
                             borderRadius: '4px',
                           }}
@@ -487,7 +487,7 @@ export default function B2BActionStagePanel({
                         <strong
                           style={{
                             color: '#16a34a',
-                            backgroundColor: '#dcfce7',
+                            backgroundColor: 'var(--status-success-bg)',
                             padding: '1px 5px',
                             borderRadius: '4px',
                           }}
@@ -527,7 +527,7 @@ export default function B2BActionStagePanel({
                     fontSize: '11.5px',
                     fontWeight: 600,
                     color: 'var(--primary-indigo)',
-                    backgroundColor: '#ffffff',
+                    backgroundColor: 'var(--bg-card)',
                     border: '1px solid var(--border-warm)',
                     borderRadius: '6px',
                     padding: '4px 9px',
@@ -561,7 +561,7 @@ export default function B2BActionStagePanel({
                 style={{
                   borderRadius: '10px',
                   border: '1px solid var(--border-warm)',
-                  backgroundColor: '#f8fafc',
+                  backgroundColor: 'var(--bg-subtle-warm)',
                   padding: '12px',
                   display: 'flex',
                   flexDirection: 'column',
@@ -595,8 +595,8 @@ export default function B2BActionStagePanel({
                           }`,
                           backgroundColor: isSelected
                             ? 'var(--primary-indigo)'
-                            : '#ffffff',
-                          color: isSelected ? '#ffffff' : 'var(--text-secondary)',
+                            : 'var(--bg-subtle-warm)',
+                          color: isSelected ? '#ffffff' : 'var(--text-primary)',
                           cursor: 'pointer',
                           maxWidth: '240px',
                           overflow: 'hidden',
@@ -621,16 +621,16 @@ export default function B2BActionStagePanel({
                         border: `1px solid ${
                           selectedEmailTab === 'all'
                             ? 'var(--primary-indigo)'
-                            : 'var(--border-warm)'
+                            : 'var(--accent-lavender-border)'
                         }`,
                         backgroundColor:
                           selectedEmailTab === 'all'
                             ? 'var(--primary-indigo)'
-                            : '#eef2ff',
+                            : 'var(--accent-lavender-bg)',
                         color:
                           selectedEmailTab === 'all'
                             ? '#ffffff'
-                            : 'var(--primary-indigo-dark)',
+                            : 'var(--primary-indigo-text)',
                         cursor: 'pointer',
                       }}
                     >
@@ -645,9 +645,9 @@ export default function B2BActionStagePanel({
                     <div
                       style={{
                         fontSize: '11.5px',
-                        color: 'var(--primary-indigo-dark)',
-                        backgroundColor: '#eef2ff',
-                        border: '1px solid #c7d2fe',
+                        color: 'var(--primary-indigo-text)',
+                        backgroundColor: 'var(--accent-lavender-bg)',
+                        border: '1px solid var(--accent-lavender-border)',
                         padding: '6px 10px',
                         borderRadius: '6px',
                       }}
@@ -686,7 +686,7 @@ export default function B2BActionStagePanel({
                           fontWeight: 600,
                           borderRadius: '6px',
                           border: '1px solid var(--border-warm)',
-                          backgroundColor: '#ffffff',
+                          backgroundColor: 'var(--bg-card)',
                           color: 'var(--text-primary)',
                         }}
                       />
@@ -722,7 +722,7 @@ export default function B2BActionStagePanel({
                           lineHeight: 1.5,
                           borderRadius: '6px',
                           border: '1px solid var(--border-warm)',
-                          backgroundColor: '#ffffff',
+                          backgroundColor: 'var(--bg-card)',
                           color: 'var(--text-primary)',
                           resize: 'vertical',
                           fontFamily: 'inherit',
@@ -739,7 +739,7 @@ export default function B2BActionStagePanel({
                         gap: '8px',
                         padding: '10px 12px',
                         borderRadius: '8px',
-                        backgroundColor: '#ffffff',
+                        backgroundColor: 'var(--bg-card)',
                         border: '1px solid var(--border-subtle)',
                       }}
                     >
@@ -770,9 +770,9 @@ export default function B2BActionStagePanel({
                             fontSize: '11.5px',
                             padding: '5px 9px',
                             borderRadius: '5px',
-                            backgroundColor: '#fef3c7',
-                            color: '#92400e',
-                            border: '1px solid #fde68a',
+                            backgroundColor: 'var(--status-warning-bg)',
+                            color: 'var(--status-warning)',
+                            border: '1px solid rgba(251, 191, 36, 0.38)',
                           }}
                         >
                           <strong>Rule Applied:</strong> {currentEmail.metadata.applied_rule}
@@ -806,7 +806,7 @@ export default function B2BActionStagePanel({
                               fontWeight: 600,
                               borderRadius: '6px',
                               border: '1px solid var(--border-warm)',
-                              backgroundColor: '#ffffff',
+                              backgroundColor: 'var(--bg-card)',
                               color: 'var(--text-primary)',
                             }}
                           />
@@ -844,7 +844,7 @@ export default function B2BActionStagePanel({
                               lineHeight: 1.5,
                               borderRadius: '6px',
                               border: '1px solid var(--border-warm)',
-                              backgroundColor: '#ffffff',
+                              backgroundColor: 'var(--bg-card)',
                               color: 'var(--text-primary)',
                               resize: 'vertical',
                               fontFamily: 'inherit',
@@ -856,7 +856,7 @@ export default function B2BActionStagePanel({
                               whiteSpace: 'pre-wrap',
                               fontSize: '12.5px',
                               lineHeight: 1.5,
-                              backgroundColor: '#f8fafc',
+                              backgroundColor: 'var(--bg-subtle-warm)',
                               padding: '10px',
                               borderRadius: '6px',
                               border: '1px solid var(--border-light)',
@@ -929,7 +929,7 @@ export default function B2BActionStagePanel({
           flexDirection: 'column',
           gap: '12px',
           padding: '16px 18px',
-          backgroundColor: '#f0fdf4',
+          backgroundColor: 'var(--status-success-bg)',
           borderRadius: '10px',
           border: '2px solid #16a34a',
           boxShadow: '0 4px 14px rgba(22, 163, 74, 0.12)',
@@ -945,9 +945,9 @@ export default function B2BActionStagePanel({
               borderRadius: '999px',
               fontSize: '11.5px',
               fontWeight: 800,
-              backgroundColor: '#dcfce7',
-              color: '#166534',
-              border: '1px solid #86efac',
+              backgroundColor: 'var(--status-success-bg)',
+              color: 'var(--status-success)',
+              border: '1px solid rgba(52, 211, 153, 0.45)',
             }}
           >
             <CheckCircle2 size={14} />
@@ -974,9 +974,9 @@ export default function B2BActionStagePanel({
           <div
             style={{
               padding: '10px',
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--bg-card)',
               borderRadius: '8px',
-              border: '1px solid #bbf7d0',
+              border: '1px solid rgba(52, 211, 153, 0.35)',
               textAlign: 'center',
             }}
           >
@@ -991,9 +991,9 @@ export default function B2BActionStagePanel({
           <div
             style={{
               padding: '10px',
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--bg-card)',
               borderRadius: '8px',
-              border: '1px solid #bbf7d0',
+              border: '1px solid rgba(52, 211, 153, 0.35)',
               textAlign: 'center',
             }}
           >
@@ -1006,7 +1006,7 @@ export default function B2BActionStagePanel({
           </div>
         </div>
 
-        <div style={{ fontSize: '12.5px', color: '#166534', lineHeight: 1.45 }}>
+        <div style={{ fontSize: '12.5px', color: 'var(--status-success)', lineHeight: 1.45 }}>
           All row mutations have been committed to PostgreSQL and customer email notifications have
           been dispatched. The live spreadsheet data table has been automatically refreshed.
         </div>

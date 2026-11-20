@@ -65,9 +65,9 @@ export default function CitationBadges({
               borderRadius: '999px',
               fontSize: '11px',
               fontWeight: 600,
-              backgroundColor: isDoc ? '#eff6ff' : '#f0fdf4',
-              color: isDoc ? '#1e40af' : '#166534',
-              border: `1px solid ${isDoc ? '#bfdbfe' : '#bbf7d0'}`,
+              backgroundColor: isDoc ? 'var(--accent-lavender-bg)' : 'var(--status-success-bg)',
+              color: isDoc ? '#c4b5fd' : '#6ee7b7',
+              border: `1px solid ${isDoc ? 'var(--accent-lavender-border)' : 'rgba(52, 211, 153, 0.38)'}`,
               cursor: onSelectCitation ? 'pointer' : 'default',
               transition: 'all 0.15s ease',
             }}
@@ -89,9 +89,9 @@ export default function CitationBadges({
           onClick={() => setExpanded((prev) => !prev)}
           style={{
             fontSize: '11px',
-            color: 'var(--primary-indigo)',
+            color: 'var(--primary-indigo-text)',
             fontWeight: 600,
-            backgroundColor: '#f1f5f9',
+            backgroundColor: 'var(--bg-subtle-warm)',
             border: '1px solid var(--border-warm)',
             borderRadius: '999px',
             padding: '2px 8px',

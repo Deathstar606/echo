@@ -866,7 +866,7 @@ export default function CompanyDashboard() {
             <span className="workspace-tab-label">
               <MessageSquare
                 size={15}
-                color={activeTab === 'inquiry' ? 'var(--primary-indigo)' : 'var(--text-secondary)'}
+                color={activeTab === 'inquiry' ? '#c4b5fd' : 'var(--text-secondary)'}
               />
               <span>Customer Inquiry</span>
             </span>
@@ -895,7 +895,7 @@ export default function CompanyDashboard() {
             <span className="workspace-tab-label">
               <BarChart3
                 size={15}
-                color={activeTab === 'sheets' ? '#16a34a' : 'var(--text-secondary)'}
+                color={activeTab === 'sheets' ? '#34d399' : 'var(--text-secondary)'}
               />
               <span>Operations Management</span>
             </span>
@@ -1353,7 +1353,7 @@ export default function CompanyDashboard() {
                               className="avatar-circle"
                               style={{
                                 backgroundColor: 'var(--accent-lavender-bg)',
-                                color: 'var(--primary-indigo-dark)',
+                                color: 'var(--primary-indigo-text)',
                               }}
                             >
                               <Filter size={15} />
@@ -1421,7 +1421,7 @@ export default function CompanyDashboard() {
                             width: 44,
                             height: 44,
                             borderRadius: '12px',
-                            backgroundColor: '#fef2f2',
+                            backgroundColor: 'var(--status-error-bg)',
                             color: '#dc2626',
                             display: 'flex',
                             alignItems: 'center',
@@ -1524,7 +1524,7 @@ export default function CompanyDashboard() {
                           >
                             <div
                               className="avatar-circle"
-                              style={{ backgroundColor: '#fee2e2', color: '#b91c1c' }}
+                              style={{ backgroundColor: 'var(--status-error-bg)', color: 'var(--status-error)' }}
                             >
                               <Mail size={16} />
                             </div>
@@ -1633,7 +1633,7 @@ export default function CompanyDashboard() {
                         >
                           <div
                             className="avatar-circle"
-                            style={{ backgroundColor: '#fef3c7', color: '#92400e' }}
+                            style={{ backgroundColor: 'var(--status-warning-bg)', color: 'var(--status-warning)' }}
                           >
                             <PhoneCall size={16} />
                           </div>
@@ -1650,7 +1650,7 @@ export default function CompanyDashboard() {
                               style={{
                                 fontSize: '11.5px',
                                 fontWeight: 700,
-                                color: '#92400e',
+                                color: 'var(--status-warning)',
                                 marginBottom: 2,
                               }}
                             >
@@ -1752,7 +1752,7 @@ export default function CompanyDashboard() {
                           </button>
                           <div
                             className="avatar-circle"
-                            style={{ backgroundColor: '#fee2e2', color: '#b91c1c' }}
+                            style={{ backgroundColor: 'var(--status-error-bg)', color: 'var(--status-error)' }}
                           >
                             <Mail size={18} />
                           </div>
@@ -1768,8 +1768,8 @@ export default function CompanyDashboard() {
                                   fontWeight: 700,
                                   padding: '2px 6px',
                                   borderRadius: '4px',
-                                  backgroundColor: '#fee2e2',
-                                  color: '#b91c1c',
+                                  backgroundColor: 'var(--status-error-bg)',
+                                  color: 'var(--status-error)',
                                 }}
                               >
                                 GMAIL PRIMARY
@@ -1794,7 +1794,7 @@ export default function CompanyDashboard() {
                                 fontWeight: 700,
                                 backgroundColor: '#e6f4ea',
                                 color: '#137333',
-                                border: '1px solid #bbf7d0',
+                                border: '1px solid rgba(52, 211, 153, 0.35)',
                               }}
                             >
                               <Check size={13} /> In Filtered
@@ -1811,7 +1811,7 @@ export default function CompanyDashboard() {
                                 padding: '4px 10px',
                                 borderRadius: '6px',
                                 fontWeight: 600,
-                                color: 'var(--primary-indigo-dark)',
+                                color: 'var(--primary-indigo-text)',
                                 borderColor: 'var(--primary-indigo)',
                               }}
                               onClick={() => handleOneClickSendToFiltered(activeGmailMessage)}
@@ -1828,9 +1828,9 @@ export default function CompanyDashboard() {
                         <div
                           style={{
                             padding: '8px 16px',
-                            backgroundColor: '#f0fdf4',
+                            backgroundColor: 'var(--status-success-bg)',
                             borderBottom: '1px solid #bbf7d0',
-                            color: '#15803d',
+                            color: 'var(--status-success)',
                             fontSize: '12px',
                             display: 'flex',
                             alignItems: 'center',
@@ -1852,7 +1852,7 @@ export default function CompanyDashboard() {
                         >
                           <div
                             className="avatar-circle small"
-                            style={{ backgroundColor: '#fee2e2', color: '#b91c1c' }}
+                            style={{ backgroundColor: 'var(--status-error-bg)', color: 'var(--status-error)' }}
                           >
                             <Mail size={14} />
                           </div>
@@ -1860,7 +1860,7 @@ export default function CompanyDashboard() {
                             className="msg-bubble"
                             style={{
                               maxWidth: '85%',
-                              backgroundColor: '#ffffff',
+                              backgroundColor: 'var(--bg-card)',
                               border: '1px solid var(--border-warm)',
                               boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
                               color: 'var(--text-primary)',
@@ -2003,7 +2003,7 @@ export default function CompanyDashboard() {
                             className="avatar-circle"
                             style={{
                               backgroundColor: 'var(--accent-lavender-bg)',
-                              color: 'var(--primary-indigo-dark)',
+                              color: 'var(--primary-indigo-text)',
                             }}
                           >
                             <Filter size={18} />
@@ -2018,7 +2018,7 @@ export default function CompanyDashboard() {
                                   padding: '2px 6px',
                                   borderRadius: '4px',
                                   backgroundColor: 'var(--accent-lavender-bg)',
-                                  color: 'var(--primary-indigo-dark)',
+                                  color: 'var(--primary-indigo-text)',
                                   border: '1px solid var(--accent-lavender-border)',
                                 }}
                               >
@@ -2040,8 +2040,8 @@ export default function CompanyDashboard() {
                             gap: '4px',
                             fontSize: '11px',
                             padding: '4px 8px',
-                            color: '#b91c1c',
-                            borderColor: '#fca5a5',
+                            color: 'var(--status-error)',
+                            borderColor: 'rgba(248, 113, 113, 0.45)',
                           }}
                           onClick={() => handleRemoveFilteredContact(activeFilteredContact)}
                           title="Remove contact from Filtered"
@@ -2200,8 +2200,8 @@ export default function CompanyDashboard() {
 
                         {/* MaxiText AI Copilot Answer Bubble */}
                         <div className="msg-row agent">
-                          <div className="msg-bubble" style={{ maxWidth: '85%', backgroundColor: '#f5f3ff', borderColor: '#ddd6fe' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 700, fontSize: '12px', color: 'var(--primary-indigo-dark)', marginBottom: 4 }}>
+                          <div className="msg-bubble" style={{ maxWidth: '85%', backgroundColor: 'var(--accent-lavender-bg)', borderColor: 'var(--accent-lavender-border)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 700, fontSize: '12px', color: 'var(--primary-indigo-text)', marginBottom: 4 }}>
                               <Sparkles size={12} />
                               <span>MaxiText AI Copilot Response</span>
                             </div>
@@ -2263,7 +2263,7 @@ export default function CompanyDashboard() {
                           >
                             <ArrowLeft size={17} />
                           </button>
-                          <div className="avatar-circle" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>
+                          <div className="avatar-circle" style={{ backgroundColor: 'var(--status-warning-bg)', color: 'var(--status-warning)' }}>
                             <PhoneCall size={18} />
                           </div>
                           <div>
@@ -2281,8 +2281,8 @@ export default function CompanyDashboard() {
                             fontWeight: 700,
                             padding: '3px 8px',
                             borderRadius: '4px',
-                            backgroundColor: '#fef3c7',
-                            color: '#92400e',
+                            backgroundColor: 'var(--status-warning-bg)',
+                            color: 'var(--status-warning)',
                           }}
                         >
                           TOLETO DEMO
@@ -2292,11 +2292,11 @@ export default function CompanyDashboard() {
                       <div className="thread-messages-scroll" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         {/* Customer Question Bubble */}
                         <div className="msg-row customer">
-                          <div className="avatar-circle small" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>
+                          <div className="avatar-circle small" style={{ backgroundColor: 'var(--status-warning-bg)', color: 'var(--status-warning)' }}>
                             <PhoneCall size={14} />
                           </div>
                           <div className="msg-bubble" style={{ maxWidth: '85%' }}>
-                            <div style={{ fontWeight: 600, fontSize: '12px', marginBottom: 3, color: '#92400e' }}>
+                            <div style={{ fontWeight: 600, fontSize: '12px', marginBottom: 3, color: 'var(--status-warning)' }}>
                               {activeToletoMessage.name}
                             </div>
                             <div style={{ fontSize: '12.5px', lineHeight: 1.45 }}>{activeToletoMessage.text}</div>
@@ -2306,8 +2306,8 @@ export default function CompanyDashboard() {
 
                         {/* MaxiText AI Copilot Answer Bubble */}
                         <div className="msg-row agent">
-                          <div className="msg-bubble" style={{ maxWidth: '85%', backgroundColor: '#fffbeb', borderColor: '#fde68a' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 700, fontSize: '12px', color: '#92400e', marginBottom: 4 }}>
+                          <div className="msg-bubble" style={{ maxWidth: '85%', backgroundColor: 'var(--status-warning-bg)', borderColor: 'rgba(251, 191, 36, 0.45)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 700, fontSize: '12px', color: 'var(--status-warning)', marginBottom: 4 }}>
                               <Sparkles size={12} />
                               <span>MaxiText AI Copilot Auto-Response</span>
                             </div>
@@ -2605,15 +2605,8 @@ export default function CompanyDashboard() {
             </div>
           </section>
 
-          {/* Right-Hand Panel: MaxiText AI Workspace Copilot */}
+          {/* Right-Hand Panel */}
           <aside className="copilot-side-card">
-            <div className="copilot-header">
-              <div className="copilot-title">
-                <Sparkles size={16} color="#d97706" />
-                <span>MaxiText AI Workspace Copilot</span>
-              </div>
-            </div>
-
             {/* 1. AI Suggested Response Panel (Active Inquiry Draft) */}
             <div className="ai-suggestion-box">
               <div className="ai-suggestion-header">
@@ -2680,7 +2673,7 @@ export default function CompanyDashboard() {
                         style={{
                           fontWeight: 700,
                           fontSize: '11px',
-                          color: 'var(--primary-indigo-dark)',
+                          color: 'var(--primary-indigo-text)',
                           marginBottom: 2,
                         }}
                       >
@@ -2900,7 +2893,7 @@ export default function CompanyDashboard() {
                   className="copilot-field-label"
                   htmlFor="bulk-announcement-prompt"
                 >
-                  Bulk Send Prompt (Natural-Language Content &amp; Audience)
+                  Choose Audience
                 </label>
 
                 {/* Audience Quick-Targeting Chips */}
@@ -3004,7 +2997,7 @@ export default function CompanyDashboard() {
                   padding: '8px 12px',
                   fontWeight: 700,
                   borderColor: 'var(--primary-indigo)',
-                  color: 'var(--primary-indigo-dark)',
+                  color: 'var(--primary-indigo-text)',
                 }}
                 disabled={
                   !announcementPrompt.trim() ||
@@ -3085,7 +3078,7 @@ export default function CompanyDashboard() {
                         gap: '6px',
                         fontSize: '12px',
                         fontWeight: 700,
-                        color: 'var(--primary-indigo-dark)',
+                        color: 'var(--primary-indigo-text)',
                       }}
                     >
                       <Users size={14} />
@@ -3529,7 +3522,7 @@ export default function CompanyDashboard() {
                             fontSize: '12px',
                             color: 'var(--text-primary)',
                             whiteSpace: 'pre-wrap',
-                            backgroundColor: '#ffffff',
+                            backgroundColor: 'var(--bg-card)',
                             padding: '8px 10px',
                             borderRadius: '6px',
                             border: '1px solid var(--border-light)',
@@ -3544,10 +3537,10 @@ export default function CompanyDashboard() {
                               style={{
                                 fontSize: '11.5px',
                                 color: '#991b1b',
-                                backgroundColor: '#fef2f2',
+                                backgroundColor: 'var(--status-error-bg)',
                                 padding: '6px 8px',
                                 borderRadius: '6px',
-                                border: '1px solid #fecaca',
+                                border: '1px solid rgba(248, 113, 113, 0.38)',
                               }}
                             >
                               <strong>Failed Deliveries:</strong>{' '}

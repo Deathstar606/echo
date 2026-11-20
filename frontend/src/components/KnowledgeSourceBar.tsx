@@ -566,7 +566,7 @@ export default function KnowledgeSourceBar({
         <div
           aria-label="Selected document chunks"
           style={{
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--bg-card)',
             border: '1px solid var(--border-warm)',
             borderRadius: '10px',
             padding: '8px 12px',
@@ -650,7 +650,7 @@ export default function KnowledgeSourceBar({
         >
           <div
             style={{
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--bg-card)',
               borderRadius: '14px',
               boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
               width: '100%',
@@ -713,8 +713,8 @@ export default function KnowledgeSourceBar({
                   style={{
                     padding: '14px',
                     borderRadius: '10px',
-                    backgroundColor: '#eff6ff',
-                    border: '1px solid #bfdbfe',
+                    backgroundColor: 'var(--accent-lavender-bg)',
+                    border: '1px solid var(--accent-lavender-border)',
                     color: '#1e3a8a',
                     fontSize: '13px',
                     lineHeight: 1.5,
@@ -740,9 +740,9 @@ export default function KnowledgeSourceBar({
                       gap: '8px',
                       padding: '8px 12px',
                       borderRadius: '8px',
-                      backgroundColor: '#fef2f2',
-                      border: '1px solid #fecaca',
-                      color: '#b91c1c',
+                      backgroundColor: 'var(--status-error-bg)',
+                      border: '1px solid rgba(248, 113, 113, 0.38)',
+                      color: 'var(--status-error)',
                       fontSize: '12px',
                     }}
                   >
@@ -826,7 +826,7 @@ export default function KnowledgeSourceBar({
                         borderRadius: '8px',
                         border: '1px solid var(--border-warm)',
                         fontSize: '13px',
-                        backgroundColor: '#ffffff',
+                        backgroundColor: 'var(--bg-card)',
                       }}
                     >
                       {googleDocsList.map((f) => (
@@ -864,9 +864,9 @@ export default function KnowledgeSourceBar({
                       gap: '8px',
                       padding: '8px 12px',
                       borderRadius: '8px',
-                      backgroundColor: '#fef2f2',
-                      border: '1px solid #fecaca',
-                      color: '#b91c1c',
+                      backgroundColor: 'var(--status-error-bg)',
+                      border: '1px solid rgba(248, 113, 113, 0.38)',
+                      color: 'var(--status-error)',
                       fontSize: '12px',
                     }}
                   >
@@ -883,9 +883,9 @@ export default function KnowledgeSourceBar({
                       gap: '8px',
                       padding: '8px 12px',
                       borderRadius: '8px',
-                      backgroundColor: '#f0fdf4',
-                      border: '1px solid #bbf7d0',
-                      color: '#15803d',
+                      backgroundColor: 'var(--status-success-bg)',
+                      border: '1px solid rgba(52, 211, 153, 0.35)',
+                      color: 'var(--status-success)',
                       fontSize: '12px',
                     }}
                   >
@@ -965,9 +965,9 @@ export default function KnowledgeSourceBar({
                     width: 34,
                     height: 34,
                     borderRadius: '10px',
-                    backgroundColor: '#fef2f2',
+                    backgroundColor: 'var(--status-error-bg)',
                     color: '#dc2626',
-                    border: '1px solid #fecaca',
+                    border: '1px solid rgba(248, 113, 113, 0.38)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -977,7 +977,7 @@ export default function KnowledgeSourceBar({
                   <Trash2 size={16} />
                 </div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '15.5px', fontWeight: 700, color: '#0f172a' }}>
+                  <h3 style={{ margin: 0, fontSize: '15.5px', fontWeight: 700, color: 'var(--text-primary)' }}>
                     {pendingRemoval.kind === 'table'
                       ? 'Remove Sheet From Workspace'
                       : 'Remove Document & Chunks'}
@@ -1006,7 +1006,7 @@ export default function KnowledgeSourceBar({
                 border: '1px solid var(--border-warm)',
                 fontSize: '12.5px',
                 lineHeight: 1.5,
-                color: '#334155',
+                color: 'var(--text-secondary)',
               }}
             >
               {pendingRemoval.kind === 'table' ? (

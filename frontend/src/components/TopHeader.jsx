@@ -43,6 +43,7 @@ import {
   clearUserWorkspaceCache,
 } from '../services/workspaceContextCache';
 import { prefetchWorkspaceContext } from '../services/workspacePrefetch';
+import logoImg from '../assets/logo.png';
 
 export default function TopHeader() {
   const location = useLocation();
@@ -529,17 +530,28 @@ export default function TopHeader() {
   return (
     <>
       <header className="top-header">
-        {/* Left Cluster: Brand & Workspace Selector (Workspace Switcher ONLY visible when signed in) */}
+        {/* Left Cluster: Brand Logo & Title */}
         <div className="header-left-cluster">
           <Link to="/" className="brand-cluster">
-            <div className="brand-logo-box">M</div>
+            <img
+              src={logoImg}
+              alt="Echo B2B Assistant"
+              className="brand-logo-img"
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: '9px',
+                objectFit: 'cover',
+                flexShrink: 0,
+              }}
+            />
             <div className="brand-text-stack">
-              <span className="brand-title">MaxiText AI Studio</span>
+              <span className="brand-title">Echo B2B Assistant</span>
               <span className="brand-subtitle">Autonomous B2B Operations</span>
             </div>
           </Link>
 
-          {effectiveUser && (
+          {effectiveUser && location.pathname.startsWith('/company') && (
             <>
               <span className="header-divider" aria-hidden="true">/</span>
 
@@ -560,13 +572,13 @@ export default function TopHeader() {
                     fontSize: '12.5px',
                     fontWeight: 700,
                     color: 'var(--text-primary)',
-                    backgroundColor: '#ffffff',
+                    backgroundColor: 'var(--bg-card)',
                     border: '1px solid var(--border-warm)',
                     boxShadow: 'var(--shadow-card)',
                     cursor: 'pointer',
                   }}
                 >
-                  <Building2 size={14} color="var(--primary-indigo)" style={{ flexShrink: 0 }} />
+                  <Building2 size={14} color="var(--primary-indigo-text)" style={{ flexShrink: 0 }} />
                   <span
                     className="ws-selector-name"
                     style={{
@@ -603,10 +615,10 @@ export default function TopHeader() {
                         top: 'calc(100% + 6px)',
                         left: 0,
                         transformOrigin: 'top left',
-                        backgroundColor: '#ffffff',
+                        backgroundColor: 'var(--bg-panel)',
                         border: '1px solid var(--border-warm)',
                         borderRadius: '12px',
-                        boxShadow: '0 14px 34px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.04)',
+                        boxShadow: '0 16px 38px rgba(0, 0, 0, 0.5)',
                         minWidth: '280px',
                         maxWidth: '340px',
                         zIndex: 100,
@@ -615,242 +627,242 @@ export default function TopHeader() {
                         flexDirection: 'column',
                         gap: '4px',
                       }}
-                  >
-                    <div
-                      style={{
-                        fontSize: '11px',
-                        fontWeight: 700,
-                        color: 'var(--text-secondary)',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                        padding: '4px 8px',
-                      }}
                     >
-                      Your Workspaces ({userWorkspaces.length})
-                    </div>
-
-                    {userWorkspaces.length === 0 ? (
                       <div
                         style={{
-                          padding: '10px',
-                          fontSize: '12px',
+                          fontSize: '11px',
+                          fontWeight: 700,
                           color: 'var(--text-secondary)',
-                          fontStyle: 'italic',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em',
+                          padding: '4px 8px',
                         }}
                       >
-                        No workspaces found for your account yet.
+                        Your Workspaces ({userWorkspaces.length})
                       </div>
-                    ) : (
-                      <div
-                        style={{
-                          maxHeight: '220px',
-                          overflowY: 'auto',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '2px',
-                        }}
-                      >
-                        {userWorkspaces.map((ws) => (
-                          <div
-                            key={ws.id}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              gap: '4px',
-                              borderRadius: '8px',
-                              backgroundColor:
-                                ws.id === currentWsId
-                                  ? 'var(--accent-lavender-bg)'
-                                  : 'transparent',
-                              padding: '2px 4px 2px 0',
-                            }}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => handleSelectWorkspace(ws)}
-                              onMouseEnter={() => {
-                                if (!ws.id || ws.id === currentWsId) return;
-                                if (hoverPrefetchTimerRef.current) {
-                                  clearTimeout(hoverPrefetchTimerRef.current);
-                                }
-                                hoverPrefetchTimerRef.current = setTimeout(() => {
-                                  prefetchWorkspaceContext(ws.id, {
-                                    userId: currentUser?.id,
-                                  });
-                                }, 140);
-                              }}
-                              onMouseLeave={() => {
-                                if (hoverPrefetchTimerRef.current) {
-                                  clearTimeout(hoverPrefetchTimerRef.current);
-                                  hoverPrefetchTimerRef.current = null;
-                                }
-                              }}
+
+                      {userWorkspaces.length === 0 ? (
+                        <div
+                          style={{
+                            padding: '10px',
+                            fontSize: '12px',
+                            color: 'var(--text-secondary)',
+                            fontStyle: 'italic',
+                          }}
+                        >
+                          No workspaces found for your account yet.
+                        </div>
+                      ) : (
+                        <div
+                          style={{
+                            maxHeight: '220px',
+                            overflowY: 'auto',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '2px',
+                          }}
+                        >
+                          {userWorkspaces.map((ws) => (
+                            <div
+                              key={ws.id}
                               style={{
-                                textAlign: 'left',
-                                padding: '6px 10px',
-                                borderRadius: '8px',
-                                backgroundColor: 'transparent',
-                                border: 'none',
-                                cursor: 'pointer',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'space-between',
-                                gap: '6px',
-                                flex: 1,
-                                minWidth: 0,
+                                gap: '4px',
+                                borderRadius: '8px',
+                                backgroundColor:
+                                  ws.id === currentWsId
+                                    ? 'var(--accent-lavender-bg)'
+                                    : 'transparent',
+                                padding: '2px 4px 2px 0',
                               }}
                             >
-                              <div
+                              <button
+                                type="button"
+                                onClick={() => handleSelectWorkspace(ws)}
+                                onMouseEnter={() => {
+                                  if (!ws.id || ws.id === currentWsId) return;
+                                  if (hoverPrefetchTimerRef.current) {
+                                    clearTimeout(hoverPrefetchTimerRef.current);
+                                  }
+                                  hoverPrefetchTimerRef.current = setTimeout(() => {
+                                    prefetchWorkspaceContext(ws.id, {
+                                      userId: currentUser?.id,
+                                    });
+                                  }, 140);
+                                }}
+                                onMouseLeave={() => {
+                                  if (hoverPrefetchTimerRef.current) {
+                                    clearTimeout(hoverPrefetchTimerRef.current);
+                                    hoverPrefetchTimerRef.current = null;
+                                  }
+                                }}
                                 style={{
+                                  textAlign: 'left',
+                                  padding: '6px 10px',
+                                  borderRadius: '8px',
+                                  backgroundColor: 'transparent',
+                                  border: 'none',
+                                  cursor: 'pointer',
                                   display: 'flex',
-                                  flexDirection: 'column',
-                                  gap: '2px',
-                                  overflow: 'hidden',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  gap: '6px',
+                                  flex: 1,
+                                  minWidth: 0,
                                 }}
                               >
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
-                                  <span
-                                    style={{
-                                      fontSize: '12.5px',
-                                      fontWeight: ws.id === currentWsId ? 700 : 500,
-                                      color: 'var(--text-primary)',
-                                      overflow: 'hidden',
-                                      textOverflow: 'ellipsis',
-                                      whiteSpace: 'nowrap',
-                                    }}
-                                  >
-                                    {ws.name}
-                                  </span>
-                                  {ws.is_shared && (
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '2px',
+                                    overflow: 'hidden',
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                                     <span
-                                      title={`Shared by ${ws.owner_name || ws.owner_email || 'owner'} (${ws.share_role || 'editor'})`}
                                       style={{
-                                        fontSize: '10px',
-                                        fontWeight: 600,
-                                        padding: '1px 6px',
-                                        borderRadius: '999px',
-                                        backgroundColor: '#eef2ff',
-                                        color: 'var(--primary-indigo)',
-                                        border: '1px solid #c7d2fe',
-                                        flexShrink: 0,
+                                        fontSize: '12.5px',
+                                        fontWeight: ws.id === currentWsId ? 700 : 500,
+                                        color: 'var(--text-primary)',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap',
                                       }}
                                     >
-                                      Shared
+                                      {ws.name}
                                     </span>
-                                  )}
+                                    {ws.is_shared && (
+                                      <span
+                                        title={`Shared by ${ws.owner_name || ws.owner_email || 'owner'} (${ws.share_role || 'editor'})`}
+                                        style={{
+                                          fontSize: '10px',
+                                          fontWeight: 600,
+                                          padding: '1px 6px',
+                                          borderRadius: '999px',
+                                          backgroundColor: 'var(--accent-lavender-bg)',
+                                          color: 'var(--primary-indigo-text)',
+                                          border: '1px solid var(--accent-lavender-border)',
+                                          flexShrink: 0,
+                                        }}
+                                      >
+                                        Shared
+                                      </span>
+                                    )}
+                                  </div>
+                                  <code style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
+                                    {ws.id.slice(0, 18)}...
+                                  </code>
                                 </div>
-                                <code style={{ fontSize: '10.5px', color: 'var(--text-muted)' }}>
-                                  {ws.id.slice(0, 18)}...
-                                </code>
-                              </div>
-                              {ws.id === currentWsId && (
-                                <Check size={14} color="var(--primary-indigo)" style={{ flexShrink: 0 }} />
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenShareModal(ws);
-                              }}
-                              title={`Share workspace "${ws.name}"`}
-                              aria-label={`Share workspace ${ws.name}`}
-                              style={{
-                                padding: '5px',
-                                borderRadius: '6px',
-                                color: 'var(--text-muted)',
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                flexShrink: 0,
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.color = 'var(--primary-indigo)';
-                                e.currentTarget.style.backgroundColor = '#e0e7ff';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.color = 'var(--text-muted)';
-                                e.currentTarget.style.backgroundColor = 'transparent';
-                              }}
-                            >
-                              <Share2 size={12.5} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenRenameModal(ws);
-                              }}
-                              title={`Rename workspace "${ws.name}"`}
-                              aria-label={`Rename workspace ${ws.name}`}
-                              style={{
-                                padding: '5px',
-                                borderRadius: '6px',
-                                color: 'var(--text-muted)',
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                flexShrink: 0,
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.color = 'var(--primary-indigo)';
-                                e.currentTarget.style.backgroundColor = '#e0e7ff';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.color = 'var(--text-muted)';
-                                e.currentTarget.style.backgroundColor = 'transparent';
-                              }}
-                            >
-                              <Pencil size={12.5} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                                {ws.id === currentWsId && (
+                                  <Check size={14} color="var(--primary-indigo-text)" style={{ flexShrink: 0 }} />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenShareModal(ws);
+                                }}
+                                title={`Share workspace "${ws.name}"`}
+                                aria-label={`Share workspace ${ws.name}`}
+                                style={{
+                                  padding: '5px',
+                                  borderRadius: '6px',
+                                  color: 'var(--text-muted)',
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  flexShrink: 0,
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.color = 'var(--primary-indigo-text)';
+                                  e.currentTarget.style.backgroundColor = 'var(--accent-lavender-bg)';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.color = 'var(--text-muted)';
+                                  e.currentTarget.style.backgroundColor = 'transparent';
+                                }}
+                              >
+                                <Share2 size={12.5} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenRenameModal(ws);
+                                }}
+                                title={`Rename workspace "${ws.name}"`}
+                                aria-label={`Rename workspace ${ws.name}`}
+                                style={{
+                                  padding: '5px',
+                                  borderRadius: '6px',
+                                  color: 'var(--text-muted)',
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  flexShrink: 0,
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.color = 'var(--primary-indigo-text)';
+                                  e.currentTarget.style.backgroundColor = 'var(--accent-lavender-bg)';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.color = 'var(--text-muted)';
+                                  e.currentTarget.style.backgroundColor = 'transparent';
+                                }}
+                              >
+                                <Pencil size={12.5} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
 
-                    <div
-                      style={{
-                        height: '1px',
-                        backgroundColor: 'var(--border-warm)',
-                        margin: '4px 0',
-                      }}
-                    />
+                      <div
+                        style={{
+                          height: '1px',
+                          backgroundColor: 'var(--border-warm)',
+                          margin: '4px 0',
+                        }}
+                      />
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowWsDropdown(false);
-                        setShowCreateWsModal(true);
-                      }}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        padding: '8px 10px',
-                        borderRadius: '8px',
-                        backgroundColor: '#f8fafc',
-                        border: '1px dashed var(--border-warm-strong)',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        color: 'var(--primary-indigo)',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <Plus size={14} />
-                      Create New Workspace
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowWsDropdown(false);
+                          setShowCreateWsModal(true);
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '8px 10px',
+                          borderRadius: '8px',
+                          backgroundColor: 'var(--bg-subtle-warm)',
+                          border: '1px dashed var(--border-warm-strong)',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontWeight: 600,
+                          color: 'var(--primary-indigo-text)',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Plus size={14} />
+                        Create New Workspace
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </>
           )}
         </div>
@@ -868,7 +880,7 @@ export default function TopHeader() {
             <Plug
               size={14}
               style={{
-                color: apiConnected ? '#2b3440' : '#dc2626',
+                color: apiConnected ? 'var(--text-primary)' : '#f87171',
                 transform: 'rotate(45deg)',
               }}
             />
@@ -891,7 +903,7 @@ export default function TopHeader() {
                   gap: '8px',
                   padding: '4px 12px 4px 6px',
                   borderRadius: '999px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--bg-card)',
                   border: '1px solid var(--border-warm)',
                   boxShadow: 'var(--shadow-card)',
                   cursor: 'pointer',
@@ -943,7 +955,7 @@ export default function TopHeader() {
                     minWidth: 0,
                   }}
                 >
-                  <span className="user-menu-name" style={{ fontSize: '12.5px', fontWeight: 700, color: '#1e293b' }}>
+                  <span className="user-menu-name" style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-primary)' }}>
                     {effectiveUser.name}
                   </span>
                   <span
@@ -998,7 +1010,7 @@ export default function TopHeader() {
                       top: 'calc(100% + 6px)',
                       right: 0,
                       transformOrigin: 'top right',
-                      backgroundColor: '#ffffff',
+                      backgroundColor: 'var(--bg-panel)',
                       border: '1px solid var(--border-warm)',
                       borderRadius: '12px',
                       boxShadow: '0 14px 34px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.04)',
@@ -1038,11 +1050,11 @@ export default function TopHeader() {
                         gap: '6px',
                         padding: '8px 10px',
                         borderRadius: '8px',
-                        backgroundColor: '#f8fafc',
-                        border: '1px solid #e2e8f0',
+                        backgroundColor: 'var(--bg-subtle-warm)',
+                        border: '1px solid var(--border-warm)',
                       }}
                     >
-                      <span style={{ fontSize: '11px', color: '#475569', lineHeight: 1.4 }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
                         Gmail services are disabled in Demo Mode. To connect Gmail services, sign in with a Google account.
                       </span>
                       <button
@@ -1055,11 +1067,11 @@ export default function TopHeader() {
                           gap: '7px',
                           padding: '7px 10px',
                           borderRadius: '7px',
-                          backgroundColor: '#eff6ff',
-                          border: '1px solid #bfdbfe',
+                          backgroundColor: 'var(--accent-lavender-bg)',
+                          border: '1px solid var(--accent-lavender-border)',
                           fontSize: '12px',
                           fontWeight: 600,
-                          color: '#1d4ed8',
+                          color: '#a78bfa',
                           cursor: 'pointer',
                         }}
                       >
@@ -1078,11 +1090,11 @@ export default function TopHeader() {
                         gap: '7px',
                         padding: '7px 10px',
                         borderRadius: '8px',
-                        backgroundColor: '#eff6ff',
-                        border: '1px solid #bfdbfe',
+                        backgroundColor: 'var(--accent-lavender-bg)',
+                        border: '1px solid var(--accent-lavender-border)',
                         fontSize: '12px',
                         fontWeight: 600,
-                        color: '#1d4ed8',
+                        color: '#a78bfa',
                         cursor: 'pointer',
                       }}
                     >
@@ -1101,7 +1113,7 @@ export default function TopHeader() {
                         gap: '6px',
                         padding: '7px 10px',
                         borderRadius: '8px',
-                        backgroundColor: '#f8fafc',
+                        backgroundColor: 'var(--bg-subtle-warm)',
                         border: '1px solid var(--border-warm)',
                         fontSize: '11.5px',
                         color: 'var(--text-secondary)',
@@ -1122,9 +1134,9 @@ export default function TopHeader() {
                       gap: '6px',
                       padding: '7px 10px',
                       fontSize: '12px',
-                      color: '#dc2626',
-                      border: '1px solid #fee2e2',
-                      backgroundColor: '#fef2f2',
+                      color: 'var(--status-error)',
+                      border: '1px solid rgba(248, 113, 113, 0.35)',
+                      backgroundColor: 'var(--status-error-bg)',
                       borderRadius: '8px',
                       cursor: 'pointer',
                       fontWeight: 600,
@@ -1147,9 +1159,9 @@ export default function TopHeader() {
             margin: '10px 24px 0 24px',
             padding: '9px 14px',
             borderRadius: '10px',
-            backgroundColor: '#ecfdf5',
-            border: '1px solid #a7f3d0',
-            color: '#065f46',
+            backgroundColor: 'var(--status-success-bg)',
+            border: '1px solid rgba(52, 211, 153, 0.38)',
+            color: 'var(--status-success)',
             fontSize: '12.5px',
             display: 'flex',
             alignItems: 'center',
@@ -1164,7 +1176,7 @@ export default function TopHeader() {
           <button
             type="button"
             onClick={() => setGoogleLinkedNotice(null)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#065f46' }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--status-success)' }}
             aria-label="Dismiss notice"
           >
             <X size={15} />
@@ -1178,9 +1190,9 @@ export default function TopHeader() {
             margin: '10px 24px 0 24px',
             padding: '9px 14px',
             borderRadius: '10px',
-            backgroundColor: '#fef2f2',
-            border: '1px solid #fecaca',
-            color: '#b91c1c',
+            backgroundColor: 'var(--status-error-bg)',
+            border: '1px solid rgba(248, 113, 113, 0.38)',
+            color: 'var(--status-error)',
             fontSize: '12.5px',
             display: 'flex',
             alignItems: 'center',
@@ -1195,7 +1207,7 @@ export default function TopHeader() {
           <button
             type="button"
             onClick={() => setGoogleAuthErrorBanner(null)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c' }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--status-error)' }}
             aria-label="Dismiss Google sign-in error"
           >
             <X size={15} />
@@ -1520,9 +1532,9 @@ export default function TopHeader() {
                     gap: '8px',
                     padding: '8px 12px',
                     borderRadius: '10px',
-                    backgroundColor: '#ecfdf5',
-                    border: '1px solid #a7f3d0',
-                    color: '#065f46',
+                    backgroundColor: 'var(--status-success-bg)',
+                    border: '1px solid rgba(52, 211, 153, 0.38)',
+                    color: 'var(--status-success)',
                     fontSize: '12px',
                     fontWeight: 500,
                   }}
@@ -1652,7 +1664,7 @@ export default function TopHeader() {
                             gap: '10px',
                             padding: '8px 10px',
                             borderRadius: '10px',
-                            backgroundColor: '#ffffff',
+                            backgroundColor: 'var(--bg-card)',
                             border: '1px solid var(--border-warm)',
                           }}
                         >
@@ -1671,7 +1683,7 @@ export default function TopHeader() {
                                 fontWeight: 600,
                                 padding: '2px 8px',
                                 borderRadius: '999px',
-                                backgroundColor: '#eef2ff',
+                                backgroundColor: 'var(--accent-lavender-bg)',
                                 color: 'var(--primary-indigo)',
                                 textTransform: 'capitalize',
                               }}
@@ -1688,8 +1700,8 @@ export default function TopHeader() {
                                 padding: '5px',
                                 borderRadius: '6px',
                                 color: '#dc2626',
-                                backgroundColor: '#fef2f2',
-                                border: '1px solid #fecaca',
+                                backgroundColor: 'var(--status-error-bg)',
+                                border: '1px solid rgba(248, 113, 113, 0.38)',
                                 cursor: revokingUserId === member.user_id ? 'wait' : 'pointer',
                                 display: 'flex',
                                 alignItems: 'center',
