@@ -1,0 +1,199 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [6 0 R 8 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+5 0 obj
+<< /Length 1527 >>
+stream
+BT
+48 756 Td
+/F2 14 Tf
+(VELOURA APPAREL - WHOLESALE ORDER MANIFEST) Tj
+0 -20 Td
+/F1 9 Tf
+(Manifest ID: MANIFEST-VEL-2026-11B | Issue Date: 2026-11-21 | Batch: Nov Week 3) Tj
+0 -18 Td
+/F2 11 Tf
+(SECTION 1: INCOMING ORDER REQUESTS \(ENTRIES 1 TO 2\)) Tj
+0 -16 Td
+/F1 10 Tf
+(Submitted wholesale order requests for ingestion into backorders_dataset.) Tj
+0 -18 Td
+/F2 11 Tf
+(Order Entry 1 - BO-2023) Tj
+0 -15 Td
+/F1 10 Tf
+(Backorder ID: BO-2023) Tj
+0 -14 Td
+/F1 10 Tf
+(Order Date: 2026-11-18) Tj
+0 -14 Td
+/F1 10 Tf
+(Buyer Company: Northbridge Apparel Co.) Tj
+0 -14 Td
+/F1 10 Tf
+(Buyer Name: Claire Bennett) Tj
+0 -14 Td
+/F1 10 Tf
+(Buyer Email: cbennett@northbridgeapparel.example) Tj
+0 -14 Td
+/F1 10 Tf
+(Buyer Tier: Priority) Tj
+0 -14 Td
+/F1 10 Tf
+(SKU Code: VL-POLO-BLK) Tj
+0 -14 Td
+/F1 10 Tf
+(Product Name: Classic Short-Sleeve Polo) Tj
+0 -14 Td
+/F1 10 Tf
+(Quantity Requested: 14) Tj
+0 -14 Td
+/F1 10 Tf
+(Fulfillment Status: Pending) Tj
+0 -20 Td
+/F2 11 Tf
+(Order Entry 2 - BO-2024) Tj
+0 -15 Td
+/F1 10 Tf
+(Backorder ID: BO-2024) Tj
+0 -14 Td
+/F1 10 Tf
+(Order Date: 2026-11-19) Tj
+0 -14 Td
+/F1 10 Tf
+(Buyer Company: Kensington Clothiers Ltd.) Tj
+0 -14 Td
+/F1 10 Tf
+(Buyer Name: Arthur Pendelton) Tj
+0 -14 Td
+/F1 10 Tf
+(Buyer Email: apendelton@kensingtonclothiers.example) Tj
+0 -14 Td
+/F1 10 Tf
+(Buyer Tier: Standard) Tj
+0 -14 Td
+/F1 10 Tf
+(SKU Code: VL-KNIT-MER) Tj
+0 -14 Td
+/F1 10 Tf
+(Product Name: Merino Knit Pullover) Tj
+0 -14 Td
+/F1 10 Tf
+(Quantity Requested: 10) Tj
+0 -14 Td
+/F1 10 Tf
+(Fulfillment Status: Pending) Tj
+0 -14 Td
+ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 5 0 R >>
+endobj
+7 0 obj
+<< /Length 1246 >>
+stream
+BT
+48 756 Td
+/F2 11 Tf
+(SECTION 2: INCOMING ORDER REQUESTS \(ENTRIES 3 TO 4\)) Tj
+0 -18 Td
+/F2 11 Tf
+(Order Entry 3 - BO-2025) Tj
+0 -15 Td
+/F1 10 Tf
+(Backorder ID: BO-2025) Tj
+0 -14 Td
+/F1 10 Tf
+(Order Date: 2026-11-20) Tj
+0 -14 Td
+/F1 10 Tf
+(Buyer Company: Bayview Sartorial Group) Tj
+0 -14 Td
+/F1 10 Tf
+(Buyer Name: Maya Patel) Tj
+0 -14 Td
+/F1 10 Tf
+(Buyer Email: mpatel@bayviewsartorial.example) Tj
+0 -14 Td
+/F1 10 Tf
+(Buyer Tier: Priority) Tj
+0 -14 Td
+/F1 10 Tf
+(SKU Code: VL-SHIRT-OXF) Tj
+0 -14 Td
+/F1 10 Tf
+(Product Name: Oxford Mandarin Collar Shirt) Tj
+0 -14 Td
+/F1 10 Tf
+(Quantity Requested: 12) Tj
+0 -14 Td
+/F1 10 Tf
+(Fulfillment Status: Pending) Tj
+0 -20 Td
+/F2 11 Tf
+(Order Entry 4 - BO-2026) Tj
+0 -15 Td
+/F1 10 Tf
+(Backorder ID: BO-2026) Tj
+0 -14 Td
+/F1 10 Tf
+(Order Date: 2026-11-21) Tj
+0 -14 Td
+/F1 10 Tf
+(Buyer Company: Cascade Menswear Collective) Tj
+0 -14 Td
+/F1 10 Tf
+(Buyer Name: Julian Morales) Tj
+0 -14 Td
+/F1 10 Tf
+(Buyer Email: jmorales@cascademenswear.example) Tj
+0 -14 Td
+/F1 10 Tf
+(Buyer Tier: Standard) Tj
+0 -14 Td
+/F1 10 Tf
+(SKU Code: VL-POLO-HEN) Tj
+0 -14 Td
+/F1 10 Tf
+(Product Name: Pima Cotton Henley) Tj
+0 -14 Td
+/F1 10 Tf
+(Quantity Requested: 8) Tj
+0 -14 Td
+/F1 10 Tf
+(Fulfillment Status: Pending) Tj
+0 -14 Td
+ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 7 0 R >>
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000127 00000 n 
+0000000197 00000 n 
+0000000272 00000 n 
+0000001851 00000 n 
+0000001987 00000 n 
+0000003285 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+3421
+%%EOF

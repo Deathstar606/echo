@@ -6,8 +6,6 @@ const {
   normalizeEntityName,
   findColumnDef,
   quoteIdentifier,
-  parseCleanNumber,
-  coerceBooleanValue,
 } = require('./sheetSchemaService');
 const {
   sendIndividualEmail,
@@ -45,6 +43,16 @@ const {
   listWorkspaceTableMetadataCached,
   invalidateWorkspaceMetadataCache,
 } = require('./workspaceTableMetadataService');
+const {
+  planDocumentTableSync,
+  executeDocumentTableSyncConfirm,
+} = require('./documentTableSyncService');
+const {
+  coerceValueForColumn,
+} = require('../utils/columnCoercion');
+const {
+  SCHEMA_TRUTH_PRECEDENCE_RULE,
+} = require('../utils/schemaPromptSerializer');
 const {
   normalizeConversationHistory,
   getLatestActiveContext,
@@ -568,128 +576,6 @@ function projectTableForLlm(targetTable) {
 }
 
 /**
- * Coerces a raw LLM-proposed column value into the exact JavaScript/PostgreSQL type
- * defined on `colDef`, throwing an AppError if invalid so self-correction can fix it.
- *
- * @param {object} colDef
- * @param {string} colName
- * @param {any} rawValue
- * @returns {any}
- */
-function coerceValueForColumn(colDef, colName, rawValue) {
-  const colType = colDef.type || 'string';
-  const isIntStorage =
-    colType === 'integer' ||
-    String(colDef.storageType || '').toLowerCase().includes('int');
-
-  if (isIntStorage) {
-    const n = parseCleanNumber(rawValue);
-    if (!Number.isFinite(n)) {
-      throw new AppError(
-        `Column "${colName}" requires a numeric/integer value, received "${rawValue}".`,
-        400
-      );
-    }
-    const rounded = Math.round(n);
-    if (colDef.min !== undefined && rounded < colDef.min) {
-      throw new AppError(
-        `Column "${colName}" value ${rounded} is below minimum ${colDef.min}.`,
-        400
-      );
-    }
-    if (colDef.max !== undefined && rounded > colDef.max) {
-      throw new AppError(
-        `Column "${colName}" value ${rounded} exceeds maximum ${colDef.max}.`,
-        400
-      );
-    }
-    return rounded;
-  }
-
-  if (colType === 'number') {
-    const n = parseCleanNumber(rawValue);
-    if (!Number.isFinite(n)) {
-      throw new AppError(
-        `Column "${colName}" requires a numeric value, received "${rawValue}".`,
-        400
-      );
-    }
-    const rounded = Math.round(n * 100) / 100;
-    if (colDef.min !== undefined && rounded < colDef.min) {
-      throw new AppError(
-        `Column "${colName}" value ${rounded} is below minimum ${colDef.min}.`,
-        400
-      );
-    }
-    if (colDef.max !== undefined && rounded > colDef.max) {
-      throw new AppError(
-        `Column "${colName}" value ${rounded} exceeds maximum ${colDef.max}.`,
-        400
-      );
-    }
-    return rounded;
-  }
-
-  if (colType === 'boolean') {
-    const coerced = coerceBooleanValue(rawValue);
-    if (typeof coerced !== 'boolean') {
-      throw new AppError(
-        `Column "${colName}" requires a boolean ("true" or "false"), received "${rawValue}".`,
-        400
-      );
-    }
-    return coerced;
-  }
-
-  if (colDef.nestedMap || colType === 'json') {
-    let parsedObj = rawValue;
-    if (typeof rawValue === 'string') {
-      const trimmed = rawValue.trim();
-      if (!trimmed.startsWith('{')) {
-        throw new AppError(
-          `Column "${colName}" is a nested JSON map column and requires a valid JSON object string (e.g. "{\\"M\\":2,\\"L\\":3}"), received "${rawValue}".`,
-          400
-        );
-      }
-      try {
-        parsedObj = JSON.parse(trimmed);
-      } catch {
-        throw new AppError(
-          `Column "${colName}" contains invalid JSON: "${rawValue}".`,
-          400
-        );
-      }
-    }
-    if (!parsedObj || typeof parsedObj !== 'object' || Array.isArray(parsedObj)) {
-      throw new AppError(
-        `Column "${colName}" must be a JSON object mapping keys to numeric quantities.`,
-        400
-      );
-    }
-    const normalizedObj = {};
-    for (const [k, v] of Object.entries(parsedObj)) {
-      if (!/^[a-z0-9_-]+$/i.test(k)) {
-        throw new AppError(`Invalid nested map key "${k}" on column "${colName}".`, 400);
-      }
-      const num = parseCleanNumber(v);
-      if (!Number.isFinite(num) || num < 0) {
-        throw new AppError(
-          `Nested map value for "${colName}.${k}" must be a non-negative number, received "${v}".`,
-          400
-        );
-      }
-      normalizedObj[k] =
-        colDef.nestedValueType === 'integer'
-          ? Math.round(num)
-          : Math.round(num * 100) / 100;
-    }
-    return JSON.stringify(normalizedObj);
-  }
-
-  return String(rawValue ?? '').trim();
-}
-
-/**
  * Returns true when the user instruction explicitly asks to email or notify recipients,
  * supporting multi-word modifiers, compound roles, proper names, and literal email addresses
  * while ignoring negated notification clauses and plain column/field lookups.
@@ -738,6 +624,304 @@ function explicitlyRequestsNotifications(prompt) {
     sendEmailPhrase.test(text) ||
     viaEmailPhrase.test(text)
   );
+}
+
+/**
+ * Detects whether the user requested notifying the full evaluated audience
+ * (including both mutated/positive and unmutated/negative outcomes).
+ *
+ * @param {string} prompt
+ * @returns {boolean}
+ */
+function requestsFullAudienceNotification(prompt) {
+  const text = String(prompt || '').trim();
+  if (!text || !explicitlyRequestsNotifications(text)) return false;
+
+  const explicitAllAudience =
+    /\b(?:all|every|each)\s+(?:\d+\s+)?(?:the\s+)?(?:designated|listed|evaluated|checked|new|added|affected|matching|relevant|specified|named|remaining|above)?\s*(?:customers?|buyers?|clients?|recipients?|contacts?|accounts?|vendors?|suppliers?|users?|patients?|managers?|nurses?|orders?|parties)\b/i.test(
+      text
+    ) ||
+    /\b(?:designated|evaluated|all\s+\d+)\s+(?:customers?|buyers?|clients?|recipients?|contacts?|accounts?|vendors?|suppliers?|users?)\b/i.test(
+      text
+    );
+
+  const dualOutcomeLanguage =
+    /\b(?:can\s+(?:be\s+)?\w+[^.?!;\n]{0,60}\band\b[^.?!;\n]{0,60}\bcannot|able\s+to\b[^.?!;\n]{0,60}\band\b[^.?!;\n]{0,60}\bunable|fulfill(?:ed)?\b[^.?!;\n]{0,50}\band\b[^.?!;\n]{0,50}\b(?:cannot|unfulfilled|unable|not\s+fulfill|declined|pending|blocked)|approv(?:e|ed)\b[^.?!;\n]{0,50}\band\b[^.?!;\n]{0,50}\b(?:reject(?:ed)?|declin(?:e|ed)|denied|cannot)|eligib(?:le|ility)\b[^.?!;\n]{0,50}\band\b[^.?!;\n]{0,50}\bineligible|both\s+(?:the\s+)?(?:approved|fulfilled|allocated|eligible|qualifying|passing)\s+and\b|whether\s+(?:or\s+not|their\s+\w+\s+can))\b/i.test(
+      text
+    );
+
+  return explicitAllAudience || dualOutcomeLanguage;
+}
+
+/**
+ * Detects whether a prompt involves conditional policy, threshold, limit, buffer,
+ * compliance, or availability gating that must NOT be handled by the unconditional
+ * single-table direct-email shortcut.
+ *
+ * @param {string} prompt
+ * @returns {boolean}
+ */
+function requiresConditionalPolicyEvaluation(prompt) {
+  const text = String(prompt || '').trim();
+  if (!text) return false;
+  if (DOCUMENT_GOVERNANCE_REGEX.test(text)) return true;
+
+  return (
+    /\b(?:where\s+(?:enough|sufficient|available)|if\s+(?:enough|sufficient|available)|enough\s+(?:[\w-]+\s+){0,2}available|sufficient\s+[\w-]+|due\s+to\s+(?:our|the|a)?\s*(?:[\w-]+\s+){0,3}(?:limit|buffer|threshold|cap|policy|rule|shortage|deficit|constraint|floor|ceiling)|(?:minimum|safety|reserve|policy|mandatory|required)\s+(?:limit|buffer|threshold|level|cap|floor|stock|inventory|balance)|(?:buffer|credit|spend|stock|inventory|capacity|allocation|reserve)\s+(?:limit|threshold|cap|floor|rule|clause|check|constraint)|(?:below|above|under|exceed(?:s|ing)?|breach(?:es|ing)?)\s+(?:the\s+|our\s+)?(?:limit|buffer|threshold|cap|floor|minimum|maximum)|eligib(?:le|ility)|compliance|cannot\s+(?:be\s+)?(?:fulfill|allocat|approv|process|ship|dispatch))\b/i.test(
+      text
+    )
+  );
+}
+
+const GENERIC_SECONDARY_TABLE_TOKENS = new Set([
+  'id',
+  'name',
+  'date',
+  'status',
+  'type',
+  'note',
+  'notes',
+  'description',
+  'email',
+  'price',
+  'cost',
+  'total',
+  'count',
+  'value',
+  'amount',
+  'category',
+  'dataset',
+  'table',
+  'sheet',
+  'data',
+  'record',
+  'records',
+  'created',
+  'updated',
+  'workspace',
+  'business',
+  'user',
+  'images',
+  'color',
+  'best',
+]);
+
+/**
+ * Dynamically inspects workspace_table_metadata to detect secondary tables referenced
+ * by the prompt (either by table name, by a distinctive column absent from the primary
+ * table, or via an immediately preceding cross-table read turn). Zero hardcoded names.
+ *
+ * @param {string} prompt
+ * @param {string | null} primaryTableName
+ * @param {Array<object>} [metadataRows=[]]
+ * @param {Array<object>} [normalizedHistory=[]]
+ * @returns {string[]}
+ */
+function findSecondaryTablesReferencedByMetadata(
+  prompt,
+  primaryTableName,
+  metadataRows = [],
+  normalizedHistory = []
+) {
+  if (!Array.isArray(metadataRows) || metadataRows.length <= 1) {
+    return [];
+  }
+  const promptLower = String(prompt || '').toLowerCase();
+  const primaryNorm = primaryTableName
+    ? normalizeEntityName(String(primaryTableName)).toLowerCase()
+    : '';
+  const primaryMeta = metadataRows.find(
+    (m) => normalizeEntityName(String(m?.table_name || '')).toLowerCase() === primaryNorm
+  );
+  const primaryColTokens = new Set();
+  for (const col of primaryMeta?.columns_profile || []) {
+    const colName = String(col?.column_name || col?.name || '').toLowerCase();
+    if (!colName) continue;
+    primaryColTokens.add(colName);
+    for (const part of colName.split(/[^a-z0-9]+/)) {
+      if (part.length >= 3) primaryColTokens.add(part);
+    }
+  }
+
+  const recentReadTables = new Set();
+  for (const turn of (normalizedHistory || []).slice(-2)) {
+    const intentUp = String(turn?.resolved_intent || '').toUpperCase();
+    if (
+      (intentUp.includes('READ') || intentUp.includes('QUERY')) &&
+      turn?.target_table
+    ) {
+      recentReadTables.add(normalizeEntityName(String(turn.target_table)).toLowerCase());
+    }
+  }
+
+  const hasAllocationOrCrossCheckCue =
+    /\b(?:allocat(?:e|ing|ion)|fulfill(?:ing|ment)?|deduct(?:ing)?|reconcil(?:e|ing|iation)|cross[- ]?check|cross[- ]?reference|available|enough|sufficient|inventory|supply|capacity|buffer|limit|threshold)\b/i.test(
+      promptLower
+    );
+
+  const secondaryTables = [];
+  const seen = new Set();
+
+  for (const meta of metadataRows) {
+    const tName = String(meta?.table_name || '').trim();
+    if (!tName) continue;
+    const tNorm = normalizeEntityName(tName).toLowerCase();
+    if (primaryNorm && tNorm === primaryNorm) continue;
+    if (seen.has(tNorm)) continue;
+
+    const spaced = tName.toLowerCase().replace(/_/g, ' ');
+    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const explicitTableHit =
+      new RegExp(`\\b${esc(tName.toLowerCase())}(?:\\.csv)?\\b`, 'i').test(promptLower) ||
+      (spaced !== tName.toLowerCase() && new RegExp(`\\b${esc(spaced)}\\b`, 'i').test(promptLower));
+
+    let distinctiveColHit = false;
+    if (hasAllocationOrCrossCheckCue) {
+      for (const col of meta?.columns_profile || []) {
+        const colName = String(col?.column_name || col?.name || '').toLowerCase();
+        if (!colName || GENERIC_SECONDARY_TABLE_TOKENS.has(colName)) continue;
+        if (primaryColTokens.has(colName)) continue;
+        const dataType = String(col?.data_type || col?.type || '').toLowerCase();
+        const isNumericOrJson =
+          /int|num|dec|float|double|real|json/.test(dataType) ||
+          Boolean(col?.numeric_stats) ||
+          Boolean(col?.nested_structure);
+        if (!isNumericOrJson) continue;
+        const colParts = [colName, ...colName.split(/[^a-z0-9]+/)].filter(
+          (tok) => tok.length >= 4 && !GENERIC_SECONDARY_TABLE_TOKENS.has(tok) && !primaryColTokens.has(tok)
+        );
+        if (
+          colParts.some((tok) => new RegExp(`\\b${esc(tok)}s?\\b`, 'i').test(promptLower))
+        ) {
+          distinctiveColHit = true;
+          break;
+        }
+      }
+    }
+
+    const recentReadCrossRef =
+      hasAllocationOrCrossCheckCue && recentReadTables.has(tNorm);
+
+    if (explicitTableHit || distinctiveColHit || recentReadCrossRef) {
+      seen.add(tNorm);
+      secondaryTables.push(tName);
+    }
+  }
+
+  return secondaryTables;
+}
+
+/**
+ * Post-router gate for the single-table direct-email shortcut.
+ * Returns true ONLY when strictly 1 table is involved, no workspace documents or
+ * conditional policy/threshold rules apply, and no secondary table needs cross-referencing.
+ */
+function shouldUseSingleTableDirectEmailFastPath({
+  prompt,
+  routed,
+  authoritativeEntities = [],
+  metadataRows = [],
+  normalizedHistory = [],
+}) {
+  if (!isDirectTableEmailCandidate(prompt, normalizedHistory, routed?.entity || null)) {
+    return false;
+  }
+  if (Array.isArray(authoritativeEntities) && authoritativeEntities.length > 1) {
+    return false;
+  }
+  if (routed?.document_grounded) {
+    return false;
+  }
+  if (requiresConditionalPolicyEvaluation(prompt)) {
+    return false;
+  }
+  const primaryEntity = authoritativeEntities[0] || routed?.entity || null;
+  const secondaryTables = findSecondaryTablesReferencedByMetadata(
+    prompt,
+    primaryEntity,
+    metadataRows,
+    normalizedHistory
+  );
+  if (secondaryTables.length > 0) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Deterministic safety-net draft synthesizer used ONLY when full-audience notification
+ * was requested and an evaluated contact with a valid email address was omitted.
+ */
+function synthesizeFallbackEmailDraft({
+  recipientEmail,
+  customerName,
+  rowIdentifier,
+  rowData = {},
+  mutationEntry = null,
+  tableName = '',
+  appliedRule = '',
+  optionId = '',
+}) {
+  const safeName = String(customerName || '').trim() || 'Customer';
+  const safeId = String(rowIdentifier || '').trim();
+  const displayTable = String(tableName || 'record').replace(/_/g, ' ');
+  const isMutated = Boolean(mutationEntry && Object.keys(mutationEntry.after || {}).length > 0);
+
+  const summaryLines = [];
+  if (isMutated) {
+    for (const [col, newVal] of Object.entries(mutationEntry.after || {})) {
+      const oldVal = mutationEntry.before?.[col];
+      summaryLines.push(
+        oldVal !== undefined && oldVal !== null
+          ? `- ${col}: ${oldVal} -> ${newVal}`
+          : `- ${col}: ${newVal}`
+      );
+    }
+  } else {
+    for (const [col, val] of Object.entries(rowData || {})) {
+      const lower = col.toLowerCase();
+      if (
+        SYSTEM_EMAIL_EXCLUSION_COLS.has(lower) ||
+        lower === '_row_id' ||
+        lower === '_table_name' ||
+        lower === '_had_conflict' ||
+        /email/i.test(lower)
+      ) {
+        continue;
+      }
+      if (val !== null && val !== undefined && String(val).trim() !== '') {
+        summaryLines.push(`- ${col}: ${val}`);
+      }
+      if (summaryLines.length >= 6) break;
+    }
+  }
+
+  const subject = isMutated
+    ? `Update for ${safeId || displayTable} - Confirmed`
+    : `Status Update for ${safeId || displayTable} - Unable to Fulfill Currently`;
+
+  const body = isMutated
+    ? `Dear ${safeName},\n\nWe are writing to confirm that your record (${safeId || displayTable}) has been processed and updated:\n${summaryLines.join('\n')}\n\nThank you for your business.\n\nBest regards,\nOperations Team`
+    : `Dear ${safeName},\n\nWe reviewed your record (${safeId || displayTable}) against our current inventory availability and governing policy limits. Unfortunately, we are unable to fulfill or allocate this request at this time due to our policy/buffer limit constraints.\n\nCurrent details on file:\n${summaryLines.join('\n')}\n\nYour request remains on file and we will notify you as soon as additional availability is confirmed.\n\nBest regards,\nOperations Team`;
+
+  return {
+    recipient_email: recipientEmail,
+    customer_identifier: safeName && safeId && !safeName.includes(safeId)
+      ? `${safeName} (${safeId})`
+      : safeName || safeId || recipientEmail,
+    subject,
+    body,
+    metadata: {
+      applied_rule:
+        appliedRule ||
+        (isMutated
+          ? 'Fulfilled / updated under evaluated operational rule'
+          : 'Evaluated but unmutated due to policy/buffer constraint'),
+      row_identifier: safeId || 'evaluated_record',
+      ...(optionId ? { option_id: optionId } : {}),
+      outcome: isMutated ? 'mutated' : 'evaluated_unmutated',
+    },
+  };
 }
 
 /**
@@ -1201,8 +1385,9 @@ async function analyzeCrossDocumentOperation(
   const multiTableGuidance = isMultiTable
     ? `\nMULTI-TABLE OPERATION CONTEXT (${targetTables.length} tables involved: ${targetTables.map((t) => t.tableName).join(', ')}):
 - TARGET_TABLE_ROWS contains rows from multiple tables, tagged with "_table_name" and "_row_id".
-- Include qualifying "_row_id" values from EVERY involved table (for example, BOTH matching open backorder rows AND matching catalog product rows) in "affected_row_ids".
-- When updating stock on a table that has a non-modifiable "virtual_computed: true" summary column (such as "total_stock") alongside a modifiable JSON map column with "nested_map_json: true" (such as "size"), specify updates ONLY to the modifiable JSON map column ("size") as a valid JSON object string (never the virtual column).
+- Include qualifying "_row_id" values from EVERY involved table (for example, BOTH matching request/order rows AND their corresponding inventory/catalog rows) in "affected_row_ids".
+- MULTI-TABLE ALLOCATION / CONSUMPTION COMPLETENESS: When the operation allocates, fulfills, assigns, or consumes stock/inventory/capacity from a secondary table, include BOTH (a) ALL evaluated rows from the primary table (both fulfillable rows that will be mutated AND policy-blocked rows that remain unmutated so their contacts can still be notified if requested), AND (b) the matching secondary table rows whose live numeric stock/inventory/capacity will be checked and deducted.
+- When updating stock on a table that has a non-modifiable "virtual_computed: true" summary column alongside a modifiable JSON map column with "nested_map_json: true", specify updates ONLY to the modifiable JSON map column as a valid JSON object string (never the virtual column). When the live table stores stock/inventory in a scalar integer/numeric column, update that live numeric column directly.
 - In every option's "rule_interpretation", state exact per-table, per-row column targets and numeric/JSON values for EACH involved table.\n`
     : '';
 
@@ -1236,6 +1421,7 @@ Qualifying target rows in "${activeCtx.activeTargetTable || targetTable?.tableNa
 Evaluate the USER INSTRUCTION by cross-referencing ALL UPLOADED DOCUMENTS against TARGET_TABLE_SCHEMA and TARGET_TABLE_ROWS.
 
 STRICT EVALUATION PROTOCOL (ZERO HARDCODING — DERIVE ALL RULES SOLELY FROM THE DOCUMENTS & TABLE):
+0. ${SCHEMA_TRUTH_PRECEDENCE_RULE}
 1. DATASET COMPATIBILITY ("dataset_compatible"):
    - Verify whether TARGET_TABLE_ROWS and TARGET_TABLE_SCHEMA actually contain the domain entities, SKUs, categories, tiers, or batch/lot identifiers targeted by the UPLOADED DOCUMENTS.
    - If the documents mandate filtering by specific batch codes, product lines, or columns that are completely absent from TARGET_TABLE_SCHEMA and TARGET_TABLE_ROWS (e.g., a hardware batch recall applied to an unrelated merchandise table with zero matching items or batch columns), set "dataset_compatible": false, "affected_row_ids": [], "conflicting_row_ids": [], and "has_conflict": true. Explain the exact mismatch in "conflict_summary" and provide selectable options in "socratic_questions" (including "cancel_operation" to safely leave unrelated rows untouched).
@@ -1256,7 +1442,7 @@ STRICT EVALUATION PROTOCOL (ZERO HARDCODING — DERIVE ALL RULES SOLELY FROM THE
      b) Implicit Data-vs-Policy Conflicts (MUST ALSO trigger "has_conflict": true even if the PDF does not list named options!):
         - Duplicate / Stacking Compensation Conflict: One or more qualifying rows ALREADY have an active voucher/compensation/discount flag set to true or an existing promo discount > 0, making it ambiguous whether to cap/avoid duplicate compensation or stack it.
         - Dual-Cohort Scope Ambiguity: One document is a forward-looking delay/disruption notice affecting currently scheduled/processing rows at impacted locations while other rows have already breached the numeric threshold, making cohort scope ambiguous.
-   - Distinguish a satisfied policy prerequisite from a conflict: when a policy permits an action only after a condition (such as explicit operator authorization or a notification request), verify whether the USER_INSTRUCTION already satisfies that condition. If it does, follow the policy without creating a Socratic conflict. A request to draft/preview a notification is not, by itself, a conflict with a policy that allows notification when requested; final dispatch remains subject to the normal confirmation step.
+   - Distinguish a satisfied policy prerequisite from a conflict: when a policy permits an action only after a condition (such as explicit operator authorization or a notification request), verify whether the USER_INSTRUCTION already satisfies that condition. If it does, follow the policy without creating a Socratic conflict. Similarly, when the USER_INSTRUCTION itself unambiguously specifies the conditional split (for example, explicitly instructing to allocate ONLY the records where enough stock/capacity is available above the policy limit/buffer, leave insufficient records unallocated/unchanged—WITHOUT partial allocations unless the user explicitly asks for partial allocation—and notify all evaluated contacts about both what can be fulfilled and what cannot be fulfilled due to the limit), treat the policy constraint as already resolved by the operator: set "has_conflict": false and include ALL evaluated records from BOTH tables in "affected_row_ids" (including EVERY secondary table row linked to ANY evaluated primary row—both passing AND blocked!) so the compiler mutates only the qualifying rows + their linked secondary stock rows and drafts individualized emails for 100% of evaluated contacts. If a genuine conflict still requires Socratic options, ensure Option 1 faithfully implements strict compliance with the user's stated instruction (full allocation ONLY on passing rows, 0/unchanged on blocked rows, exact secondary-table stock deduction on passing items, and individualized notifications to all evaluated contacts). A request to draft/preview a notification is not, by itself, a conflict with a policy that allows notification when requested; final dispatch remains subject to the normal confirmation step.
    - If ANY explicit or implicit conflict, cap breach, arrears prohibition, payment-rail exception, duplicate-voucher flag, dual-cohort ambiguity, or supply/buffer deficit exists:
      * Set "has_conflict": true.
      * Set "conflicting_row_ids" to the exact subset of "affected_row_ids" that trigger the conflict, existing voucher/discount flag, freeze, cap, payment exception, high-value/retention protection rule, or deficit (MUST be non-empty whenever qualifying rows have a conflict).
@@ -1297,6 +1483,13 @@ ${prompt}`;
   }
   const matchesFollowUpScope = (match) => {
     if (!hasScopedFollowUp || allowedScopedKeys.size === 0 || !match) return true;
+    if (
+      isMultiTable &&
+      String(activeCtx.lastTurn?.resolved_intent || '').toUpperCase().includes('READ')
+    ) {
+      // Do not clamp multi-table operational evaluation to a prior diagnostic read subset
+      return true;
+    }
     if (
       activeCtx.activeTargetTable &&
       match.tableName.toLowerCase() !== activeCtx.activeTargetTable.toLowerCase()
@@ -1666,17 +1859,80 @@ async function compileResolutionPreview(workflow, optionId, optionMeta) {
   }
 
   let candidateProjectedRows = [];
+  const primaryReferencedLookupKeys = new Set();
   if (isMultiTable) {
-    for (const ctx of projectedTableContexts) {
-      let tableCandidates =
-        affectedIdsSet.size > 0
-          ? ctx.projectedRows.filter((r) => affectedIdsSet.has(r._row_id))
-          : ctx.projectedRows.slice(0, 40);
+    // Select primary table candidates first, then dynamically gather all referenced
+    // business keys/names/codes so secondary tables ALWAYS include every linked row
+    // (preventing Stage A omissions of passing rows when a prior turn highlighted only failing rows).
+    let primaryCandidates =
+      affectedIdsSet.size > 0
+        ? primaryCtx.projectedRows.filter((r) => affectedIdsSet.has(r._row_id))
+        : primaryCtx.projectedRows.slice(0, 40);
+    if (primaryCandidates.length === 0) {
+      primaryCandidates = primaryCtx.projectedRows.slice(0, 40);
+    }
+    for (const pRow of primaryCandidates) {
+      for (const [k, v] of Object.entries(pRow || {})) {
+        const lowerK = k.toLowerCase();
+        if (
+          SYSTEM_EMAIL_EXCLUSION_COLS.has(lowerK) ||
+          lowerK === '_row_id' ||
+          /email|status|tier|date|notes?|description/i.test(lowerK)
+        ) {
+          continue;
+        }
+        if (typeof v === 'string') {
+          const norm = v.trim().toLowerCase();
+          if (norm.length >= 3 && norm.length <= 120) {
+            primaryReferencedLookupKeys.add(norm);
+          }
+        }
+      }
+    }
 
-      // Failsafe for secondary tables: if Stage A omitted a secondary table's rows,
-      // still supply its matching or full candidate rows so multi-table compilation cannot miss them.
-      if (tableCandidates.length === 0) {
-        tableCandidates = ctx.projectedRows.slice(0, 40);
+    for (let tIdx = 0; tIdx < projectedTableContexts.length; tIdx += 1) {
+      const ctx = projectedTableContexts[tIdx];
+      let tableCandidates;
+      if (tIdx === 0) {
+        tableCandidates = primaryCandidates;
+      } else {
+        const byAffected =
+          affectedIdsSet.size > 0
+            ? ctx.projectedRows.filter((r) => affectedIdsSet.has(r._row_id))
+            : [];
+        const byPrimaryLink =
+          primaryReferencedLookupKeys.size > 0
+            ? ctx.projectedRows.filter((r) => {
+                if (
+                  r._row_id &&
+                  primaryReferencedLookupKeys.has(String(r._row_id).trim().toLowerCase())
+                ) {
+                  return true;
+                }
+                return Object.entries(r || {}).some(([k, v]) => {
+                  const lowerK = k.toLowerCase();
+                  if (
+                    SYSTEM_EMAIL_EXCLUSION_COLS.has(lowerK) ||
+                    /description|notes?|comments?|images?|url/i.test(lowerK)
+                  ) {
+                    return false;
+                  }
+                  return (
+                    typeof v === 'string' &&
+                    primaryReferencedLookupKeys.has(v.trim().toLowerCase())
+                  );
+                });
+              })
+            : [];
+        const merged = [];
+        const seenSecondary = new Set();
+        for (const r of [...byAffected, ...byPrimaryLink]) {
+          if (!seenSecondary.has(r._row_id)) {
+            seenSecondary.add(r._row_id);
+            merged.push(r);
+          }
+        }
+        tableCandidates = merged.length > 0 ? merged : ctx.projectedRows.slice(0, 40);
       }
 
       for (const r of tableCandidates) {
@@ -1715,9 +1971,15 @@ async function compileResolutionPreview(workflow, optionId, optionMeta) {
     content: c.raw_text,
   }));
 
+  const fullAudienceRequested = requestsFullAudienceNotification(workflow?.prompt || '');
+  const optionExcludesUnmutatedFromEmail =
+    /\b(?:exclud|omit|do\s+not\s+(?:email|notify)|skip\s+(?:email|notif))[^.?!;\n]{0,60}\b(?:unmutated|excluded|non-qualifying|ineligible|promotional|unchanged)\b/i.test(
+      ruleInterpLower
+    );
+
   const multiTableCompileRules = isMultiTable
-    ? `\n   - MULTI-TABLE MUTATIONS: Because TARGET_TABLES includes multiple tables (${targetTables.map((t) => t.tableName).join(', ')}), EVERY entry in "mutations" MUST set "table_name" to the exact "_table_name" of that row's table, validate "column" against that table's modifiable_columns ONLY, and compile all required updates across EVERY affected table.
-   - NESTED JSON MAP COLUMNS: When updating a column with "nested_map_json: true" (for example, "size" on "products"), NEVER target a non-modifiable "virtual_computed: true" summary column (such as "total_stock"); serialize "new_value" as a valid JSON object string (for example, "{\\"M\\":2,\\"L\\":3,\\"XL\\":3,\\"XXL\\":2}") whose values are non-negative integers summing to the target stock.`
+    ? `\n   - MULTI-TABLE MUTATIONS & ATOMIC INVENTORY DEDUCTION: Because TARGET_TABLES includes multiple tables (${targetTables.map((t) => t.tableName).join(', ')}), EVERY entry in "mutations" MUST set "table_name" to the exact "_table_name" of that row's table, validate "column" against that table's modifiable_columns ONLY, and compile all required updates across EVERY affected table. Whenever an operation allocates, fulfills, or consumes stock/inventory/capacity from a secondary table, emit atomic updates in "mutations" for BOTH (a) each fulfilled/allocated row in the primary table AND (b) each consumed row in the secondary table deducting the allocated amount (new_value = current_live_value - allocated_qty on the secondary table's live modifiable numeric stock/inventory column). Leave rows that fail a policy/buffer limit completely unmutated in BOTH tables.
+   - NESTED JSON MAP COLUMNS: When updating a column with "nested_map_json: true", NEVER target a non-modifiable "virtual_computed: true" summary column; serialize "new_value" as a valid JSON object string whose values are non-negative integers summing to the target stock. When the live table uses a scalar integer/numeric stock column, update that scalar numeric column directly.`
     : '';
 
   const tablesSectionText = isMultiTable
@@ -1736,25 +1998,33 @@ ${JSON.stringify(primaryCtx.modifiableColumns)}`;
 Compile the exact row updates and email notifications required to execute the SELECTED_SOCRATIC_OPTION for the USER_INSTRUCTION, strictly adhering to UPLOADED_DOCUMENTS, MODIFIABLE_COLUMNS, CANDIDATE_ROWS, and ALLOWED_RECIPIENTS.
 
 STRICT COMPILATION RULES:
+0. ${SCHEMA_TRUTH_PRECEDENCE_RULE}
 1. ROW SELECTION & EXACT ARITHMETIC:
-   - Mutate ONLY the rows in CANDIDATE_ROWS that should be modified under SELECTED_SOCRATIC_OPTION.
+   - Partition evaluated records cleanly into:
+     * mutated_records: Rows in CANDIDATE_ROWS whose values must change under USER_INSTRUCTION and SELECTED_SOCRATIC_OPTION (include ONLY these in "mutations").
+     * evaluated_unmutated_records: Rows in CANDIDATE_ROWS that were checked against a governing rule/limit/buffer and could NOT be updated/fulfilled (DO NOT include these in "mutations", but DO include them in "emails" when full-audience notification is requested).
    - If SELECTED_SOCRATIC_OPTION excludes a subset of rows (for example, excluding "luxury shirt" rows from markdown, or excluding uncompensated/breached cohorts), DO NOT include those excluded rows in "mutations" (and follow the option's rule on whether excluded items/rows are omitted from emails).
-   - Ensure every included row receives ALL required status/classification transitions AND numeric/flag updates mandated by UPLOADED_DOCUMENTS and SELECTED_SOCRATIC_OPTION. In particular, even if SELECTED_SOCRATIC_OPTION preserves idempotency on an already-true boolean flag or freezes/preserves a credit limit, check whether an Account Status, Order/Dispatch Status, Refund Status, or JSON stock map must be updated to match the option rules!
-   - Compute exact arithmetic on each row's current values:
+   - Ensure every included row receives ALL required status/classification transitions AND numeric/flag updates mandated by UPLOADED_DOCUMENTS and SELECTED_SOCRATIC_OPTION. In particular, even if SELECTED_SOCRATIC_OPTION preserves idempotency on an already-true boolean flag or freezes/preserves a credit limit, check whether an Account Status, Order/Dispatch Status, Refund Status, or stock/inventory column must be updated to match the option rules!
+   - Compute exact arithmetic on each row's live PostgreSQL values in CANDIDATE_ROWS:
      * Percentage-point increases (e.g., "+20% added to current discount" on 25 -> "45"; capped at 30% ceiling -> "30").
      * Percentage multipliers (e.g., "+25% credit limit" -> current * 1.25; "-25% credit limit cut" -> current * 0.75; "10% subtotal voucher deducted" -> current_total - (subtotal * 0.10)).
-     * Proportional prorating vs. FIFO oldest-first (by order_date ascending) unit allocations vs. storefront buffer preservation: verify the sum of allocated units across backorder rows + remaining storefront stock matches exact manifest & policy numbers!
-     * Exact status/tier/batch strings as written in the policy documents (e.g., "Gold", "Gold - Credit Frozen", "Pending Arrears", "Credit Hold", "Retention Grace (14-Day)", "Fulfilled", "Partial", "Backordered", "SLA-Breached", "Recalled - QA Hold", "Refunded", "Pending Payout Verification", "B-501", "Expedited", "Ready for Expedited Dispatch", "Replacement Swapped (B-501)").${multiTableCompileRules}
+     * Buffer/safety-stock checks & secondary table deductions: check (live_stock - requested_qty) against the policy minimum buffer strictly using the live values in CANDIDATE_ROWS; unless USER_INSTRUCTION or SELECTED_SOCRATIC_OPTION explicitly requests partial allocation/prorating, treat fulfillment as binary (allocate full requested_qty ONLY when live_stock - requested_qty >= minimum_buffer, and leave insufficient rows completely unallocated/unchanged in BOTH tables!). For EVERY fulfilled/allocated primary row, you MUST ALSO emit the corresponding secondary table deduction (new_value = current_live_value - allocated_qty).
+     * Exact status/tier/batch strings as written in the policy documents or table schema.${multiTableCompileRules}
 
 2. SCHEMA CONFORMANCE:
    - Every "column" in "updates" MUST be an exact column name from that table's modifiable_columns. Never invent columns or update read-only/virtual columns.
    - Serialize "new_value" as a clean string (e.g. "45", "10000", "true", "Partial") without currency symbols or "%" signs on numeric columns (and valid JSON object string on "nested_map_json: true" columns).
    - Include only columns whose value actually changes on that row.
 
-3. EMAIL NOTIFICATIONS:
+3. EMAIL NOTIFICATIONS (DECOUPLED FULL-AUDIENCE RULE):
    - Check whether USER_INSTRUCTION or UPLOADED_DOCUMENTS request emailing/notifying buyers, customers, or account contacts/managers.
    - Every "recipient_email" MUST come strictly from ALLOWED_RECIPIENTS (never invent email addresses).
-   - If RECIPIENT_MODE is "row_level": address the specific contact person on each notified row by their actual name (e.g., if an account_manager or buyer_name or Customer_Name column exists alongside company_name or Order_ID, greet the person by name and reference their company/order/account ID, exact updated values, and policy terms/credits/document IDs).
+   - FULL-AUDIENCE NOTIFICATION: ${
+     fullAudienceRequested && !optionExcludesUnmutatedFromEmail
+       ? 'The user requested notifying ALL evaluated contacts (including both positive/fulfilled AND negative/blocked outcomes). You MUST generate individualized drafts in "emails" for 100% of contacts in ALLOWED_RECIPIENTS across BOTH mutated_records AND evaluated_unmutated_records! Each email body MUST accurately state that specific record\'s outcome (fulfillment/allocation confirmation for mutated records, vs. exact inability to fulfill due to policy/buffer constraints for evaluated_unmutated_records).'
+       : 'Draft individualized emails for every notified contact in ALLOWED_RECIPIENTS matching the instruction and selected option.'
+   }
+   - If RECIPIENT_MODE is "row_level": address the specific contact person on each notified row by their actual name (e.g., if an account_manager or buyer_name or Customer_Name column exists alongside company_name or Order_ID, greet the person by name and reference their company/order/account ID, exact updated or current values, and policy terms/buffer limits/document IDs).
    - If RECIPIENT_MODE is "workspace_customers" (e.g., catalog-wide price/discount update on a products table without row-level emails): generate one personalized announcement email per buyer in ALLOWED_RECIPIENTS listing ONLY the products actually updated under SELECTED_SOCRATIC_OPTION, their new discount percentages, and final net prices.
    - If ALLOWED_RECIPIENTS is empty or no notifications were requested, return "emails": [].
 
@@ -1964,22 +2234,99 @@ ${JSON.stringify(candidateProjectedRows)}`;
         );
       }
 
+      // Multi-table resource deduction integrity check: when a primary row allocates/consumes
+      // a positive numeric delta (e.g., allocated 0 -> 14) and matches a secondary table row
+      // with a modifiable numeric stock/inventory/capacity column, verify that the linked
+      // secondary row was also updated in mutationsPreview.
+      if (isMultiTable && mutationsPreview.length > 0) {
+        const primaryMuts = mutationsPreview.filter(
+          (m) => m.table_name.toLowerCase() === primaryTable.tableName.toLowerCase()
+        );
+        const mutatedSecondaryKeys = new Set(
+          mutationsPreview
+            .filter((m) => m.table_name.toLowerCase() !== primaryTable.tableName.toLowerCase())
+            .map((m) => `${m.table_name.toLowerCase()}::${String(m.row_identifier).toLowerCase()}`)
+        );
+        const secondaryCandidates = candidateProjectedRows.filter(
+          (r) => r._table_name && r._table_name.toLowerCase() !== primaryTable.tableName.toLowerCase()
+        );
+        const missingSecondaryDeductions = [];
+        for (const pMut of primaryMuts) {
+          const hasPositiveAllocationIncrease = Object.entries(pMut.after || {}).some(
+            ([col, afterVal]) => {
+              if (!/(?:allocat|assign|fulfill|ship|dispatch|deploy|used|consum)/i.test(col)) {
+                return false;
+              }
+              const beforeNum = Number(pMut.before?.[col] ?? 0);
+              const afterNum = Number(afterVal);
+              return Number.isFinite(beforeNum) && Number.isFinite(afterNum) && afterNum > beforeNum;
+            }
+          );
+          if (!hasPositiveAllocationIncrease) continue;
+
+          const pRow = candidateProjectedRows.find(
+            (r) =>
+              r._table_name?.toLowerCase() === primaryTable.tableName.toLowerCase() &&
+              String(r._row_id).toLowerCase() === String(pMut.row_identifier).toLowerCase()
+          );
+          if (!pRow) continue;
+          const pVals = new Set(
+            Object.values(pRow)
+              .filter((v) => typeof v === 'string' && v.trim().length >= 3)
+              .map((v) => v.trim().toLowerCase())
+          );
+          for (const sRow of secondaryCandidates) {
+            const sCtx = tableContextsByLowerName.get(String(sRow._table_name).toLowerCase());
+            const hasModifiableStockCol = (sCtx?.modifiableColumns || []).some(
+              (c) =>
+                ['integer', 'number'].includes(c.type) &&
+                /(?:stock|inventory|available|quantity|qty|beds|capacity|units|balance|count)/i.test(
+                  c.name
+                )
+            );
+            if (!hasModifiableStockCol) continue;
+            const sRowIdLower = String(sRow._row_id || '').trim().toLowerCase();
+            if (pVals.has(sRowIdLower)) {
+              const secKey = `${sRow._table_name.toLowerCase()}::${sRowIdLower}`;
+              if (!mutatedSecondaryKeys.has(secKey)) {
+                missingSecondaryDeductions.push(`${sRow._table_name}:${sRow._row_id} (linked to ${pMut.row_identifier})`);
+              }
+            }
+          }
+        }
+        if (missingSecondaryDeductions.length > 0) {
+          throw new Error(
+            `Primary rows were allocated without deducting corresponding secondary table inventory/capacity for: ${missingSecondaryDeductions.join(', ')}. Include exact atomic deduction mutations on those secondary table rows.`
+          );
+        }
+      }
+
       if (promptRequestsNotifications && recipientDir.mode === 'row_level') {
         const mutatedRowIds = new Set(
           mutationsPreview.map((mutation) => String(mutation.row_identifier))
         );
-        const requiredEmails = recipientDir.recipients
-          .filter((recipient) => mutatedRowIds.has(String(recipient.row_id)))
-          .map((recipient) => recipient.email.toLowerCase());
+        const targetRecipients =
+          fullAudienceRequested && !optionExcludesUnmutatedFromEmail
+            ? relevantRecipients
+            : recipientDir.recipients.filter((recipient) =>
+                mutatedRowIds.has(String(recipient.row_id))
+              );
         const includedEmails = new Set(
           emailsPreview.map((email) => email.recipient_email.toLowerCase())
         );
-        const omittedEmails = requiredEmails.filter(
-          (email) => !includedEmails.has(email)
+        const includedRowIds = new Set(
+          emailsPreview
+            .map((email) => String(email?.metadata?.row_identifier || '').trim().toLowerCase())
+            .filter(Boolean)
         );
-        if (omittedEmails.length > 0) {
+        const omittedRecipients = targetRecipients.filter((recipient) => {
+          const emailLower = String(recipient.email || '').toLowerCase();
+          const rowIdLower = String(recipient.row_id || '').toLowerCase();
+          return !includedEmails.has(emailLower) && (!rowIdLower || !includedRowIds.has(rowIdLower));
+        });
+        if (omittedRecipients.length > 0) {
           throw new Error(
-            `The requested notification preview omitted recipients associated with changed rows: ${omittedEmails.join(', ')}. Include their drafts or explicitly exclude those rows from notification in the selected option.`
+            `The requested notification preview omitted evaluated recipients (${fullAudienceRequested ? 'covering both mutated and evaluated_unmutated records' : 'associated with changed rows'}): ${omittedRecipients.map((r) => `${r.row_id || 'record'} <${r.email}>`).join(', ')}. Include individualized drafts for EVERY listed recipient explaining their specific outcome.`
           );
         }
       }
@@ -1992,6 +2339,73 @@ ${JSON.stringify(candidateProjectedRows)}`;
       stage: 'preview_compilation',
     }
   );
+
+  // Deterministic completeness guarantee: if full-audience notification was requested,
+  // ensure 100% of evaluated contacts with valid emails across BOTH mutated_records and
+  // evaluated_unmutated_records are present in emailsPreview before returning PREVIEW_READY.
+  const promptRequestsNotificationsFinal = explicitlyRequestsNotifications(
+    workflow?.prompt
+  );
+  if (
+    promptRequestsNotificationsFinal &&
+    fullAudienceRequested &&
+    !optionExcludesUnmutatedFromEmail &&
+    recipientDir.mode === 'row_level' &&
+    Array.isArray(relevantRecipients) &&
+    relevantRecipients.length > 0
+  ) {
+    const mutationsByRowId = new Map(
+      (compiled.mutationsPreview || []).map((m) => [
+        String(m.row_identifier || '').trim().toLowerCase(),
+        m,
+      ])
+    );
+    const candidateByRowId = new Map(
+      candidateProjectedRows.map((r) => [
+        String(r._row_id || '').trim().toLowerCase(),
+        r,
+      ])
+    );
+    const presentEmails = new Set(
+      (compiled.emailsPreview || []).map((e) =>
+        String(e.recipient_email || '').trim().toLowerCase()
+      )
+    );
+    const presentRowIds = new Set(
+      (compiled.emailsPreview || [])
+        .map((e) => String(e?.metadata?.row_identifier || '').trim().toLowerCase())
+        .filter(Boolean)
+    );
+
+    for (const rec of relevantRecipients) {
+      const recEmail = String(rec?.email || '').trim();
+      if (!recEmail || !isValidDeliverableEmail(recEmail)) continue;
+      const recRowId = String(rec?.row_id || '').trim();
+      const recRowLower = recRowId.toLowerCase();
+      if (
+        presentEmails.has(recEmail.toLowerCase()) ||
+        (recRowLower && presentRowIds.has(recRowLower))
+      ) {
+        continue;
+      }
+      const mutEntry = mutationsByRowId.get(recRowLower) || null;
+      const candRow = candidateByRowId.get(recRowLower) || {};
+      compiled.emailsPreview.push(
+        synthesizeFallbackEmailDraft({
+          recipientEmail: recEmail,
+          customerName: rec.buyer_name || rec.customer_name || recRowId,
+          rowIdentifier: recRowId,
+          rowData: candRow,
+          mutationEntry: mutEntry,
+          tableName: candRow._table_name || primaryTable.tableName,
+          appliedRule: optionMeta?.rule_interpretation || optionMeta?.label || optionId,
+          optionId,
+        })
+      );
+      presentEmails.add(recEmail.toLowerCase());
+      if (recRowLower) presentRowIds.add(recRowLower);
+    }
+  }
 
   return compiled;
 }
@@ -2486,15 +2900,20 @@ async function tryExecuteDirectTableEmailOperation({
     excerpt: String(chunk.raw_text || '').slice(0, 350),
   }));
 
+  const fullAudienceRequested = requestsFullAudienceNotification(effectiveUserInstruction);
+
   const compilerPrompt = `You are a precision B2B Operations & Email Drafting Assistant.
-Evaluate USER_INSTRUCTION strictly against active table "${targetTable.tableName}" and compile matched rows, requested column updates, and a personalized email template.
+Evaluate USER_INSTRUCTION strictly against active table "${targetTable.tableName}" and compile matched rows, requested column updates, and personalized email drafts.
 
 CRITICAL RULES:
+0. ${SCHEMA_TRUTH_PRECEDENCE_RULE}
 1. ROW MATCHING ("matched_row_ids"):
    - ${
-     inheritPriorSelection
-       ? `INHERITED SELECTION ACTIVE: CANDIDATE_ROWS contains the ${projectedRows.length} record(s) from Turn ${activeCtx.fromTurnIndex || 'prior turn'}. If USER_INSTRUCTION includes ANY condition, "if ..." clause, status check, or sub-filter (e.g., "if not already assigned", "if voucher is not issued", "only those with..."), filter CANDIDATE_ROWS strictly by that condition and return ONLY the qualifying "_row_id" values in "matched_row_ids" (and if mutating rows, "matched_row_ids" MUST contain ONLY the rows being mutated). Otherwise return all ${projectedRows.length} "_row_id" values.`
-       : `Filter CANDIDATE_ROWS strictly against ALL filter conditions in USER_INSTRUCTION${pendingClarificationPrompt ? ' (combining the pending request criteria with the follow-up specification)' : ' and RECENT_CONVERSATION'} (check exact numeric, boolean, and string values carefully). Return ONLY the qualifying "_row_id" values in "matched_row_ids".`
+     fullAudienceRequested
+       ? `FULL-AUDIENCE NOTIFICATION ACTIVE: Return ALL evaluated "_row_id" values in "matched_row_ids" — including BOTH mutated_records (rows changing in "mutations") AND evaluated_unmutated_records (rows evaluated against a condition/limit that remain unmutated so their contacts still receive individualized notifications).`
+       : inheritPriorSelection
+         ? `INHERITED SELECTION ACTIVE: CANDIDATE_ROWS contains the ${projectedRows.length} record(s) from Turn ${activeCtx.fromTurnIndex || 'prior turn'}. If USER_INSTRUCTION includes ANY condition, "if ..." clause, status check, or sub-filter (e.g., "if not already assigned", "if voucher is not issued", "only those with..."), filter CANDIDATE_ROWS strictly by that condition and return ONLY the qualifying "_row_id" values in "matched_row_ids". Otherwise return all ${projectedRows.length} "_row_id" values.`
+         : `Filter CANDIDATE_ROWS strictly against ALL filter conditions in USER_INSTRUCTION${pendingClarificationPrompt ? ' (combining the pending request criteria with the follow-up specification)' : ' and RECENT_CONVERSATION'} (check exact numeric, boolean, and string values carefully). Return ONLY the qualifying "_row_id" values in "matched_row_ids".`
    }
    - Only return exact "_row_id" strings present in CANDIDATE_ROWS.
 
@@ -2506,7 +2925,7 @@ CRITICAL RULES:
    - Never output negative values for stock, inventory, quantity, beds, or price columns; if a requested deduction exceeds a row's current stock/quantity (e.g. deducting 10 when stock is 9), set the column to "0" (allocating the remaining available stock) and note any partial fulfillment/shortfall in the email.
 
 3. PERSONALIZED EMAIL DRAFTING (${
-    emailMode === 'prompt_recipients'
+    emailMode === 'prompt_recipients' || fullAudienceRequested
       ? '"emails", "email_subject_template", "email_body_template"'
       : '"email_subject_template", "email_body_template"'
   }, "applied_rule"):
@@ -2516,7 +2935,7 @@ CRITICAL RULES:
    - If the request targets 1 recipient (or sends one order/summary to all listed external addresses), create ONE consolidated email per recipient in EXTERNAL_RECIPIENT_EMAILS summarizing all matched items, updated quantities/stock, and totals using verified CANDIDATE_ROWS data.
    - If the request assigns specific items/rows to different email addresses, create one personalized email per assignment covering only that recipient's assigned items.
    - Use any recipient name/company stated in USER_INSTRUCTION naturally, or a polite neutral greeting ("Hello,"); never invent unverified names or numbers. Also provide concise "email_subject_template" and "email_body_template" as summary fallback.`
-       : `Draft ONE polite, professional "email_subject_template" and "email_body_template" using dynamic {{Column_Name}} placeholders that will be rendered per matched recipient using their post-update row values.
+       : `${fullAudienceRequested ? 'When mutated_records and evaluated_unmutated_records have different outcomes, populate individualized entries in "emails" for EVERY evaluated contact across BOTH groups reflecting each record\'s exact outcome (updated/confirmed vs. unmutated/unable to fulfill), AND also provide polite "email_subject_template" and "email_body_template".' : 'Draft ONE polite, professional "email_subject_template" and "email_body_template" using dynamic {{Column_Name}} placeholders that will be rendered per matched recipient using their post-update row values.'}
    - ${
      recipientRoleLabel
        ? `EMAIL_COLUMN "${emailCol}" addresses the ${recipientRoleLabel} (NOT "${customerNameCol || 'the row subject'}"). ALWAYS write literal "Dear {{customer_name}}," in the greeting (do NOT invent placeholders like "{{Hub_Lead}}" — "{{customer_name}}" automatically renders "${recipientRoleLabel}"), and refer to the subject record using {{${customerNameCol || samplePlaceholderCols[0] || '_row_id'}}} and {{_row_id}}.`
@@ -2634,34 +3053,37 @@ ${effectiveUserInstruction}`;
         }
       }
 
-      if (mutationsPreview.length > 0) {
-        const mutatedEntries = [];
-        const seenMutEntryIds = new Set();
-        for (const hit of matchedEntries) {
-          if (
-            mutationsByIdentifier.has(hit.identifier) &&
-            !seenMutEntryIds.has(hit.identifier)
-          ) {
-            seenMutEntryIds.add(hit.identifier);
-            mutatedEntries.push(hit);
-          }
-        }
-        for (const mut of mutationsPreview) {
-          if (!seenMutEntryIds.has(mut.row_identifier)) {
-            const hit =
-              rowLookup.get(mut.row_identifier) ||
-              rowLookup.get(String(mut.row_identifier).toLowerCase());
-            if (hit) {
-              seenMutEntryIds.add(hit.identifier);
-              mutatedEntries.push(hit);
-            }
-          }
-        }
-        if (mutatedEntries.length > 0) {
-          matchedEntries.length = 0;
-          matchedEntries.push(...mutatedEntries);
+      // Track evaluated_records separately from mutated_records (never overwrite matchedEntries)
+      const evaluatedEntries = [];
+      const seenEvaluatedIds = new Set();
+      for (const hit of matchedEntries) {
+        if (!seenEvaluatedIds.has(hit.identifier)) {
+          seenEvaluatedIds.add(hit.identifier);
+          evaluatedEntries.push(hit);
         }
       }
+      for (const mut of mutationsPreview) {
+        if (!seenEvaluatedIds.has(mut.row_identifier)) {
+          const hit =
+            rowLookup.get(mut.row_identifier) ||
+            rowLookup.get(String(mut.row_identifier).toLowerCase());
+          if (hit) {
+            seenEvaluatedIds.add(hit.identifier);
+            evaluatedEntries.push(hit);
+          }
+        }
+      }
+
+      const mutatedRecords = evaluatedEntries.filter((hit) =>
+        mutationsByIdentifier.has(hit.identifier)
+      );
+      const evaluatedUnmutatedRecords = evaluatedEntries.filter(
+        (hit) => !mutationsByIdentifier.has(hit.identifier)
+      );
+      const audienceEntries =
+        fullAudienceRequested || mutatedRecords.length === 0
+          ? evaluatedEntries
+          : mutatedRecords;
 
       const emailsPreview = [];
       const subjectTemplate = String(parsed.email_subject_template || '').trim();
@@ -2802,7 +3224,7 @@ ${effectiveUserInstruction}`;
         }
       } else {
         const matchedRowsNeedingEmail = emailCol
-          ? matchedEntries.filter((hit) =>
+          ? audienceEntries.filter((hit) =>
               isValidDeliverableEmail(String(hit.row?.[emailCol] ?? '').trim())
             )
           : [];
@@ -2931,7 +3353,32 @@ ${effectiveUserInstruction}`;
           const omittedRows = matchedRowsNeedingEmail.filter(
             (hit) => !includedRowIds.has(hit.identifier)
           );
-          if (omittedRows.length > 0 && emailsPreview.length === 0) {
+          if (fullAudienceRequested && omittedRows.length > 0) {
+            for (const hit of omittedRows) {
+              const rowEmail = String(hit.row?.[emailCol] ?? '').trim();
+              if (!isValidDeliverableEmail(rowEmail)) continue;
+              const derivedName =
+                (salutationCol && hit.row?.[salutationCol]
+                  ? String(hit.row[salutationCol]).trim()
+                  : '') ||
+                (customerNameCol && hit.row?.[customerNameCol]
+                  ? String(hit.row[customerNameCol]).trim()
+                  : '') ||
+                hit.identifier;
+              emailsPreview.push(
+                synthesizeFallbackEmailDraft({
+                  recipientEmail: rowEmail,
+                  customerName: derivedName,
+                  rowIdentifier: hit.identifier,
+                  rowData: hit.row,
+                  mutationEntry: mutationsByIdentifier.get(hit.identifier) || null,
+                  tableName: targetTable.tableName,
+                  appliedRule: topAppliedRule,
+                })
+              );
+              includedRowIds.add(hit.identifier);
+            }
+          } else if (omittedRows.length > 0 && emailsPreview.length === 0) {
             throw new Error(
               `Drafted emails omitted matched row(s): ${omittedRows.map((h) => h.identifier).join(', ')}. Provide valid email_subject_template and email_body_template.`
             );
@@ -2944,7 +3391,9 @@ ${effectiveUserInstruction}`;
       return {
         emptyMatch: false,
         noMatchedEmails: false,
-        matchedEntries,
+        matchedEntries: audienceEntries,
+        mutatedRecords,
+        evaluatedUnmutatedRecords,
         mutationsPreview,
         emailsPreview,
         subjectTemplate: subjectTemplate || fallbackSubject,
@@ -3109,16 +3558,8 @@ async function executeWorkspaceOperation({
   });
   if (fastMutationRoute) return fastMutationRoute;
 
-  if (isDirectTableEmailCandidate(prompt, normalizedHistory, entity)) {
-    const directEmailResult = await tryExecuteDirectTableEmailOperation({
-      businessId,
-      prompt,
-      entity,
-      history: normalizedHistory,
-    });
-    if (directEmailResult) return directEmailResult;
-  }
-
+  // Always inspect workspace_table_metadata and workspace documents via routeWorkspaceIntent
+  // BEFORE considering any single-table email shortcut (prevents single-table hijacks).
   const routed = await routeWorkspaceIntent({
     businessId,
     prompt,
@@ -3149,11 +3590,21 @@ async function executeWorkspaceOperation({
       rows: result.rows,
       highlighted_rows: result.highlighted_rows,
       citations: result.citations,
+      ...(result.cross_table_execution
+        ? { cross_table_execution: result.cross_table_execution }
+        : {}),
     };
   }
 
   if (routed.intent === 'sheet_query') {
-    if (Array.isArray(routed.prevalidatedPlan) && routed.prevalidatedPlan.length === 1) {
+    const hasDependentLookups =
+      Array.isArray(routed.prevalidatedPlan?.dependentLookups) &&
+      routed.prevalidatedPlan.dependentLookups.length > 0;
+    if (
+      Array.isArray(routed.prevalidatedPlan) &&
+      routed.prevalidatedPlan.length === 1 &&
+      !hasDependentLookups
+    ) {
       return await executePreplannedSheetQuery({
         businessId,
         prompt,
@@ -3163,6 +3614,7 @@ async function executeWorkspaceOperation({
       });
     }
     if (
+      hasDependentLookups ||
       (Array.isArray(routed.prevalidatedPlan) && routed.prevalidatedPlan.length > 1) ||
       (!hasCustomWorkspaceGeminiGenerator() && routed.context?.tables?.length > 0)
     ) {
@@ -3187,6 +3639,9 @@ async function executeWorkspaceOperation({
         rows: result.rows,
         highlighted_rows: result.highlighted_rows,
         citations: result.citations,
+        ...(result.cross_table_execution
+          ? { cross_table_execution: result.cross_table_execution }
+          : {}),
       };
     }
     return {
@@ -3234,21 +3689,90 @@ async function executeWorkspaceOperation({
     };
   }
 
+  if (routed.intent === 'document_table_sync') {
+    const syncPlan = await planDocumentTableSync({
+      businessId,
+      prompt,
+      activeEntity: entity || routed.entity || null,
+      history: normalizedHistory,
+      metadataRows,
+    });
+    if (syncPlan.workflow) {
+      await saveWorkflowState(syncPlan.workflow);
+    }
+    return syncPlan.response;
+  }
+
   const conversationContext = formatConversationHistoryForPrompt(normalizedHistory);
   const effectivePrompt = conversationContext
     ? `RECENT CONVERSATION (last ${normalizedHistory.length} turn(s)):\n${conversationContext}\n\nLATEST USER REQUEST:\n${prompt}`
     : prompt;
 
   // Authoritatively propagate Gemini's resolved target table(s) (`routed.entity` / `routed.target_entities`)
+  // and dynamically enrich with any secondary workspace tables referenced via workspace_table_metadata.
   const authoritativeEntity = routed.entity || entity || null;
-  const authoritativeEntities =
-    Array.isArray(routed.target_entities) && routed.target_entities.length > 0
-      ? routed.target_entities
-      : authoritativeEntity
-        ? [authoritativeEntity]
-        : [];
+  const authoritativeEntities = [];
+  const seenAuthEntities = new Set();
+  const pushAuthEntity = (tblName) => {
+    const clean = String(tblName || '').trim();
+    if (!clean) return;
+    const key = normalizeEntityName(clean).toLowerCase();
+    if (!seenAuthEntities.has(key)) {
+      seenAuthEntities.add(key);
+      authoritativeEntities.push(clean);
+    }
+  };
+  if (Array.isArray(routed.target_entities) && routed.target_entities.length > 0) {
+    for (const t of routed.target_entities) pushAuthEntity(t);
+  }
+  pushAuthEntity(authoritativeEntity);
+
+  const effectiveMetaRows =
+    Array.isArray(metadataRows) && metadataRows.length > 0
+      ? metadataRows
+      : (routed.context?.tables || []).map((t) => ({
+          table_name: t.tableName,
+          columns_profile:
+            t.metadata?.columns_profile ||
+            Object.values(t.schema?.columns || {}).map((c) => ({
+              column_name: c.exactName,
+              data_type: c.type,
+            })),
+        }));
+
+  const secondaryRefTables = findSecondaryTablesReferencedByMetadata(
+    prompt,
+    authoritativeEntities[0] || authoritativeEntity,
+    effectiveMetaRows,
+    normalizedHistory
+  );
+  for (const secTbl of secondaryRefTables) {
+    pushAuthEntity(secTbl);
+  }
+
+  // Strictly gated post-router single-table direct-email fast path:
+  // ONLY allowed when 1 table is involved, no documents/policy/threshold rules apply,
+  // and no secondary workspace table is cross-referenced.
+  if (
+    shouldUseSingleTableDirectEmailFastPath({
+      prompt,
+      routed,
+      authoritativeEntities,
+      metadataRows: effectiveMetaRows,
+      normalizedHistory,
+    })
+  ) {
+    const directEmailResult = await tryExecuteDirectTableEmailOperation({
+      businessId,
+      prompt,
+      entity: authoritativeEntities[0] || entity,
+      history: normalizedHistory,
+    });
+    if (directEmailResult) return directEmailResult;
+  }
+
   const multiHopResult = await executeMultiHopQuery(businessId, effectivePrompt, {
-    targetEntity: authoritativeEntity,
+    targetEntity: authoritativeEntities[0] || authoritativeEntity,
     targetEntities: authoritativeEntities,
   });
 
@@ -3449,11 +3973,15 @@ async function confirmWorkspaceOperation({
   confirm,
   dryRun = false,
   editedEmails = null,
+  action = 'confirm',
+  editedMutations = null,
+  allowPartialNullable = false,
 }) {
   if (!workflowId) {
     throw new AppError('workflow_id is required to confirm operation.', 400);
   }
-  if (confirm !== true) {
+  const normalizedAction = String(action || 'confirm').trim().toLowerCase();
+  if (normalizedAction !== 'cancel' && confirm !== true) {
     throw new AppError(
       'Confirmation flag "confirm: true" is required to execute mutations.',
       400
@@ -3467,8 +3995,54 @@ async function confirmWorkspaceOperation({
   if (!businessId || workflow.business_id !== businessId) {
     throw new AppError(`Workflow "${workflowId}" was not found.`, 404);
   }
+
+  if (normalizedAction === 'cancel') {
+    if (!['PREVIEW_READY', 'CLARIFICATION_REQUIRED'].includes(workflow.status)) {
+      throw new AppError('Only a pending workflow can be cancelled.', 409);
+    }
+    workflow.status = 'CANCELLED';
+    await saveWorkflowState(workflow);
+    return {
+      status: 'CANCELLED',
+      workflow_id: workflowId,
+      target_entity: workflow.target_entity,
+      message: 'Table update stopped. No changes were applied.',
+    };
+  }
+
   if (workflow.status !== 'PREVIEW_READY') {
     throw new AppError('Only an approved preview can be executed.', 409);
+  }
+
+  if (workflow.workflow_type === 'document_table_sync') {
+    const execResult = await executeDocumentTableSyncConfirm({
+      workflow,
+      businessId,
+      editedMutations,
+      allowPartialNullable: Boolean(allowPartialNullable),
+    });
+
+    workflow.status = 'EXECUTED';
+    workflow.created_rows_count = execResult.created_rows_count;
+    workflow.updated_rows_count = execResult.affected_rows_count;
+    workflow.modified_rows_count = execResult.updated_rows_count;
+    workflow.deleted_rows_count = execResult.deleted_rows_count;
+    workflow.dispatched_emails_count = 0;
+    workflow.dispatched_emails = [];
+    await saveWorkflowState(workflow);
+
+    return {
+      status: 'EXECUTED',
+      workflow_id: workflowId,
+      target_entity: execResult.target_entity,
+      created_rows_count: execResult.created_rows_count,
+      updated_rows_count: execResult.affected_rows_count,
+      modified_rows_count: execResult.updated_rows_count,
+      deleted_rows_count: execResult.deleted_rows_count,
+      dispatched_emails_count: 0,
+      dispatched_emails: [],
+      citations: workflow.citations || [],
+    };
   }
 
   const mutationsPreview = workflow.mutations_preview || [];
@@ -3810,8 +4384,13 @@ module.exports = {
   compileResolutionPreview,
   evaluateSocraticConflicts,
   explicitlyRequestsNotifications,
+  requestsFullAudienceNotification,
+  requiresConditionalPolicyEvaluation,
+  findSecondaryTablesReferencedByMetadata,
+  shouldUseSingleTableDirectEmailFastPath,
   resolveSelectedOption,
   buildPreviewFromResolution,
+  coerceValueForColumn,
   executeWorkspaceOperation,
   resolveSocraticWorkflow,
   confirmWorkspaceOperation,

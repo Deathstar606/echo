@@ -180,6 +180,24 @@ async function uploadProducts(req, res, next) {
           sourceFilename: fileName,
         });
 
+        const discoveredProductsSchema = await discoverTableSchema('products', business.id).catch(
+          () => null
+        );
+        const productResponseColumns = [
+          'name',
+          'category',
+          'description',
+          'best',
+          'color',
+          'discount',
+          ...(discoveredProductsSchema?.columns && !discoveredProductsSchema.columns.ordered
+            ? []
+            : ['ordered']),
+          'images',
+          'size',
+          'price',
+        ];
+
         return res.status(200).json({
           message: isAppend
             ? (rejectedRows.length > 0
@@ -192,18 +210,7 @@ async function uploadProducts(req, res, next) {
           entity: 'products',
           displayName: 'Products (Apparel)',
           source_file: fileName,
-          columns: [
-            'name',
-            'category',
-            'description',
-            'best',
-            'color',
-            'discount',
-            'ordered',
-            'images',
-            'size',
-            'price',
-          ],
+          columns: productResponseColumns,
           mode,
           total_rows: totalRows,
           imported_count: importedCount,

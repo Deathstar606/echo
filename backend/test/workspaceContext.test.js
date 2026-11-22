@@ -21,7 +21,10 @@ const {
   discoverTableSchema,
   getOperatorsForType,
 } = require('../src/services/sheetSchemaService');
-const { serializeTableForPrompt } = require('../src/utils/schemaPromptSerializer');
+const {
+  serializeTableForPrompt,
+  SCHEMA_TRUTH_PRECEDENCE_RULE,
+} = require('../src/utils/schemaPromptSerializer');
 const {
   enforceOperationalIntentPrecedence,
   isUnambiguousCrossSourceReadCandidate,
@@ -33,6 +36,8 @@ const {
   selectPassagesForRead,
   validateReadPlan,
   executeReadQuery,
+  executeDependentLookupQuery,
+  joinAndEvaluateCrossTableComparisons,
 } = require('../src/services/workspaceReadService');
 const {
   formatWorkspaceSupportContext,
@@ -46,6 +51,11 @@ const {
 } = require('../src/services/geminiService');
 const {
   explicitlyRequestsNotifications,
+  requestsFullAudienceNotification,
+  requiresConditionalPolicyEvaluation,
+  findSecondaryTablesReferencedByMetadata,
+  shouldUseSingleTableDirectEmailFastPath,
+  compileResolutionPreview,
   executeWorkspaceOperation,
 } = require('../src/services/socraticOperationsService');
 const {
@@ -1352,5 +1362,346 @@ test('Gemini fallback enforces strict 3-model ceiling on upstream 503', async ()
   } finally {
     global.fetch = originalFetch;
     env.geminiApiKey = originalKey;
+  }
+});
+
+test('Option B two-stage read validates dependent_lookups, relaxes bounded/anchor guards, and evaluates cross-table math deterministically', async () => {
+  const wsId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const requestsTable = {
+    tableName: 'transfer_requests',
+    rowCount: 12,
+    schema: {
+      tableName: 'transfer_requests',
+      primaryKey: 'req_id',
+      columns: {
+        workspace_id: { exactName: 'workspace_id', type: 'string', queryable: false },
+        req_id: { exactName: 'req_id', type: 'string', queryable: true },
+        ward_code: { exactName: 'ward_code', type: 'string', queryable: true },
+        ward_name: { exactName: 'ward_name', type: 'string', queryable: true },
+        beds_requested: { exactName: 'beds_requested', type: 'integer', queryable: true },
+        created_at: { exactName: 'created_at', type: 'date', queryable: true },
+      },
+    },
+  };
+  const wardsTable = {
+    tableName: 'hospital_units',
+    rowCount: 10,
+    schema: {
+      tableName: 'hospital_units',
+      primaryKey: 'unit_code',
+      columns: {
+        workspace_id: { exactName: 'workspace_id', type: 'string', queryable: false },
+        unit_code: { exactName: 'unit_code', type: 'string', queryable: true },
+        unit_name: { exactName: 'unit_name', type: 'string', queryable: true },
+        available_beds: { exactName: 'available_beds', type: 'integer', queryable: true },
+      },
+    },
+  };
+
+  // Unfiltered anchor query is allowed when referenced by dependent_lookups or using order_by + limit
+  const plans = validateReadPlan(
+    {
+      table_queries: [
+        {
+          query_id: 'anchor_1',
+          table_name: 'transfer_requests',
+          order_by: [{ field: 'created_at', direction: 'desc' }],
+          limit: 3,
+        },
+      ],
+      dependent_lookups: [
+        {
+          lookup_id: 'lookup_1',
+          source_query_id: 'anchor_1',
+          source_join_column: 'ward_code',
+          target_table: 'hospital_units',
+          target_join_column: 'unit_code',
+          fallback_source_join_column: 'ward_name',
+          fallback_target_join_column: 'unit_name',
+          match_mode: 'case_insensitive',
+        },
+      ],
+      cross_table_comparisons: [
+        {
+          left_source: 'lookup_1',
+          left_column: 'available_beds',
+          operator: '-',
+          right_source: 'anchor_1',
+          right_column: 'beds_requested',
+          result_alias: 'beds_remaining',
+          threshold_filter: { op: '<', value: 5 },
+        },
+      ],
+    },
+    [requestsTable, wardsTable],
+    'Cross-check the latest 3 transfer requests against hospital units and show wards falling below 5 reserve beds.'
+  );
+
+  assert.equal(plans.length, 1);
+  assert.equal(plans.dependentLookups.length, 1);
+  assert.equal(plans.crossTableComparisons.length, 1);
+  assert.equal(plans.crossTableComparisons[0].resultAlias, 'beds_remaining');
+
+  const anchorRows = [
+    { req_id: 'REQ-1', ward_code: 'ICU-A', ward_name: 'Cardiac ICU', beds_requested: 4 },
+    { req_id: 'REQ-2', ward_code: 'MISSING', ward_name: 'Neuro Ward', beds_requested: 6 },
+    { req_id: 'REQ-3', ward_code: 'PCU-C', ward_name: 'Step-Down', beds_requested: 2 },
+  ];
+
+  const sqlCalls = [];
+  setPool({
+    async query(sql, params) {
+      sqlCalls.push({ sql, params });
+      if (sql.includes('"unit_code"')) {
+        return {
+          rows: [
+            { unit_code: 'ICU-A', unit_name: 'Cardiac ICU', available_beds: 12 },
+            { unit_code: 'PCU-C', unit_name: 'Step-Down', available_beds: 5 },
+          ],
+        };
+      }
+      if (sql.includes('"unit_name"')) {
+        return {
+          rows: [
+            { unit_code: 'NEURO-B', unit_name: 'Neuro Ward', available_beds: 8 },
+          ],
+        };
+      }
+      return { rows: [] };
+    },
+  });
+
+  try {
+    const lookupExec = await executeDependentLookupQuery(
+      wsId,
+      plans.dependentLookups[0],
+      anchorRows
+    );
+    assert.equal(lookupExec.usedFallback, true);
+    assert.equal(lookupExec.rows.length, 3);
+    assert.equal(sqlCalls.length, 2);
+
+    const anchorResultsById = new Map([
+      ['anchor_1', { table_name: 'transfer_requests', schema: requestsTable.schema, rows: anchorRows }],
+    ]);
+    const lookupResultsById = new Map([
+      ['lookup_1', { table_name: 'hospital_units', schema: wardsTable.schema, rows: lookupExec.rows }],
+    ]);
+    const joined = joinAndEvaluateCrossTableComparisons({
+      anchorResultsById,
+      lookupResultsById,
+      dependentLookups: plans.dependentLookups,
+      crossTableComparisons: plans.crossTableComparisons,
+    });
+
+    assert.equal(joined.pairedRecords.length, 3);
+    assert.equal(joined.matchedPairedRecords.length, 2);
+    const matchedUnits = joined.matchedPairedRecords.map((r) => r.lookupMatches[0].rowIdentifier).sort();
+    assert.deepEqual(matchedUnits, ['NEURO-B', 'PCU-C']);
+    assert.equal(joined.pairedRecords.find((r) => r.anchorRowIdentifier === 'REQ-1').computed.beds_remaining, 8);
+    assert.equal(joined.pairedRecords.find((r) => r.anchorRowIdentifier === 'REQ-2').computed.beds_remaining, 2);
+    assert.equal(joined.pairedRecords.find((r) => r.anchorRowIdentifier === 'REQ-3').computed.beds_remaining, 3);
+  } finally {
+    setPool(null);
+  }
+});
+
+test('post-router gate blocks multi-table or conditional policy prompts from single-table email shortcut while preserving pure 1-table emails', () => {
+  const metadataRows = [
+    {
+      table_name: 'transfer_requests',
+      columns_profile: [
+        { column_name: 'req_id', data_type: 'text' },
+        { column_name: 'beds_requested', data_type: 'integer' },
+        { column_name: 'coordinator_email', data_type: 'text' },
+      ],
+    },
+    {
+      table_name: 'hospital_units',
+      columns_profile: [
+        { column_name: 'unit_code', data_type: 'text' },
+        { column_name: 'available_beds', data_type: 'integer', numeric_stats: { min: 0, max: 30 } },
+      ],
+    },
+  ];
+
+  // Dynamic metadata detection finds secondary table without hardcoding
+  const secTables = findSecondaryTablesReferencedByMetadata(
+    'allocate transfers where enough beds are available and notify all coordinators',
+    'transfer_requests',
+    metadataRows,
+    []
+  );
+  assert.deepEqual(secTables, ['hospital_units']);
+
+  // Conditional policy / buffer limit prompt blocked from single-table shortcut
+  assert.equal(
+    requiresConditionalPolicyEvaluation(
+      'allocate requests where enough capacity is available and notify all 4 contacts about what we can fulfill and cannot due to our buffer limit'
+    ),
+    true
+  );
+  assert.equal(
+    shouldUseSingleTableDirectEmailFastPath({
+      prompt:
+        'allocate requests where enough beds are available and email all 4 coordinators about what we can approve and cannot due to our buffer limit',
+      routed: { entity: 'transfer_requests', target_entities: ['transfer_requests'], document_grounded: false },
+      authoritativeEntities: ['transfer_requests'],
+      metadataRows,
+      normalizedHistory: [],
+    }),
+    false
+  );
+
+  // Pure unconditional single-table email prompt is allowed
+  assert.equal(
+    shouldUseSingleTableDirectEmailFastPath({
+      prompt: 'send a reminder email to coordinator@example.test about REQ-1',
+      routed: { entity: 'transfer_requests', target_entities: ['transfer_requests'], document_grounded: false },
+      authoritativeEntities: ['transfer_requests'],
+      metadataRows,
+      normalizedHistory: [],
+    }),
+    true
+  );
+
+  // enforceOperationalIntentPrecedence preserves cross_document_operation for multi-table / email actions
+  const preserved = enforceOperationalIntentPrecedence(
+    {
+      intent: 'cross_document_operation',
+      entity: 'transfer_requests',
+      target_entities: ['transfer_requests', 'hospital_units'],
+      document_grounded: true,
+    },
+    'allocate requests where enough beds are available and email all 4 coordinators',
+    [],
+    null,
+    [],
+    'transfer_requests'
+  );
+  assert.equal(preserved.intent, 'cross_document_operation');
+});
+
+test('decoupled email audience tracks mutated and evaluated_unmutated records and guarantees 100% full-audience coverage', async () => {
+  assert.equal(
+    requestsFullAudienceNotification(
+      'allocate requests and send an email to all 4 designated customers notifying them about the ones we can fulfill and the ones we cannot due to our buffer limit'
+    ),
+    true
+  );
+  assert.equal(
+    requestsFullAudienceNotification('List all open requests with contact emails.'),
+    false
+  );
+  assert.match(SCHEMA_TRUTH_PRECEDENCE_RULE, /authoritative ground truth/i);
+
+  const primaryTable = {
+    tableName: 'requests',
+    schema: {
+      tableName: 'requests',
+      primaryKey: 'req_id',
+      columns: {
+        req_id: { exactName: 'req_id', type: 'string', modifiable: false, queryable: true },
+        contact_name: { exactName: 'contact_name', type: 'string', modifiable: false, queryable: true },
+        contact_email: { exactName: 'contact_email', type: 'string', modifiable: false, queryable: true },
+        qty_requested: { exactName: 'qty_requested', type: 'integer', modifiable: false, queryable: true },
+        qty_allocated: { exactName: 'qty_allocated', type: 'integer', modifiable: true, queryable: true },
+        status: { exactName: 'status', type: 'string', modifiable: true, queryable: true },
+      },
+    },
+    columnRoles: { emailCol: 'contact_email', customerNameCol: 'contact_name' },
+    rows: [
+      { id: '1', req_id: 'R-1', contact_name: 'Alice', contact_email: 'alice@example.test', qty_requested: 5, qty_allocated: 0, status: 'Pending' },
+      { id: '2', req_id: 'R-2', contact_name: 'Bob', contact_email: 'bob@example.test', qty_requested: 12, qty_allocated: 0, status: 'Pending' },
+    ],
+  };
+
+  let attempts = 0;
+  setWorkspaceGeminiGenerator(async () => {
+    attempts += 1;
+    // Simulate LLM initially drafting only for the mutated row R-1 (attempt 1), then both (attempt 2)
+    if (attempts === 1) {
+      return JSON.stringify({
+        mutations: [
+          {
+            table_name: 'requests',
+            row_identifier: 'R-1',
+            updates: [
+              { column: 'qty_allocated', new_value: '5' },
+              { column: 'status', new_value: 'Fulfilled' },
+            ],
+          },
+        ],
+        emails: [
+          {
+            recipient_email: 'alice@example.test',
+            customer_identifier: 'Alice (R-1)',
+            subject: 'R-1 Fulfilled',
+            body: 'Your request R-1 has been allocated.',
+            row_identifier: 'R-1',
+          },
+        ],
+      });
+    }
+    return JSON.stringify({
+      mutations: [
+        {
+          table_name: 'requests',
+          row_identifier: 'R-1',
+          updates: [
+            { column: 'qty_allocated', new_value: '5' },
+            { column: 'status', new_value: 'Fulfilled' },
+          ],
+        },
+      ],
+      emails: [
+        {
+          recipient_email: 'alice@example.test',
+          customer_identifier: 'Alice (R-1)',
+          subject: 'R-1 Fulfilled',
+          body: 'Your request R-1 has been allocated.',
+          row_identifier: 'R-1',
+        },
+        {
+          recipient_email: 'bob@example.test',
+          customer_identifier: 'Bob (R-2)',
+          subject: 'R-2 Unable to Fulfill',
+          body: 'Your request R-2 could not be fulfilled due to our buffer limit.',
+          row_identifier: 'R-2',
+        },
+      ],
+    });
+  });
+
+  try {
+    const compiled = await compileResolutionPreview(
+      {
+        prompt:
+          'allocate requests where enough stock is available and send an email to all designated customers notifying them about the requests we can fulfill and the requests we cannot due to our buffer limit',
+        analysis: {
+          datasetCompatible: true,
+          affectedRowIds: ['R-1', 'R-2'],
+          conflictingRowIds: [],
+        },
+        multiHopResult: {
+          hop2: { targetTable: primaryTable, targetTables: [primaryTable] },
+          retrievedChunks: [],
+          workspaceCustomers: [],
+        },
+      },
+      'apply_policy',
+      { label: 'Apply policy', rule_interpretation: 'Allocate R-1, keep R-2 pending, notify both.' }
+    );
+
+    assert.equal(attempts, 2);
+    assert.equal(compiled.mutationsPreview.length, 1);
+    assert.equal(compiled.mutationsPreview[0].row_identifier, 'R-1');
+    assert.equal(compiled.emailsPreview.length, 2);
+    assert.deepEqual(
+      compiled.emailsPreview.map((e) => e.recipient_email).sort(),
+      ['alice@example.test', 'bob@example.test']
+    );
+  } finally {
+    setWorkspaceGeminiGenerator(null);
   }
 });

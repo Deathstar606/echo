@@ -2205,12 +2205,18 @@ export default function SheetManagementPanel(): React.ReactElement {
             selectedOptionsMap={b2bWorkflow.selectedOptionsMap}
             previewData={b2bWorkflow.previewData}
             editedEmails={b2bWorkflow.editedEmails}
+            editedMutations={b2bWorkflow.editedMutations}
+            allowPartialNullable={b2bWorkflow.allowPartialNullable}
             executedData={b2bWorkflow.executedData}
             onSelectSocraticOption={b2bWorkflow.handleSelectSocraticOption}
             onResolveSocratic={b2bWorkflow.handleResolveSocratic}
             onUpdateEmailDraft={b2bWorkflow.handleUpdateEmailDraft}
             onApplyTemplateToAllEmails={b2bWorkflow.handleApplyTemplateToAllEmails}
             onRestoreOriginalEmails={b2bWorkflow.handleRestoreOriginalEmails}
+            onUpdateMutationCell={b2bWorkflow.handleUpdateMutationCell}
+            onFillMissingColumn={b2bWorkflow.handleFillMissingColumn}
+            onToggleMutationRow={b2bWorkflow.handleToggleMutationRow}
+            onToggleAllowPartialNullable={b2bWorkflow.setAllowPartialNullable}
             onConfirmOperation={async () => {
               if (
                 (b2bWorkflow.previewData?.mutations_preview?.length || 0) > 0 &&
@@ -2220,6 +2226,7 @@ export default function SheetManagementPanel(): React.ReactElement {
               }
               await b2bWorkflow.handleConfirmOperation();
             }}
+            onCancelOperation={b2bWorkflow.handleCancelOperation}
             onBackToClarification={b2bWorkflow.handleBackToClarification}
             onResetWorkflow={b2bWorkflow.handleResetWorkflow}
             onSelectCitation={(citation) => {

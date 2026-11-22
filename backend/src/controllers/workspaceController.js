@@ -381,6 +381,7 @@ async function confirmOperation(req, res, next) {
   try {
     const businessId = await requireBusinessId(req);
     const workflowId = req.body?.workflow_id || req.body?.workflowId;
+    const action = req.body?.action === 'cancel' ? 'cancel' : 'confirm';
     const confirm = Boolean(req.body?.confirm);
     const dryRun = Boolean(req.body?.dry_run ?? req.body?.dryRun ?? false);
     const editedEmails = Array.isArray(req.body?.edited_emails)
@@ -388,6 +389,14 @@ async function confirmOperation(req, res, next) {
       : Array.isArray(req.body?.editedEmails)
         ? req.body.editedEmails
         : null;
+    const editedMutations = Array.isArray(req.body?.edited_mutations)
+      ? req.body.edited_mutations
+      : Array.isArray(req.body?.editedMutations)
+        ? req.body.editedMutations
+        : null;
+    const allowPartialNullable = Boolean(
+      req.body?.allow_partial_nullable ?? req.body?.allowPartialNullable ?? false
+    );
 
     const result = await confirmWorkspaceOperation({
       workflowId,
@@ -395,6 +404,9 @@ async function confirmOperation(req, res, next) {
       confirm,
       dryRun,
       editedEmails,
+      action,
+      editedMutations,
+      allowPartialNullable,
     });
 
     return res.status(200).json(result);

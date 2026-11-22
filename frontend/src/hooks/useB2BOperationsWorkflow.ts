@@ -3,6 +3,7 @@ import type {
   ClarificationRequiredPayload,
   ConversationHistoryTurn,
   ConversationalPayload,
+  DocumentSyncColumnSchema,
   ExecutedPayload,
   PreviewReadyPayload,
   RoutedSheetInstruction,
@@ -90,6 +91,37 @@ function isChatConfirmationPrompt(prompt: string): boolean {
   );
 }
 
+function isChatCancelPrompt(prompt: string): boolean {
+  const trimmed = String(prompt || '').trim();
+  if (!trimmed || trimmed.length > 64) return false;
+  return /^(?:stop|cancel|abort|never\s*mind|discard|no\s+thanks?|don't\s+(?:update|add|do\s+it|proceed)|stop\s+(?:the\s+)?(?:table\s+)?(?:update|sync|import))[.!\s]*$/i.test(
+    trimmed
+  );
+}
+
+function isCellValueMissing(val: unknown): boolean {
+  return val === null || val === undefined || String(val).trim() === '';
+}
+
+function recomputeMutationMissingFields(
+  mut: WorkspaceMutationDiff,
+  tableColumns?: DocumentSyncColumnSchema[],
+  originalMissingFields?: string[]
+): string[] {
+  if (mut.operation === 'delete') return [];
+  if (mut.operation === 'create') {
+    const colNames =
+      Array.isArray(tableColumns) && tableColumns.length > 0
+        ? tableColumns.map((c) => c.name)
+        : Object.keys(mut.after || {});
+    return colNames.filter((col) => isCellValueMissing(mut.after?.[col]));
+  }
+  const origSet = new Set(originalMissingFields || []);
+  return Object.keys(mut.after || {}).filter(
+    (col) => origSet.has(col) && isCellValueMissing(mut.after?.[col])
+  );
+}
+
 export function useB2BOperationsWorkflow({
   activeBusinessId,
   activeEntity,
@@ -112,6 +144,8 @@ export function useB2BOperationsWorkflow({
   const [selectedOptionsMap, setSelectedOptionsMap] = useState<Record<string, string>>({});
   const [previewData, setPreviewData] = useState<PreviewReadyPayload | null>(null);
   const [editedEmails, setEditedEmails] = useState<WorkspaceEmailPreview[]>([]);
+  const [editedMutations, setEditedMutations] = useState<WorkspaceMutationDiff[]>([]);
+  const [allowPartialNullable, setAllowPartialNullable] = useState<boolean>(false);
   const [executedData, setExecutedData] = useState<ExecutedPayload | null>(null);
   const [conversationalData, setConversationalData] =
     useState<ConversationalPayload | null>(null);
@@ -128,6 +162,8 @@ export function useB2BOperationsWorkflow({
     setSelectedOptionsMap({});
     setPreviewData(null);
     setEditedEmails([]);
+    setEditedMutations([]);
+    setAllowPartialNullable(false);
     setExecutedData(null);
     setConversationalData(null);
     setWorkflowError(null);
@@ -193,12 +229,93 @@ export function useB2BOperationsWorkflow({
     }
   };
 
+  const handleUpdateMutationCell = (
+    rowIndex: number,
+    column: string,
+    value: string
+  ) => {
+    setEditedMutations((prev) =>
+      prev.map((item, idx) => {
+        const itemIdx = item.row_index ?? idx;
+        if (itemIdx !== rowIndex) return item;
+        const nextAfter = {
+          ...(item.after || {}),
+          [column]: value === '' ? null : value,
+        };
+        const origMissing = previewData?.mutations_preview?.[idx]?.missing_fields;
+        const nextItem: WorkspaceMutationDiff = { ...item, after: nextAfter };
+        nextItem.missing_fields = recomputeMutationMissingFields(
+          nextItem,
+          previewData?.table_columns,
+          origMissing
+        );
+        return nextItem;
+      })
+    );
+  };
+
+  const handleFillMissingColumn = (column: string, value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    setEditedMutations((prev) =>
+      prev.map((item, idx) => {
+        if (item.include === false || item.operation === 'delete') return item;
+        const canTouchCol =
+          item.operation === 'create' ||
+          (item.after && Object.prototype.hasOwnProperty.call(item.after, column));
+        if (!canTouchCol) return item;
+        if (!isCellValueMissing(item.after?.[column])) return item;
+
+        const nextAfter = {
+          ...(item.after || {}),
+          [column]: value,
+        };
+        const origMissing = previewData?.mutations_preview?.[idx]?.missing_fields;
+        const nextItem: WorkspaceMutationDiff = { ...item, after: nextAfter };
+        nextItem.missing_fields = recomputeMutationMissingFields(
+          nextItem,
+          previewData?.table_columns,
+          origMissing
+        );
+        return nextItem;
+      })
+    );
+  };
+
+  const handleToggleMutationRow = (rowIndex: number, include: boolean) => {
+    setEditedMutations((prev) =>
+      prev.map((item, idx) =>
+        (item.row_index ?? idx) === rowIndex ? { ...item, include } : item
+      )
+    );
+  };
+
   // Turn 1..N: Run AI Instruction with 5-turn sliding conversational memory
   const handleExecuteOperation = async (customPrompt?: string) => {
     const promptToRun = (
       typeof customPrompt === 'string' ? customPrompt : nlPrompt
     ).trim();
     if (!promptToRun || isBusy || workflowStatus === 'executing') return;
+
+    // Support natural cancellation via chat while a preview is open
+    if (
+      workflowStatus === 'preview' &&
+      previewData &&
+      currentWorkflowId &&
+      isChatCancelPrompt(promptToRun)
+    ) {
+      onPromptChange('');
+      setConversationHistory((previous) => [
+        ...previous,
+        {
+          id: createMessageId('user'),
+          role: 'user',
+          content: promptToRun,
+        },
+      ]);
+      await handleCancelOperation();
+      return;
+    }
 
     // Support natural back-and-forth confirmation via chat while a preview is active
     if (
@@ -217,6 +334,35 @@ export function useB2BOperationsWorkflow({
           content: promptToRun,
         },
       ]);
+
+      if (previewData.workflow_type === 'document_table_sync') {
+        const included = editedMutations.filter((m) => m.include !== false);
+        const colRequiredMap = new Map(
+          (previewData.table_columns || []).map((c) => [c.name, Boolean(c.required)])
+        );
+        const missingReq = new Set<string>();
+        const missingNull = new Set<string>();
+        for (const m of included) {
+          for (const col of m.missing_fields || []) {
+            if (colRequiredMap.get(col)) missingReq.add(col);
+            else missingNull.add(col);
+          }
+        }
+        if (missingReq.size > 0 || (missingNull.size > 0 && !allowPartialNullable)) {
+          const allMissing = [...missingReq, ...missingNull];
+          setConversationHistory((previous) => [
+            ...previous,
+            {
+              id: createMessageId('assistant'),
+              role: 'assistant',
+              content: `Cannot confirm yet — missing column(s): ${allMissing.join(', ')}. Fill them in the preview table on the fly or click Stop / Cancel Update.`,
+              stageHint: 'preview',
+            },
+          ]);
+          return;
+        }
+      }
+
       await handleConfirmOperation();
       return;
     }
@@ -229,6 +375,8 @@ export function useB2BOperationsWorkflow({
     setClarificationData(null);
     setPreviewData(null);
     setEditedEmails([]);
+    setEditedMutations([]);
+    setAllowPartialNullable(false);
     setExecutedData(null);
     setConversationalData(null);
     onPromptChange('');
@@ -403,13 +551,31 @@ export function useB2BOperationsWorkflow({
             ? res.emails_preview.map((e) => ({ ...e }))
             : []
         );
+        setEditedMutations(
+          Array.isArray(res.mutations_preview)
+            ? res.mutations_preview.map((m, idx) => ({
+                ...m,
+                row_index: m.row_index ?? idx,
+                after: m.after ? { ...m.after } : undefined,
+                before: m.before ? { ...m.before } : undefined,
+                missing_fields: Array.isArray(m.missing_fields)
+                  ? [...m.missing_fields]
+                  : [],
+              }))
+            : []
+        );
+        setAllowPartialNullable(false);
         setWorkflowStatus('preview');
-        onMutationsPreviewChange?.(res.mutations_preview || []);
+        onMutationsPreviewChange?.(
+          (res.mutations_preview || []).filter((m) => m.operation !== 'create')
+        );
         stageHint = 'preview';
         stageSummary =
-          (res.mutations_preview?.length || 0) === 0 && (res.emails_preview?.length || 0) > 0
-            ? `${res.emails_preview?.length || 0} email draft(s) • Editable in main panel`
-            : `${res.mutations_preview?.length || 0} DB row(s), ${res.emails_preview?.length || 0} email(s) • Review in main panel`;
+          res.workflow_type === 'document_table_sync'
+            ? `${res.mutations_preview?.length || 0} row(s) from document${res.requires_field_completion ? ` • Missing: ${(res.missing_columns || []).join(', ')}` : ' • Ready to review'}`
+            : (res.mutations_preview?.length || 0) === 0 && (res.emails_preview?.length || 0) > 0
+              ? `${res.emails_preview?.length || 0} email draft(s) • Editable in main panel`
+              : `${res.mutations_preview?.length || 0} DB row(s), ${res.emails_preview?.length || 0} email(s) • Review in main panel`;
       }
 
       const structuredSummaryText =
@@ -568,29 +734,74 @@ export function useB2BOperationsWorkflow({
 
     setWorkflowError(null);
     setWorkflowStatus('executing');
-    setExecutingStep('Atomically committing database row mutations & dispatching emails...');
+    setExecutingStep('Atomically committing database row changes...');
 
+    const isDocumentSync = previewData.workflow_type === 'document_table_sync';
     try {
       const res = await confirmWorkspaceOperationApi({
         workflowId: currentWorkflowId,
+        action: 'confirm',
         confirm: true,
         dryRun: false,
         businessId: activeBusinessId,
-        editedEmails: editedEmails.length > 0 ? editedEmails : previewData.emails_preview,
+        ...(isDocumentSync
+          ? {
+              editedMutations: editedMutations.map((m, idx) => ({
+                row_index: m.row_index ?? idx,
+                row_identifier: m.row_identifier,
+                operation: m.operation,
+                after: m.after,
+                include: m.include,
+              })),
+              allowPartialNullable,
+            }
+          : {
+              editedEmails:
+                editedEmails.length > 0 ? editedEmails : previewData.emails_preview,
+            }),
       });
 
+      if (res.status === 'CANCELLED') {
+        setPreviewData(null);
+        setEditedMutations([]);
+        setAllowPartialNullable(false);
+        setCurrentWorkflowId(null);
+        setWorkflowStatus('idle');
+        onMutationsPreviewChange?.([]);
+        return;
+      }
+
       setExecutedData(res);
+      setEditedMutations([]);
+      setAllowPartialNullable(false);
       setWorkflowStatus('executed');
       onMutationsPreviewChange?.([]);
+
+      let completedSummary: string;
+      if (isDocumentSync) {
+        const parts: string[] = [];
+        if (res.created_rows_count) parts.push(`added ${res.created_rows_count} row(s)`);
+        if (res.modified_rows_count) parts.push(`updated ${res.modified_rows_count} row(s)`);
+        if (res.deleted_rows_count) parts.push(`deleted ${res.deleted_rows_count} row(s)`);
+        const detail =
+          parts.length > 0
+            ? parts.join(', ')
+            : `applied ${res.updated_rows_count} row change(s)`;
+        completedSummary = `Committed document sync to ${res.target_entity || previewData.target_entity || activeEntity}: ${detail}.`;
+      } else {
+        completedSummary = `Completed the approved operation: updated ${res.updated_rows_count} row(s) and sent ${res.dispatched_emails_count} email(s).`;
+      }
 
       setConversationHistory((previous) => [
         ...previous,
         {
           id: createMessageId('assistant'),
           role: 'assistant',
-          content: `Completed the approved operation: updated ${res.updated_rows_count} row(s) and sent ${res.dispatched_emails_count} email(s).`,
+          content: completedSummary,
           stageHint: 'executed',
-          stageSummary: `Committed • ${res.updated_rows_count} rows, ${res.dispatched_emails_count} emails`,
+          stageSummary: isDocumentSync
+            ? `Committed • ${res.updated_rows_count} row change(s)`
+            : `Committed • ${res.updated_rows_count} rows, ${res.dispatched_emails_count} emails`,
         },
       ]);
 
@@ -598,7 +809,7 @@ export function useB2BOperationsWorkflow({
         if (previous.length === 0) return previous;
         const next = [...previous];
         const last = { ...next[next.length - 1] };
-        last.assistant_response_summary = `Completed the approved operation: updated ${res.updated_rows_count} rows and sent ${res.dispatched_emails_count} emails.`;
+        last.assistant_response_summary = completedSummary;
         next[next.length - 1] = last;
         return next.slice(-5);
       });
@@ -609,6 +820,45 @@ export function useB2BOperationsWorkflow({
       setWorkflowError(err?.message || 'Failed to confirm and execute operation.');
       setWorkflowStatus('preview');
     }
+  };
+
+  const handleCancelOperation = async () => {
+    const wfId = currentWorkflowId;
+    if (wfId) {
+      try {
+        await confirmWorkspaceOperationApi({
+          workflowId: wfId,
+          action: 'cancel',
+          confirm: false,
+          businessId: activeBusinessId,
+        });
+      } catch {
+        // Still clear local UI preview if workflow expired
+      }
+    }
+
+    setWorkflowStatus('idle');
+    setCurrentWorkflowId(null);
+    setClarificationData(null);
+    setSelectedOptionsMap({});
+    setPreviewData(null);
+    setEditedEmails([]);
+    setEditedMutations([]);
+    setAllowPartialNullable(false);
+    setExecutedData(null);
+    setWorkflowError(null);
+    onMutationsPreviewChange?.([]);
+
+    setConversationHistory((previous) => [
+      ...previous,
+      {
+        id: createMessageId('assistant'),
+        role: 'assistant',
+        content: 'Stopped the table update. No rows were modified.',
+        stageHint: 'conversational',
+        stageSummary: 'Update cancelled',
+      },
+    ]);
   };
 
   const handleBackToClarification = () => {
@@ -637,6 +887,8 @@ export function useB2BOperationsWorkflow({
     setSelectedOptionsMap({});
     setPreviewData(null);
     setEditedEmails([]);
+    setEditedMutations([]);
+    setAllowPartialNullable(false);
     setExecutedData(null);
     setConversationalData(null);
     setWorkflowError(null);
@@ -655,6 +907,9 @@ export function useB2BOperationsWorkflow({
     selectedOptionsMap,
     previewData,
     editedEmails,
+    editedMutations,
+    allowPartialNullable,
+    setAllowPartialNullable,
     executedData,
     conversationalData,
     conversationHistory,
@@ -662,9 +917,13 @@ export function useB2BOperationsWorkflow({
     handleUpdateEmailDraft,
     handleApplyTemplateToAllEmails,
     handleRestoreOriginalEmails,
+    handleUpdateMutationCell,
+    handleFillMissingColumn,
+    handleToggleMutationRow,
     handleExecuteOperation,
     handleResolveSocratic,
     handleConfirmOperation,
+    handleCancelOperation,
     handleBackToClarification,
     handleDismissError,
     handleResetWorkflow,

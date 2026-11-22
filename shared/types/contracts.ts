@@ -459,13 +459,31 @@ export interface SocraticQuestion {
 export interface WorkspaceMutationDiff {
   table_name?: string;
   row_identifier?: string | number;
+  operation?: 'create' | 'update' | 'delete';
+  row_index?: number;
   id?: string | number;
   name?: string;
   order_id?: string;
   before?: Record<string, unknown>;
   after?: Record<string, unknown>;
   changes?: Record<string, { current: unknown; proposed: unknown }>;
+  missing_fields?: string[];
+  duplicate_warning?: string | null;
+  unmatched_warning?: string | null;
+  source_locator?: string | null;
+  reason?: string | null;
+  include?: boolean;
   [key: string]: unknown;
+}
+
+export interface DocumentSyncColumnSchema {
+  name: string;
+  type: SheetColumnType;
+  required: boolean;
+  nullable: boolean;
+  storage_type?: string;
+  description?: string;
+  representative_values?: string[];
 }
 
 export interface WorkspaceEmailPreview {
@@ -496,8 +514,19 @@ export interface ClarificationRequiredPayload {
 export interface PreviewReadyPayload {
   status: 'PREVIEW_READY';
   workflow_id: string;
+  workflow_type?: 'socratic_b2b' | 'document_table_sync';
+  operation_mode?: 'create' | 'update' | 'delete' | 'mixed';
   target_entity?: string;
   matched_row_ids?: string[];
+  requires_field_completion?: boolean;
+  missing_columns?: string[];
+  table_columns?: DocumentSyncColumnSchema[];
+  source_documents?: Array<{
+    doc_id: string;
+    filename: string;
+    page_count: number;
+    chunk_count: number;
+  }>;
   mutations_preview: WorkspaceMutationDiff[];
   emails_preview: WorkspaceEmailPreview[];
   citations: Citation[];
@@ -517,7 +546,11 @@ export interface PreviewReadyPayload {
 export interface ExecutedPayload {
   status: 'EXECUTED';
   workflow_id: string;
+  target_entity?: string;
+  created_rows_count?: number;
   updated_rows_count: number;
+  modified_rows_count?: number;
+  deleted_rows_count?: number;
   dispatched_emails_count: number;
   dispatched_emails?: Array<{
     to: string;
@@ -529,6 +562,13 @@ export interface ExecutedPayload {
     delivery_mode: string;
   }>;
   citations: Citation[];
+}
+
+export interface CancelledPayload {
+  status: 'CANCELLED';
+  workflow_id: string;
+  target_entity?: string;
+  message: string;
 }
 
 export interface ConversationalPayload {
@@ -588,4 +628,5 @@ export type WorkspaceOperationResponse =
   | RoutedSheetInstruction
   | ClarificationRequiredPayload
   | PreviewReadyPayload
-  | ExecutedPayload;
+  | ExecutedPayload
+  | CancelledPayload;

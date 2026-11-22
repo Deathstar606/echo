@@ -491,6 +491,7 @@ function formatProductRowAsContextEntry(productRow, options = {}) {
     }
   }
 
+  const hasNumericStock = typeof productRow.size === 'number' || /^\d+$/.test(String(productRow.size ?? '').trim());
   const contentParts = [
     `Product Name: ${productRow.name}`,
     `Category: ${productRow.category || 'shirt'}`,
@@ -498,8 +499,8 @@ function formatProductRowAsContextEntry(productRow, options = {}) {
     `Discount: ${productRow.discount ?? 0}%`,
     `Best Seller: ${bestLabel}`,
     `Available Colors: ${productRow.color || 'N/A'}`,
-    `Available Sizes & Stock (JSON): ${productRow.size || 'N/A'}`,
-    `Orders Placed: ${productRow.ordered ?? 0}`,
+    `${hasNumericStock ? 'Stock Quantity (size)' : 'Available Sizes & Stock (JSON)'}: ${productRow.size ?? 'N/A'}`,
+    ...(productRow.ordered !== undefined ? [`Orders Placed: ${productRow.ordered ?? 0}`] : []),
     `Description: ${descriptionText}`,
   ];
 
@@ -1175,15 +1176,21 @@ async function retrieveRelevantContextForBusiness(
         ? '(business_id = $1 OR workspace_id = $1)'
         : 'business_id = $1';
       if (schema.entity === 'products') {
-        const productsResult = await query(
-          `
+        const hasOrderedCol = !schema?.columns || Boolean(schema.columns.ordered);
+        const productsSql = hasOrderedCol
+          ? `
             SELECT id, business_id, name, category, description, best, color, discount, ordered, images, size, price, created_at, updated_at
             FROM products
             WHERE ${whereBizSql}
             ORDER BY best DESC, ordered DESC, name ASC;
-          `,
-          [businessId]
-        );
+          `
+          : `
+            SELECT *
+            FROM products
+            WHERE ${whereBizSql}
+            ORDER BY best DESC, name ASC;
+          `;
+        const productsResult = await query(productsSql, [businessId]);
         if (productsResult && Array.isArray(productsResult.rows)) {
           rawRows = productsResult.rows;
         }

@@ -1,0 +1,187 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [6 0 R 8 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+5 0 obj
+<< /Length 2554 >>
+stream
+BT
+48 756 Td
+/F2 14 Tf
+(VELOURA APPAREL - STANDARD COMPANY OPERATIONS POLICY) Tj
+0 -20 Td
+/F1 9 Tf
+(Policy ID: POL-VEL-COMP-2026 | Effective Date: November 2026 | Owner: Operations) Tj
+0 -18 Td
+/F2 12 Tf
+(1. PURPOSE, SCOPE & CODE OF CONDUCT) Tj
+0 -16 Td
+/F1 10 Tf
+(1.1 Scope: This policy governs wholesale order intake, inventory safety controls,) Tj
+0 -14 Td
+/F1 10 Tf
+(pricing, vendor quality assurance, fulfillment SLAs, and customer communications) Tj
+0 -14 Td
+/F1 10 Tf
+(across all Veloura Apparel retail and B2B operations.) Tj
+0 -16 Td
+/F1 10 Tf
+(1.2 Ethical Standards & Compliance: Personnel and authorized buyers must maintain) Tj
+0 -14 Td
+/F1 10 Tf
+(accurate order records, protect partner contact confidentiality, and disclose any) Tj
+0 -14 Td
+/F1 10 Tf
+(supplier conflicts of interest prior to purchase order issuance.) Tj
+0 -18 Td
+/F2 12 Tf
+(2. ORDER PROCESSING, BUYER TIERS & FULFILLMENT SLA) Tj
+0 -16 Td
+/F1 10 Tf
+(2.1 Recognized Buyer Tiers: Wholesale accounts are classified as Priority or Standard.) Tj
+0 -14 Td
+/F1 10 Tf
+(Priority buyer backorders receive queue precedence during stock replenishment cycles,) Tj
+0 -14 Td
+/F1 10 Tf
+(provided all compliance, credit, and safety-buffer rules are satisfied.) Tj
+0 -16 Td
+/F1 10 Tf
+(2.2 Processing SLA: Confirmed orders with sufficient allocatable inventory must be) Tj
+0 -14 Td
+/F1 10 Tf
+(picked, packed, and queued for dispatch within 2 business days of manifest receipt.) Tj
+0 -14 Td
+/F1 10 Tf
+(Orders that cannot be immediately satisfied remain in Pending or On Hold status) Tj
+0 -14 Td
+/F1 10 Tf
+(inside backorders_dataset until eligible warehouse stock becomes available.) Tj
+0 -18 Td
+/F2 12 Tf
+(3. MANDATORY 10-UNIT MINIMUM STOCK BUFFER CLAUSE) Tj
+0 -16 Td
+/F2 10 Tf
+(3.1 10 Stock Buffer Clause: Every product in the active products catalog \(where) Tj
+0 -14 Td
+/F2 10 Tf
+(available on-hand stock is recorded as an integer in the size column\) MUST maintain) Tj
+0 -14 Td
+/F2 10 Tf
+(a mandatory minimum safety buffer of 10 units on hand at all times.) Tj
+0 -16 Td
+/F1 10 Tf
+(3.2 Allocation Cap Rule: No wholesale order, reseller allocation, or backorder batch) Tj
+0 -14 Td
+/F1 10 Tf
+(may reduce any product size stock below 10 units without written Operations Director) Tj
+0 -14 Td
+/F1 10 Tf
+(waiver. Net allocatable stock for fulfillment equals MAX\(0, size - 10\).) Tj
+0 -16 Td
+/F1 10 Tf
+(3.3 Trigger for Replenishment: Any SKU whose integer size value drops to 10 or below) Tj
+0 -14 Td
+/F1 10 Tf
+(must be flagged for immediate supplier purchase order replenishment.) Tj
+0 -14 Td
+ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 5 0 R >>
+endobj
+7 0 obj
+<< /Length 1888 >>
+stream
+BT
+48 756 Td
+/F2 12 Tf
+(4. PRICING, DISCOUNTS, INVOICING & PAYMENT TERMS) Tj
+0 -16 Td
+/F1 10 Tf
+(4.1 Published Catalog Pricing: Wholesale and reseller pricing follows the active) Tj
+0 -14 Td
+/F1 10 Tf
+(price and discount percentage listed in the products catalog at order confirmation.) Tj
+0 -16 Td
+/F1 10 Tf
+(4.2 Discount Stacking Limit: Promotional discounts and tier rebates may not be) Tj
+0 -14 Td
+/F1 10 Tf
+(stacked; the single highest eligible discount applies unless explicitly contracted.) Tj
+0 -16 Td
+/F1 10 Tf
+(4.3 Payment & Credit Holds: Approved B2B accounts operate on Net-30 terms. Accounts) Tj
+0 -14 Td
+/F1 10 Tf
+(with invoices past due beyond 15 days are placed On Hold until balances clear.) Tj
+0 -18 Td
+/F2 12 Tf
+(5. INBOUND RECEIVING, QUALITY ASSURANCE & QUARANTINE) Tj
+0 -16 Td
+/F1 10 Tf
+(5.1 Port Receiving Inspection: All incoming vendor lots on supplier_purchase_orders) Tj
+0 -14 Td
+/F1 10 Tf
+(must undergo random needle-work, sizing, and fabric inspection upon dock arrival.) Tj
+0 -16 Td
+/F1 10 Tf
+(5.2 Quarantine Threshold: Shipments failing to reach 95.0% QC pass rate are held) Tj
+0 -14 Td
+/F1 10 Tf
+(in Receiving Quarantine. Only passed units enter sellable products size stock.) Tj
+0 -18 Td
+/F2 12 Tf
+(6. RETURNS, DEFECT CLAIMS & ESCALATION CONTACTS) Tj
+0 -16 Td
+/F1 10 Tf
+(6.1 Return Merchandise Authorization \(RMA\): Defective or mis-shipped garments must) Tj
+0 -14 Td
+/F1 10 Tf
+(be reported within 14 calendar days of delivery with photo evidence and SKU tags.) Tj
+0 -16 Td
+/F1 10 Tf
+(6.2 Credit & Replacement Turnaround: Verified claims are credited or replaced) Tj
+0 -14 Td
+/F1 10 Tf
+(within 5 business days of RMA receipt.) Tj
+0 -16 Td
+/F1 10 Tf
+(6.3 Policy Governance & Escalations: Operations waivers, stock-buffer exceptions,) Tj
+0 -14 Td
+/F1 10 Tf
+(and compliance escalations should be directed to operations@velouraapparel.example.) Tj
+0 -14 Td
+ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 7 0 R >>
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000127 00000 n 
+0000000197 00000 n 
+0000000272 00000 n 
+0000002878 00000 n 
+0000003014 00000 n 
+0000004954 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+5090
+%%EOF

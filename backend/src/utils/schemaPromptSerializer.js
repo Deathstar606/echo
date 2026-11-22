@@ -178,11 +178,15 @@ function serializeTableForPrompt(tableEntry, { includeMutability = true } = {}) 
   };
 }
 
+const SCHEMA_TRUTH_PRECEDENCE_RULE =
+  'SCHEMA-TRUTH PRECEDENCE: Live column names in workspace_table_metadata and live numeric/text values in PostgreSQL rows are ALWAYS the authoritative ground truth. If a policy PDF references a legacy column name (e.g., referencing size when the live table stores inventory in stock) or historical point-in-time inventory tallies (e.g., an older receiving manifest), apply the policy\'s logical rule/formula using the live schema column and live PostgreSQL row values—never substitute stale numbers from PDFs over live database rows.';
+
 module.exports = {
   SYSTEM_COLUMNS,
   LONG_PROSE_COLUMN_NAMES,
   MAX_ENUM_COUNT,
   MAX_VALUE_CHARS,
+  SCHEMA_TRUTH_PRECEDENCE_RULE,
   truncateValue,
   serializeTableForPrompt,
 };

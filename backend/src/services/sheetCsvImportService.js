@@ -713,6 +713,39 @@ async function importProductsToDatabase(businessId, validRecords, options = {}) 
       ]);
     }
 
+    let hasOrderedColumn = true;
+    let isNumericSizeColumn = false;
+    try {
+      const colInfo = await client.query(
+        `
+          SELECT column_name, data_type, udt_name
+          FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'products';
+        `
+      );
+      if (colInfo?.rows?.length > 0) {
+        const colMap = new Map(
+          colInfo.rows.map((r) => [String(r.column_name).toLowerCase(), r])
+        );
+        hasOrderedColumn = colMap.has('ordered');
+        const sizeCol = colMap.get('size');
+        if (sizeCol) {
+          const dt = String(sizeCol.udt_name || sizeCol.data_type || '').toLowerCase();
+          isNumericSizeColumn = [
+            'int2',
+            'int4',
+            'int8',
+            'integer',
+            'bigint',
+            'smallint',
+            'numeric',
+          ].includes(dt);
+        }
+      }
+    } catch {
+      // Keep legacy column layout in mocked unit-test clients.
+    }
+
     const colsSql = `
       business_id,
       workspace_id,
@@ -722,7 +755,7 @@ async function importProductsToDatabase(businessId, validRecords, options = {}) 
       best,
       color,
       discount,
-      ordered,
+      ${hasOrderedColumn ? 'ordered,' : ''}
       images,
       size,
       price,
@@ -730,8 +763,8 @@ async function importProductsToDatabase(businessId, validRecords, options = {}) 
       updated_at
     `;
 
-    // 13 parameterized fields per row.
-    const paramsPerRow = 13;
+    // 13 parameterized fields per row with `ordered`, 12 without.
+    const paramsPerRow = hasOrderedColumn ? 13 : 12;
     const batchSize = Math.max(1, Math.min(500, Math.floor(10000 / paramsPerRow)));
     let totalInserted = 0;
 
@@ -776,16 +809,27 @@ async function importProductsToDatabase(businessId, validRecords, options = {}) 
         values.push(rec.discount ?? 0);
         rowPlaceholders.push(`$${values.length}`);
 
-        // 8: ordered
-        values.push(rec.ordered ?? 0);
-        rowPlaceholders.push(`$${values.length}`);
+        if (hasOrderedColumn) {
+          // 8: ordered
+          values.push(rec.ordered ?? 0);
+          rowPlaceholders.push(`$${values.length}`);
+        }
 
         // 9: images
         values.push(rec.images);
         rowPlaceholders.push(`$${values.length}`);
 
         // 10: size
-        values.push(rec.size);
+        let sizeParam = rec.size;
+        if (isNumericSizeColumn) {
+          if (sizeParam === null || sizeParam === undefined || sizeParam === '') {
+            sizeParam = null;
+          } else {
+            const parsedSizeNum = Number.parseInt(String(sizeParam).trim(), 10);
+            sizeParam = Number.isFinite(parsedSizeNum) ? parsedSizeNum : null;
+          }
+        }
+        values.push(sizeParam);
         rowPlaceholders.push(`$${values.length}`);
 
         // 11: price

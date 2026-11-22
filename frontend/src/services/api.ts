@@ -17,6 +17,8 @@ import type {
   ClarificationRequiredPayload,
   PreviewReadyPayload,
   ExecutedPayload,
+  CancelledPayload,
+  WorkspaceMutationDiff,
   Citation,
   BusinessSheetTableInfo,
   BusinessSheetsListResponse,
@@ -918,6 +920,7 @@ export async function resolveWorkspaceSocraticApi({
 
 export interface ConfirmWorkspaceOperationParams {
   workflowId: string;
+  action?: 'confirm' | 'cancel';
   confirm?: boolean;
   dryRun?: boolean;
   businessId?: string;
@@ -928,28 +931,36 @@ export interface ConfirmWorkspaceOperationParams {
     body: string;
     metadata?: Record<string, any>;
   }>;
+  editedMutations?: WorkspaceMutationDiff[];
+  allowPartialNullable?: boolean;
 }
 
 /**
- * Turn 3: Confirms and executes a PREVIEW_READY workflow, atomically updating DB rows and dispatching emails.
- * Returns EXECUTED contract.
+ * Turn 3: Confirms and executes (or cancels) a PREVIEW_READY workflow.
+ * Returns EXECUTED or CANCELLED contract.
  * POST /api/workspace/confirm-operation
  */
 export async function confirmWorkspaceOperationApi({
   workflowId,
+  action = 'confirm',
   confirm = true,
   dryRun = false,
   businessId = getActiveBusinessId(),
   editedEmails,
-}: ConfirmWorkspaceOperationParams): Promise<ExecutedPayload> {
-  return request<ExecutedPayload>('/api/workspace/confirm-operation', {
+  editedMutations,
+  allowPartialNullable = false,
+}: ConfirmWorkspaceOperationParams): Promise<ExecutedPayload | CancelledPayload> {
+  return request<ExecutedPayload | CancelledPayload>('/api/workspace/confirm-operation', {
     method: 'POST',
     body: JSON.stringify({
       workflow_id: workflowId,
       business_id: businessId,
-      confirm: Boolean(confirm),
+      action,
+      confirm: action === 'cancel' ? false : Boolean(confirm),
       dry_run: Boolean(dryRun),
       ...(Array.isArray(editedEmails) ? { edited_emails: editedEmails } : {}),
+      ...(Array.isArray(editedMutations) ? { edited_mutations: editedMutations } : {}),
+      ...(allowPartialNullable ? { allow_partial_nullable: true } : {}),
     }),
   });
 }

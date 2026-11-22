@@ -20,6 +20,9 @@ const {
   detectConversationalIntent,
 } = require('./contextRetrievalService');
 const {
+  listDocumentsForBusiness,
+} = require('./documentIngestionService');
+const {
   generateStructuredJsonWithRetry,
   hasCustomWorkspaceGeminiGenerator,
 } = require('./geminiService');
@@ -832,6 +835,60 @@ async function tryExecuteFastTableQuery({
   };
 }
 
+const DOC_SOURCE_ACTION_CUE_REGEX =
+  /\b(?:add|insert|import|append|populate|load|sync|merge|from|via|using|per|listed\s+in|mentioned\s+in|found\s+in|extracted\s+from)\b/i;
+
+/**
+ * Returns true when the prompt explicitly references an uploaded workspace
+ * document (either via generic document phrasing or matching an uploaded filename stem),
+ * preventing document-sourced table edits from bypassing into the document-blind fast path.
+ *
+ * @param {string} prompt
+ * @param {Array<object>} [documents=[]]
+ * @returns {boolean}
+ */
+function promptReferencesWorkspaceDocument(prompt, documents = []) {
+  const text = String(prompt || '').trim();
+  if (!text) return false;
+
+  if (B2B_OR_DOC_REGEX.test(text) || SCOPED_POLICY_PREP_REGEX.test(text)) {
+    return true;
+  }
+
+  if (
+    /\b(?:from|in|per|listed\s+in|mentioned\s+in|found\s+in|according\s+to|using|via)\s+(?:the\s+|our\s+|this\s+|an?\s+|uploaded\s+){0,2}(?:doc|docs|document|documents|pdf|pdfs|file|files|attachment|report|notice|memo|manifest|letter|bulletin|schedule|roster|sheet\s+pdf)\b/i.test(
+      text
+    )
+  ) {
+    return true;
+  }
+
+  if (!Array.isArray(documents) || documents.length === 0) {
+    return false;
+  }
+
+  const normPrompt = text
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ');
+
+  for (const doc of documents) {
+    const rawName = String(doc?.filename || '').trim();
+    if (!rawName) continue;
+    const rawLower = rawName.toLowerCase();
+    if (text.toLowerCase().includes(rawLower)) {
+      return true;
+    }
+    const stem = rawLower.replace(/\.[^.]+$/, '');
+    const spacedStem = stem.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (spacedStem.length >= 4 && normPrompt.includes(spacedStem)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /**
  * Returns a table-local mutation route before the workspace RAG intent model.
  * The caller still sends the request to the ordinary sheet mutation endpoint,
@@ -849,6 +906,17 @@ async function tryRouteBasicTableMutation({
     !isBasicTableMutationCandidate(prompt, history)
   ) {
     return null;
+  }
+
+  if (promptReferencesWorkspaceDocument(prompt, [])) {
+    return null;
+  }
+
+  if (DOC_SOURCE_ACTION_CUE_REGEX.test(String(prompt || ''))) {
+    const workspaceDocs = await listDocumentsForBusiness(businessId).catch(() => []);
+    if (promptReferencesWorkspaceDocument(prompt, workspaceDocs)) {
+      return null;
+    }
   }
 
   const normalizedHistory = normalizeConversationHistory(history);
@@ -879,6 +947,7 @@ async function tryRouteBasicTableMutation({
 module.exports = {
   isBasicTableQueryCandidate,
   isBasicTableMutationCandidate,
+  promptReferencesWorkspaceDocument,
   resolveSingleTableTarget,
   arePromptConceptsCoveredByTable,
   buildDeterministicQuerySummary,

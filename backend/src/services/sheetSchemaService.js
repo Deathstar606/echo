@@ -767,6 +767,12 @@ async function discoverTableSchema(tableName, businessId, options = {}) {
         const baseline = schema ? findColumnDef(schema, rawCol) : null;
         const columnKey = baseline ? baseline.key : lowerCol;
         const colType = mapPgDataType(row.udt_name || row.data_type);
+        const isNumericCol = colType === 'integer' || colType === 'number';
+        const isJsonDbCol =
+          colType === 'json' ||
+          ['json', 'jsonb'].includes(String(row.udt_name || '').toLowerCase());
+        const useBaselineColDef =
+          baseline && !(baseline.colDef.nestedMap && isNumericCol);
         const isSystem = [
           'id',
           'business_id',
@@ -778,23 +784,33 @@ async function discoverTableSchema(tableName, businessId, options = {}) {
           'updated_at',
         ].includes(lowerCol);
         discoveredColumns[columnKey] = {
-          ...(baseline ? baseline.colDef : {}),
+          ...(useBaselineColDef ? baseline.colDef : {}),
           exactName: rawCol,
           type: colType,
           storageType: row.udt_name || row.data_type,
-          required: row.is_nullable === 'NO' || Boolean(baseline?.colDef.required),
-          readonly: isSystem || Boolean(baseline?.colDef.readonly),
-          modifiable: !isSystem && baseline?.colDef.modifiable !== false,
-          queryable: baseline?.colDef.queryable !== false,
+          required:
+            row.is_nullable === 'NO' ||
+            Boolean(useBaselineColDef ? baseline?.colDef.required : false),
+          readonly:
+            isSystem ||
+            Boolean(useBaselineColDef ? baseline?.colDef.readonly : false),
+          modifiable:
+            !isSystem &&
+            (useBaselineColDef ? baseline?.colDef.modifiable !== false : true),
+          queryable: useBaselineColDef ? baseline?.colDef.queryable !== false : true,
           sortable:
-            baseline?.colDef.sortable !== undefined
+            useBaselineColDef && baseline?.colDef.sortable !== undefined
               ? baseline.colDef.sortable
               : lowerCol !== 'images' && lowerCol !== 'description',
-          operators: baseline?.colDef.operators || getOperatorsForType(colType),
-          nestedMap:
-            Boolean(baseline?.colDef.nestedMap) ||
-            colType === 'json' ||
-            ['json', 'jsonb'].includes(String(row.udt_name || '').toLowerCase()),
+          operators:
+            (useBaselineColDef && baseline?.colDef.operators) ||
+            getOperatorsForType(colType),
+          nestedMap: useBaselineColDef
+            ? Boolean(baseline?.colDef.nestedMap) || isJsonDbCol
+            : isJsonDbCol,
+          ...(baseline && !useBaselineColDef && lowerCol === 'size'
+            ? { description: 'Integer stock quantity for the product.' }
+            : {}),
         };
       }
     }
@@ -831,7 +847,14 @@ async function discoverTableSchema(tableName, businessId, options = {}) {
           ? {
               ...discoveredColumns,
               ...Object.fromEntries(
-                Object.entries(resolvedSchema.columns).filter(([, def]) => def.virtual)
+                Object.entries(resolvedSchema.columns).filter(([key, def]) => {
+                  if (!def.virtual) return false;
+                  // Virtual `total_stock` only applies when `size` is a nested JSON stock map.
+                  if (key === 'total_stock' && !discoveredColumns.size?.nestedMap) {
+                    return false;
+                  }
+                  return true;
+                })
               ),
             }
           : resolvedSchema.columns
@@ -1161,6 +1184,7 @@ async function ensureTableExists(entityOrSchema, clientOrPool) {
         const colDefs = [];
         if (schema && schema.columns) {
           for (const [colKey, colDef] of Object.entries(schema.columns)) {
+            if (colDef?.virtual) continue;
             const rawCol = colDef.exactName || colKey;
             const cleanCol = String(rawCol).replace(/[^a-z0-9_]/gi, '_');
             const lower = cleanCol.toLowerCase();
@@ -1206,8 +1230,10 @@ async function ensureTableExists(entityOrSchema, clientOrPool) {
       }
     }
 
-    // 3. Synchronize any newly added columns if table exists
-    if (schema && schema.columns) {
+    // 3. Synchronize any newly added columns only for dynamic/registered schemas (never re-add
+    // dropped legacy preset columns like `ordered` or virtual columns like `total_stock`).
+    const isStaticPreset = schema && ENTITY_SCHEMAS[safeTableName] === schema;
+    if (schema && schema.columns && !isStaticPreset) {
       try {
         const colRes = await runner.query(
           `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND LOWER(table_name) = LOWER($1);`,
@@ -1216,6 +1242,7 @@ async function ensureTableExists(entityOrSchema, clientOrPool) {
         const existingCols = new Set((colRes.rows || []).map((r) => String(r.column_name).toLowerCase()));
 
         for (const [colKey, colDef] of Object.entries(schema.columns)) {
+          if (colDef?.virtual) continue;
           const rawCol = colDef.exactName || colKey;
           const cleanCol = String(rawCol).replace(/[^a-z0-9_]/gi, '_');
           const lower = cleanCol.toLowerCase();
