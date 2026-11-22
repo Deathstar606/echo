@@ -330,21 +330,54 @@ function validateReadPlan(rawPlan, tables, userPrompt = '', documentChunks = [])
     }
     const queryId =
       String(rawQuery?.query_id || '').trim() || `q_${queryIndex + 1}`;
-    const filters = (Array.isArray(rawQuery.filters) ? rawQuery.filters : [])
-      .map((filter) => {
-        let value = filter?.value;
-        if (typeof value === 'string' && ['in', 'between'].includes(String(filter.operator).toLowerCase())) {
-          try {
-            value = JSON.parse(value);
-          } catch {
-            value = value.split(',').map((part) => part.trim()).filter(Boolean);
-          }
+    const promotedCalculationFilters = [];
+    const filters = [];
+    for (const filter of Array.isArray(rawQuery.filters) ? rawQuery.filters : []) {
+      let value = filter?.value;
+      const opLower = String(filter?.operator || '').trim().toLowerCase();
+      if (typeof value === 'string' && ['in', 'between'].includes(opLower)) {
+        try {
+          value = JSON.parse(value);
+        } catch {
+          value = value.split(',').map((part) => part.trim()).filter(Boolean);
         }
-        return validateFilter(table.schema, { ...filter, value });
-      });
-    const calculationFilters = (
-      Array.isArray(rawQuery.calculation_filters) ? rawQuery.calculation_filters : []
-    ).map((item) => {
+      }
+      // Auto-normalize same-table column-to-column numeric comparisons (e.g., field: "col_a",
+      // operator: "less_than", value: "col_b") into SQL calculationFilters: (col_a - col_b) <op> 0.
+      if (
+        typeof value === 'string' &&
+        [
+          'equals',
+          'not_equals',
+          'greater_than',
+          'greater_than_or_equal',
+          'less_than',
+          'less_than_or_equal',
+        ].includes(opLower)
+      ) {
+        const leftDef = findColumnDef(table.schema, String(filter?.field || '').trim());
+        const rightDef = findColumnDef(table.schema, value.trim());
+        if (
+          leftDef &&
+          rightDef &&
+          leftDef.exactName !== rightDef.exactName &&
+          ['number', 'integer'].includes(leftDef.colDef.type) &&
+          ['number', 'integer'].includes(rightDef.colDef.type)
+        ) {
+          promotedCalculationFilters.push({
+            expression: `(${quoteIdentifier(leftDef.exactName)}::numeric - ${quoteIdentifier(rightDef.exactName)}::numeric)`,
+            operator: opLower,
+            value: 0,
+          });
+          continue;
+        }
+      }
+      filters.push(validateFilter(table.schema, { ...filter, value }));
+    }
+    const calculationFilters = [
+      ...promotedCalculationFilters,
+      ...(Array.isArray(rawQuery.calculation_filters) ? rawQuery.calculation_filters : []).map(
+        (item) => {
       const expression = buildArithmeticExpression(table.schema, item);
       let value = item.value;
       if (item.operator === 'between' && typeof value === 'string') {
@@ -366,7 +399,8 @@ function validateReadPlan(rawPlan, tables, userPrompt = '', documentChunks = [])
         }
       }
       return { expression, operator: String(item.operator), value };
-    });
+    }),
+    ];
     const rawSortList =
       Array.isArray(rawQuery.order_by) && rawQuery.order_by.length > 0
         ? rawQuery.order_by
@@ -1652,8 +1686,8 @@ CURRENT_DATE (UTC): ${currentDateIso}
 - Select only tables needed to answer the request.
 - Use exact column names and supported filter operators from the schema.
 - If the user uses conceptual, colloquial, or status-adjacent terms that do not match an exact column name, inspect all column names, summary, range, and categorical values in ACTIVE TABLE SCHEMAS to infer the closest valid column(s) and enum value(s) on the first attempt—never invent non-existent column names.
-- TWO-STAGE CROSS-TABLE READ RULE (MANDATORY WHEN COMPARING OR JOINING TWO TABLES): Whenever the question cross-checks, compares, or evaluates arithmetic/thresholds between columns in Table A (anchor, e.g., newly added/open requests or orders) and Table B (lookup, e.g., catalog/inventory/capacity), DO NOT reduce the query to a static single-table filter! Instead:
-  1. Emit the anchor query in "table_queries" with a "query_id" (e.g., "anchor_1"). If referring to recently added/specific rows from CONVERSATION CONTEXT, filter on prior matched_row_ids with operator "in", or use "order_by" + "limit" to select the target rows.
+- TWO-STAGE CROSS-TABLE READ RULE (MANDATORY WHEN COMPARING OR JOINING TWO TABLES): Whenever the question cross-checks, compares, or evaluates sufficiency/arithmetic/thresholds between columns in Table A (anchor, e.g., newly added/open requests or orders, including singular/collective follow-up phrasings like "to fulfill the order", "the orders", "those") and Table B (lookup, e.g., catalog/inventory/capacity), DO NOT reduce the query to a static single-table filter! Instead:
+  1. Emit the anchor query in "table_queries" with a "query_id" (e.g., "anchor_1"). If CONVERSATION CONTEXT has prior matched_row_ids on Table A (such as rows just added or filtered in the previous turn) and the user refers to "the order(s)"/"those"/"the new records", filter Table A's primary key on prior matched_row_ids with operator "in"; if no prior matched_row_ids exist, select the open/pending rows or use "order_by" + "limit".
   2. Emit a "dependent_lookups" entry linking "source_query_id" ("anchor_1") via "source_join_column" to "target_table" and "target_join_column" (with "match_mode": "case_insensitive" or "normalized_string", and optional "fallback_source_join_column"/"fallback_target_join_column").
   3. Emit a "cross_table_comparisons" entry computing the exact cross-table math (e.g., left_source: "lookup_1", left_column: <live inventory col>, operator: "-", right_source: "anchor_1", right_column: <live requested col>, result_alias: "remaining_after_request", threshold_filter: { "op": "<", "value": <policy minimum threshold> }).
 - Apply document-derived eligibility criteria as filters and use AND/OR only as requested by the documents or user.
@@ -1912,7 +1946,7 @@ ${prompt}`;
     }
     const displayClauseMatches = [
       ...String(prompt || '').matchAll(
-        /\b(?:show|list|display|return|find|identify|which|what)\s+(?:all\s+|the\s+|every\s+|any\s+)?([a-z0-9_\s-]{3,40})/gi
+        /\b(?:show|list|display|return|find|identify|check(?:\s+if|\s+whether)?|which|what)\s+(?:all\s+|the\s+|every\s+|any\s+)?([a-z0-9_\s-]{3,40})/gi
       ),
     ];
     for (const match of displayClauseMatches) {

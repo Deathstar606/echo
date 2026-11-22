@@ -61,8 +61,11 @@ const {
 const {
   isBasicTableQueryCandidate,
   isBasicTableMutationCandidate,
+  promptSpansMultipleWorkspaceTables,
+  requiresRelationalOrColumnComparison,
   resolveSingleTableTarget,
   arePromptConceptsCoveredByTable,
+  tryExecuteFastTableQuery,
 } = require('../src/services/fastTableQueryService');
 const { buildSheetQueryPrompt } = require('../src/services/sheetQueryPromptBuilder');
 
@@ -1704,4 +1707,155 @@ test('decoupled email audience tracks mutated and evaluated_unmutated records an
   } finally {
     setWorkspaceGeminiGenerator(null);
   }
+});
+
+test('cross-table and relational sufficiency queries bypass tryExecuteFastTableQuery in 0ms while single-table fast path remains intact', async () => {
+  const velouraMeta = [
+    {
+      table_name: 'products',
+      columns_profile: [
+        { column_name: 'name', data_type: 'text', categorical_values: [] },
+        { column_name: 'category', data_type: 'text', categorical_values: ['polo', 'shirt'] },
+        { column_name: 'stock', data_type: 'integer', numeric_stats: { min: 8, max: 42 } },
+      ],
+    },
+    {
+      table_name: 'backorders_dataset',
+      columns_profile: [
+        { column_name: 'backorder_id', data_type: 'text', categorical_values: [] },
+        { column_name: 'product_name', data_type: 'text', categorical_values: [] },
+        { column_name: 'buyer_tier', data_type: 'text', categorical_values: ['Priority', 'Standard'] },
+        { column_name: 'quantity_requested', data_type: 'integer', numeric_stats: { min: 5, max: 20 } },
+        { column_name: 'quantity_allocated', data_type: 'integer', numeric_stats: { min: 0, max: 20 } },
+        { column_name: 'fulfillment_status', data_type: 'text', categorical_values: ['Pending', 'Fulfilled', 'Shipped', 'On Hold'] },
+      ],
+    },
+  ];
+  const turn1History = [
+    {
+      turn_index: 1,
+      user_prompt: 'Add all the orders from order manifest to the active table',
+      resolved_intent: 'CROSS_DOCUMENT_OPERATION',
+      target_table: 'backorders_dataset',
+      matched_row_ids: ['BO-2023', 'BO-2024', 'BO-2025', 'BO-2026'],
+      assistant_response_summary: 'Committed document sync to backorders_dataset: added 4 row(s) (BO-2023, BO-2024, BO-2025, BO-2026).',
+    },
+  ];
+
+  const tracedPrompt = 'check if any product is below stock to fullfil the order';
+
+  // 1. Exact traced cross-table prompt is caught by multi-table span, relational sufficiency, and coverage gates
+  assert.equal(
+    promptSpansMultipleWorkspaceTables(tracedPrompt, velouraMeta, turn1History, 'backorders_dataset'),
+    true
+  );
+  assert.equal(
+    requiresRelationalOrColumnComparison(tracedPrompt, velouraMeta[1]),
+    true
+  );
+  assert.equal(
+    resolveSingleTableTarget(tracedPrompt, 'backorders_dataset', velouraMeta, turn1History),
+    null
+  );
+  assert.equal(
+    arePromptConceptsCoveredByTable(tracedPrompt, velouraMeta[1], turn1History, velouraMeta),
+    false
+  );
+  const fastResult = await tryExecuteFastTableQuery({
+    businessId: '684a8863-5094-4c8b-9b15-c50c06335b7f',
+    prompt: tracedPrompt,
+    entity: 'backorders_dataset',
+    history: turn1History,
+    metadataRows: velouraMeta,
+  });
+  assert.equal(fastResult, null);
+
+  // 2. Unrelated domain (healthcare transfer_requests + hospital_units) also bypasses fast path in 0ms
+  const hospitalMeta = [
+    {
+      table_name: 'transfer_requests',
+      columns_profile: [
+        { column_name: 'req_id', data_type: 'text' },
+        { column_name: 'beds_requested', data_type: 'integer' },
+      ],
+    },
+    {
+      table_name: 'hospital_units',
+      columns_profile: [
+        { column_name: 'unit_code', data_type: 'text' },
+        { column_name: 'available_beds', data_type: 'integer' },
+      ],
+    },
+  ];
+  const hospitalPrompt = 'check if any unit is below available beds to accommodate the transfer';
+  assert.equal(
+    promptSpansMultipleWorkspaceTables(hospitalPrompt, hospitalMeta, [], 'transfer_requests'),
+    true
+  );
+  assert.equal(
+    requiresRelationalOrColumnComparison(hospitalPrompt, hospitalMeta[0]),
+    true
+  );
+  assert.equal(
+    resolveSingleTableTarget(hospitalPrompt, 'transfer_requests', hospitalMeta, []),
+    null
+  );
+
+  // 3. Genuine single-table queries & single-table follow-ups remain on the fast path
+  assert.equal(
+    promptSpansMultipleWorkspaceTables('show orders with buyer tier priority and already shipped', velouraMeta, [], 'backorders_dataset'),
+    false
+  );
+  assert.equal(
+    resolveSingleTableTarget('show orders with buyer tier priority and already shipped', 'backorders_dataset', velouraMeta, [])?.meta.table_name,
+    'backorders_dataset'
+  );
+  assert.equal(
+    arePromptConceptsCoveredByTable('of those, only pendingorders'.replace('pendingorders', 'pending'), velouraMeta[1], turn1History, velouraMeta),
+    true
+  );
+});
+
+test('validateReadPlan auto-normalizes same-table column-to-column numeric filters into SQL calculationFilters', () => {
+  const ordersTable = {
+    tableName: 'backorders_dataset',
+    rowCount: 25,
+    schema: {
+      tableName: 'backorders_dataset',
+      primaryKey: 'backorder_id',
+      columns: {
+        workspace_id: { exactName: 'workspace_id', type: 'string', queryable: false },
+        backorder_id: { exactName: 'backorder_id', type: 'string', queryable: true },
+        quantity_requested: { exactName: 'quantity_requested', type: 'integer', queryable: true },
+        quantity_allocated: { exactName: 'quantity_allocated', type: 'integer', queryable: true },
+      },
+    },
+  };
+
+  const [plan] = validateReadPlan(
+    {
+      table_queries: [
+        {
+          table_name: 'backorders_dataset',
+          filters: [
+            {
+              field: 'quantity_allocated',
+              operator: 'less_than',
+              value: 'quantity_requested',
+            },
+          ],
+        },
+      ],
+    },
+    [ordersTable],
+    'Show orders where quantity_allocated is less than quantity_requested'
+  );
+
+  assert.equal(plan.filters.length, 0);
+  assert.equal(plan.calculationFilters.length, 1);
+  assert.deepEqual(plan.calculationFilters[0], {
+    expression: '("quantity_allocated"::numeric - "quantity_requested"::numeric)',
+    operator: 'less_than',
+    value: 0,
+  });
 });

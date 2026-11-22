@@ -777,6 +777,13 @@ export function useB2BOperationsWorkflow({
       setWorkflowStatus('executed');
       onMutationsPreviewChange?.([]);
 
+      const committedSyncIds = isDocumentSync
+        ? editedMutations
+            .filter((m) => m.include !== false)
+            .map((m) => String(m.row_identifier || '').trim())
+            .filter(Boolean)
+        : [];
+
       let completedSummary: string;
       if (isDocumentSync) {
         const parts: string[] = [];
@@ -787,7 +794,11 @@ export function useB2BOperationsWorkflow({
           parts.length > 0
             ? parts.join(', ')
             : `applied ${res.updated_rows_count} row change(s)`;
-        completedSummary = `Committed document sync to ${res.target_entity || previewData.target_entity || activeEntity}: ${detail}.`;
+        const idSuffix =
+          committedSyncIds.length > 0
+            ? ` (${committedSyncIds.slice(0, 12).join(', ')})`
+            : '';
+        completedSummary = `Committed document sync to ${res.target_entity || previewData.target_entity || activeEntity}: ${detail}${idSuffix}.`;
       } else {
         completedSummary = `Completed the approved operation: updated ${res.updated_rows_count} row(s) and sent ${res.dispatched_emails_count} email(s).`;
       }
@@ -809,6 +820,9 @@ export function useB2BOperationsWorkflow({
         if (previous.length === 0) return previous;
         const next = [...previous];
         const last = { ...next[next.length - 1] };
+        if (committedSyncIds.length > 0) {
+          last.matched_row_ids = committedSyncIds;
+        }
         last.assistant_response_summary = completedSummary;
         next[next.length - 1] = last;
         return next.slice(-5);

@@ -155,6 +155,18 @@ function isBasicTableMutationCandidate(prompt, history = []) {
   }
 
   if (DIRECT_MUTATION_LEAD_REGEX.test(text)) {
+    if (hasFollowUpReference(text) && Array.isArray(history) && history.length > 0) {
+      const normalizedHistory = normalizeConversationHistory(history);
+      const activeCtx = getLatestActiveContext(normalizedHistory);
+      const lastIntent = String(activeCtx.lastTurn?.resolved_intent || '').toUpperCase();
+      if (
+        activeCtx.matchedRowIds.length === 0 &&
+        !activeCtx.pendingClarification &&
+        !lastIntent.includes('SHEET_MUTATION')
+      ) {
+        return false;
+      }
+    }
     return true;
   }
 
@@ -324,6 +336,210 @@ function scoreTableAgainstPrompt(prompt, promptLower, promptWords, activeEntity,
   return { tableName, score, explicitNamed, meta };
 }
 
+const GENERIC_METADATA_TABLE_TOKENS = new Set([
+  'dataset',
+  'data',
+  'table',
+  'sheet',
+  'management',
+  'csv',
+  'records',
+  'rows',
+]);
+
+const SYSTEM_METADATA_COLS = new Set([
+  'id',
+  'business_id',
+  'workspace_id',
+  'user_id',
+  'workspace_document_id',
+  '_google_row_index',
+  'created_at',
+  'updated_at',
+]);
+
+/**
+ * Dynamically checks whether a prompt spans 2 or more tables in `workspace_table_metadata`
+ * (e.g., referencing an active/follow-up order table AND a column or table noun belonging
+ * exclusively to another workspace table). Zero hardcoded table or column names.
+ *
+ * @param {string} prompt
+ * @param {Array<object>} [metadataRows=[]]
+ * @param {Array<object>} [conversationHistory=[]]
+ * @param {string | null} [activeEntity=null]
+ * @returns {boolean}
+ */
+function promptSpansMultipleWorkspaceTables(
+  prompt,
+  metadataRows = [],
+  conversationHistory = [],
+  activeEntity = null
+) {
+  if (!Array.isArray(metadataRows) || metadataRows.length <= 1) {
+    return false;
+  }
+  const promptLower = String(prompt || '').toLowerCase();
+  if (!promptLower.trim()) return false;
+
+  const normalizedHistory = normalizeConversationHistory(conversationHistory);
+  const activeCtx = getLatestActiveContext(normalizedHistory, activeEntity);
+  const followUpTableNorm =
+    hasFollowUpReference(prompt) && (activeCtx.activeTargetTable || activeEntity)
+      ? normalizeEntityName(activeCtx.activeTargetTable || activeEntity).toLowerCase()
+      : null;
+
+  const tableDescriptors = metadataRows.map((meta) => {
+    const tableName = String(meta?.table_name || '').trim();
+    const tableLower = tableName.toLowerCase();
+    const tableNorm = normalizeEntityName(tableName).toLowerCase();
+    const spacedTable = tableLower.replace(/_/g, ' ');
+
+    const nameTokens = new Set(
+      expandTokenVariants(tableLower).filter(
+        (t) => t.length >= 3 && !GENERIC_METADATA_TABLE_TOKENS.has(t)
+      )
+    );
+    // If table name is compound like "backorders_dataset", also include root "order"/"orders"
+    if (tableLower.includes('order')) {
+      nameTokens.add('order');
+      nameTokens.add('orders');
+    }
+
+    const colTokens = new Set();
+    const fullColNames = new Set();
+    for (const col of Array.isArray(meta?.columns_profile) ? meta.columns_profile : []) {
+      const colName = String(col?.column_name || col?.name || '').trim().toLowerCase();
+      if (!colName || SYSTEM_METADATA_COLS.has(colName)) continue;
+      fullColNames.add(colName);
+      fullColNames.add(colName.replace(/_/g, ' '));
+      for (const tok of expandTokenVariants(colName)) {
+        if (tok.length >= 3 && !GENERIC_METADATA_TABLE_TOKENS.has(tok)) {
+          colTokens.add(tok);
+        }
+      }
+    }
+
+    const allVocab = new Set([...nameTokens, ...colTokens, ...fullColNames]);
+    const explicitTableHit =
+      new RegExp(`\\b${escapeRegex(tableLower)}(?:\\.csv)?\\b`, 'i').test(promptLower) ||
+      (spacedTable !== tableLower &&
+        new RegExp(`\\b${escapeRegex(spacedTable)}\\b`, 'i').test(promptLower));
+
+    const matchedNameTokens = [];
+    if (explicitTableHit) {
+      matchedNameTokens.push(tableNorm);
+    }
+    for (const tok of nameTokens) {
+      if (new RegExp(`\\b${escapeRegex(tok)}\\b`, 'i').test(promptLower)) {
+        matchedNameTokens.push(tok);
+      }
+    }
+
+    const matchedCols = [];
+    for (const cName of fullColNames) {
+      if (cName.length >= 3 && new RegExp(`\\b${escapeRegex(cName)}\\b`, 'i').test(promptLower)) {
+        matchedCols.push(cName);
+      }
+    }
+    for (const cTok of colTokens) {
+      if (cTok.length >= 4 && new RegExp(`\\b${escapeRegex(cTok)}\\b`, 'i').test(promptLower)) {
+        matchedCols.push(cTok);
+      }
+    }
+
+    return {
+      tableName,
+      tableNorm,
+      allVocab,
+      matchedNameTokens,
+      matchedCols,
+      matchedAllTokens: [...new Set([...matchedNameTokens, ...matchedCols])],
+      isFollowUpTarget: Boolean(followUpTableNorm && followUpTableNorm === tableNorm),
+    };
+  });
+
+  // Two distinct tables (A, B) are jointly referenced ONLY when EACH table has at least
+  // one independent match (or follow-up anchor) that is NOT in the other table's vocabulary
+  // (so a single shared word like "orders" across two order tables never false-triggers).
+  for (let i = 0; i < tableDescriptors.length; i += 1) {
+    const tableA = tableDescriptors[i];
+    if (tableA.matchedNameTokens.length === 0 && !tableA.isFollowUpTarget) continue;
+
+    for (let j = 0; j < tableDescriptors.length; j += 1) {
+      if (i === j) continue;
+      const tableB = tableDescriptors[j];
+      const aHasExclusiveSignal =
+        (tableA.isFollowUpTarget && tableB.tableNorm !== tableA.tableNorm) ||
+        tableA.matchedAllTokens.some((tok) => !tableB.allVocab.has(tok));
+      if (!aHasExclusiveSignal) continue;
+
+      const bHasExclusiveColHit = tableB.matchedCols.some((colTok) => !tableA.allVocab.has(colTok));
+      const bHasExclusiveNameHit = tableB.matchedNameTokens.some(
+        (nameTok) => !tableA.allVocab.has(nameTok)
+      );
+
+      if (bHasExclusiveColHit || (bHasExclusiveNameHit && tableA.isFollowUpTarget)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Detects relational sufficiency/fulfillment checks or same-table column-to-column
+ * comparisons that cannot be evaluated as `<column> <op> <constant_literal>` in
+ * `executeSpreadsheetQuery` and must route to `routeWorkspaceIntent` (`route_and_plan`).
+ *
+ * @param {string} prompt
+ * @param {object | null} [targetMeta=null]
+ * @returns {boolean}
+ */
+function requiresRelationalOrColumnComparison(prompt, targetMeta = null) {
+  const text = String(prompt || '').trim();
+  if (!text) return false;
+
+  // 1. Relational sufficiency / capacity-to-fulfill demand pattern
+  const relationalSufficiencyPattern =
+    /\b(?:(?:below|under|enough|sufficient|insufficient|lack(?:s|ing)?|short\s+of|out\s+of)\s+(?:the\s+|our\s+|available\s+|current\s+|minimum\s+|required\s+)?[a-z0-9_]+(?:\s+[a-z0-9_]+){0,2}\s+to\s+(?:fulfil+|fullfil+|satisfy|cover|accommodate|complete|process|handle|meet|supply|allocate|ship|support)|can\s+(?:we|they|it|the\s+[a-z0-9_]+)\s+(?:fulfil+|fullfil+|accommodate|cover|satisfy|allocate|handle)|enough\s+[a-z0-9_]+\s+for\s+(?:the|those|these|all|every|each)\b)/i;
+  if (relationalSufficiencyPattern.test(text)) {
+    return true;
+  }
+
+  // 2. Same-table column-to-column comparison (2 numeric columns compared without literal numbers)
+  const cols = Array.isArray(targetMeta?.columns_profile) ? targetMeta.columns_profile : [];
+  if (cols.length >= 2) {
+    const promptLower = text.toLowerCase();
+    const matchedNumericCols = [];
+    for (const col of cols) {
+      const colName = String(col?.column_name || col?.name || '').trim().toLowerCase();
+      if (!colName || SYSTEM_METADATA_COLS.has(colName)) continue;
+      const dataType = String(col?.data_type || col?.type || '').toLowerCase();
+      const isNumeric = /int|num|dec|float|double|real/.test(dataType) || Boolean(col?.numeric_stats);
+      if (!isNumeric) continue;
+      const spaced = colName.replace(/_/g, ' ');
+      if (
+        new RegExp(`\\b${escapeRegex(colName)}\\b`, 'i').test(promptLower) ||
+        (spaced !== colName && new RegExp(`\\b${escapeRegex(spaced)}\\b`, 'i').test(promptLower))
+      ) {
+        matchedNumericCols.push(colName);
+      }
+    }
+    if (
+      matchedNumericCols.length >= 2 &&
+      /\b(?:less\s+than|greater\s+than|more\s+than|below|above|under|over|exceed(?:s|ing)?|equal(?:s|\s+to)?|not\s+equal|minus|difference\s+between|<|>|=)\b/i.test(
+        promptLower
+      ) &&
+      !/\b\d+(?:\.\d+)?\b/.test(promptLower)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /**
  * Selects a single unambiguous workspace table from `workspace_table_metadata`.
  * Returns `null` if 0 tables exist, if an unknown external table is referenced,
@@ -369,6 +585,17 @@ function resolveSingleTableTarget(
   }
 
   const normalizedHistory = normalizeConversationHistory(conversationHistory);
+  if (
+    promptSpansMultipleWorkspaceTables(
+      prompt,
+      metadataRows,
+      normalizedHistory,
+      activeEntity
+    )
+  ) {
+    return null;
+  }
+
   const activeCtx = getLatestActiveContext(normalizedHistory, activeEntity);
   const effectiveActiveEntity = activeCtx.activeTargetTable || activeEntity || null;
 
@@ -387,6 +614,7 @@ function resolveSingleTableTarget(
   }
 
   // Follow-up narrowing, clarification replies, or post-mutation column/value follow-ups inherit the prior turn's active table
+  // ONLY when no other workspace table scored higher on explicit domain/column tokens.
   const isMutationFollowUp = String(activeCtx.lastTurn?.resolved_intent || '')
     .toUpperCase()
     .includes('SHEET_MUTATION');
@@ -397,13 +625,18 @@ function resolveSingleTableTarget(
     activeCtx.activeTargetTable &&
     !hasExplicitScopeReset(prompt)
   ) {
-    const priorMeta = metadataRows.find(
-      (m) =>
-        normalizeEntityName(m.table_name) ===
-        normalizeEntityName(activeCtx.activeTargetTable)
+    const priorNorm = normalizeEntityName(activeCtx.activeTargetTable);
+    const priorScored = scored.find(
+      (item) => normalizeEntityName(item.tableName) === priorNorm
     );
-    if (priorMeta) {
-      return { meta: priorMeta };
+    const topOther = scored.find(
+      (item) => normalizeEntityName(item.tableName) !== priorNorm
+    );
+    if (
+      priorScored &&
+      (!topOther || topOther.score <= 0 || priorScored.score >= topOther.score)
+    ) {
+      return { meta: priorScored.meta };
     }
   }
 
@@ -608,13 +841,22 @@ function addWordStemVariants(word, targetSet) {
  * @param {Array<object>} [history=[]]
  * @returns {boolean}
  */
-function arePromptConceptsCoveredByTable(prompt, meta, history = []) {
+function arePromptConceptsCoveredByTable(
+  prompt,
+  meta,
+  history = [],
+  allMetadataRows = []
+) {
   const text = String(prompt || '').trim();
   if (!text || !meta) return false;
 
   const normalizedHistory = normalizeConversationHistory(history);
   const activeCtx = getLatestActiveContext(normalizedHistory);
-  if (activeCtx.pendingClarification || hasFollowUpReference(text)) {
+  // Only bypass vocabulary coverage for short clarification replies to an active clarification turn
+  if (
+    activeCtx.pendingClarification &&
+    text.split(/\s+/).filter(Boolean).length <= 6
+  ) {
     return true;
   }
 
@@ -645,6 +887,40 @@ function arePromptConceptsCoveredByTable(prompt, meta, history = []) {
     }
   }
 
+  // Build exclusive schema roots belonging to OTHER workspace tables (absent from `meta`)
+  // so domain nouns in QUERY_GRAMMAR_WORDS (like 'stock', 'product', 'order') are NOT ignored
+  // when they actually refer to a column or table name on a different workspace table.
+  const otherTableExclusiveRoots = new Set();
+  if (Array.isArray(allMetadataRows) && allMetadataRows.length > 1) {
+    const metaNorm = normalizeEntityName(String(meta.table_name || '')).toLowerCase();
+    for (const other of allMetadataRows) {
+      const otherNorm = normalizeEntityName(String(other?.table_name || '')).toLowerCase();
+      if (!otherNorm || otherNorm === metaNorm) continue;
+      for (const tok of String(other.table_name || '').toLowerCase().split(/[^a-z0-9]+/)) {
+        if (tok.length >= 3 && !GENERIC_METADATA_TABLE_TOKENS.has(tok)) {
+          const variants = new Set();
+          addWordStemVariants(tok, variants);
+          for (const v of variants) {
+            if (!vocabRoots.has(v)) otherTableExclusiveRoots.add(v);
+          }
+        }
+      }
+      for (const col of Array.isArray(other?.columns_profile) ? other.columns_profile : []) {
+        const cName = String(col?.column_name || col?.name || '').toLowerCase();
+        if (!cName || SYSTEM_METADATA_COLS.has(cName)) continue;
+        for (const tok of cName.split(/[^a-z0-9]+/)) {
+          if (tok.length >= 3 && !GENERIC_METADATA_TABLE_TOKENS.has(tok)) {
+            const variants = new Set();
+            addWordStemVariants(tok, variants);
+            for (const v of variants) {
+              if (!vocabRoots.has(v)) otherTableExclusiveRoots.add(v);
+            }
+          }
+        }
+      }
+    }
+  }
+
   // Raw alphanumeric/hyphenated codes (SKUs, order IDs, etc.) and numbers pass automatically
   const tokens = text
     .split(/[^a-zA-Z0-9_-]+/)
@@ -655,14 +931,22 @@ function arePromptConceptsCoveredByTable(prompt, meta, history = []) {
     if (rawTok.length < 3) continue;
     if (/^\d/.test(rawTok) || /[_-]/.test(rawTok) || /\d/.test(rawTok)) continue;
     const lower = rawTok.toLowerCase();
-    if (QUERY_GRAMMAR_WORDS.has(lower)) continue;
 
     const candidates = new Set();
     addWordStemVariants(lower, candidates);
     const matchesVocab = [...candidates].some((c) => vocabRoots.has(c));
-    if (!matchesVocab) {
+    if (matchesVocab) continue;
+
+    const matchesOtherTableExclusive = [...candidates].some((c) =>
+      otherTableExclusiveRoots.has(c)
+    );
+    if (matchesOtherTableExclusive) {
       return false;
     }
+
+    if (QUERY_GRAMMAR_WORDS.has(lower)) continue;
+
+    return false;
   }
 
   return true;
@@ -713,7 +997,10 @@ async function tryExecuteFastTableQuery({
   }
 
   const meta = targetMatch.meta;
-  if (!arePromptConceptsCoveredByTable(prompt, meta, normalizedHistory)) {
+  if (requiresRelationalOrColumnComparison(prompt, meta)) {
+    return null;
+  }
+  if (!arePromptConceptsCoveredByTable(prompt, meta, normalizedHistory, resolvedMetadata)) {
     return null;
   }
 
@@ -741,7 +1028,10 @@ async function tryExecuteFastTableQuery({
 
   if (!interpreted || interpreted.status === 'clarification_needed') {
     const activeCtx = getLatestActiveContext(normalizedHistory, entity);
-    if (!activeCtx.pendingClarification && !hasFollowUpReference(prompt)) {
+    const isSchemaLimitation = /^Schema limitation:/i.test(
+      String(interpreted?.message || '').trim()
+    );
+    if (isSchemaLimitation || !activeCtx.pendingClarification) {
       return null;
     }
     const clarifyMsg =
@@ -948,6 +1238,8 @@ module.exports = {
   isBasicTableQueryCandidate,
   isBasicTableMutationCandidate,
   promptReferencesWorkspaceDocument,
+  promptSpansMultipleWorkspaceTables,
+  requiresRelationalOrColumnComparison,
   resolveSingleTableTarget,
   arePromptConceptsCoveredByTable,
   buildDeterministicQuerySummary,
