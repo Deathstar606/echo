@@ -1,0 +1,133 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 2926 >>
+stream
+0.10 0.22 0.36 rg
+BT /F2 15 Tf 54 736 Td (METROPOLITAN CLINICAL OPERATIONS AUTHORITY) Tj ET
+0 0 0 rg
+BT /F2 13 Tf 54 718 Td (INTER-FACILITY PATIENT TRANSFER INTAKE MANIFEST \(MCOA-TRF-2026-1124\)) Tj ET
+0.30 0.30 0.30 rg
+BT /F1 9 Tf 54 703 Td (Service: Regional Bed Control & Acute Transfer Center | Date: 2026-11-24 | Target Ledger: patient_transfer_requests) Tj ET
+0.15 0.32 0.52 RG 1.2 w 54 693 m 558 693 l S
+0 0 0 rg
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 669 Td (1. Clinical Intake Summary) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 664 m 558 664 l S
+0 0 0 rg
+BT /F1 9.5 Tf 54 651 Td (This transfer manifest records four acute-care inter-facility transfer requests received by) Tj ET
+BT /F1 9.5 Tf 54 637.5 Td (the Regional Bed Control Desk on 2026-11-24. Referring physicians have submitted stabilized) Tj ET
+BT /F1 9.5 Tf 54 624 Td (patient transfer packets requiring bed allocation across ICU and Progressive Care units) Tj ET
+BT /F1 9.5 Tf 54 610.5 Td (tracked in hospital_units.) Tj ET
+BT /F1 9.5 Tf 54 593 Td (Bed flow coordinators must log all four requests into patient_transfer_requests with) Tj ET
+BT /F1 9.5 Tf 54 579.5 Td (beds_assigned set to 0 and transfer_status set to Pending before performing unit-level) Tj ET
+BT /F1 9.5 Tf 54 566 Td (clean-bed surge reserve screening under Directive SOP-CLIN-2026-04.) Tj ET
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 542.5 Td (2. Incoming Acute Transfer Requests) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 537.5 m 558 537.5 l S
+0 0 0 rg
+0.95 0.96 0.98 rg
+54 521.5 504 15 re f
+0.10 0.22 0.36 rg
+BT /F2 10 Tf 60 524.5 Td (Transfer Request 1 - TRF-2026-007 \(Surgical Trauma Stabilization\)) Tj ET
+0 0 0 rg
+BT /F1 9 Tf 64 508.5 Td (transfer_id: TRF-2026-007 | request_date: 2026-11-24 | patient_ref: PT-88412) Tj ET
+BT /F1 9 Tf 64 496 Td (referring_physician: Dr. Elena Rostova | attending_email: erostova@metroclinical.org) Tj ET
+BT /F1 9 Tf 64 483.5 Td (target_unit_id: HICU-04 | target_unit_name: Surgical Trauma ICU) Tj ET
+BT /F1 9 Tf 64 471 Td (beds_requested: 2 | beds_assigned: 0 | transfer_status: Pending) Tj ET
+0.85 0.85 0.85 RG 0.4 w 54 460.5 m 558 460.5 l S
+0.95 0.96 0.98 rg
+54 445.5 504 15 re f
+0.10 0.22 0.36 rg
+BT /F2 10 Tf 60 448.5 Td (Transfer Request 2 - TRF-2026-008 \(Post-Catheterization Step-Down\)) Tj ET
+0 0 0 rg
+BT /F1 9 Tf 64 432.5 Td (transfer_id: TRF-2026-008 | request_date: 2026-11-24 | patient_ref: PT-88419) Tj ET
+BT /F1 9 Tf 64 420 Td (referring_physician: Dr. Marcus Vance | attending_email: mvance@metroclinical.org) Tj ET
+BT /F1 9 Tf 64 407.5 Td (target_unit_id: HPCU-01 | target_unit_name: Cardiac Step-Down PCU) Tj ET
+BT /F1 9 Tf 64 395 Td (beds_requested: 2 | beds_assigned: 0 | transfer_status: Pending) Tj ET
+0.85 0.85 0.85 RG 0.4 w 54 384.5 m 558 384.5 l S
+0.75 0.75 0.75 RG 0.5 w 54 48 m 558 48 l S
+0.45 0.45 0.45 rg
+BT /F1 8 Tf 54 36 Td (Clinical Operations Record - Handle per Hospital Capacity Governance) Tj ET
+BT /F1 8 Tf 490 36 Td (Page 1 of 2) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 8 0 R >>
+endobj
+8 0 obj
+<< /Length 2328 >>
+stream
+0.45 0.45 0.45 rg
+BT /F1 8 Tf 54 762 Td (Metropolitan Clinical Operations Authority - Transfer Center) Tj ET
+BT /F1 8 Tf 410 762 Td (Log: MCOA-TRF-2026-1124) Tj ET
+0.80 0.80 0.80 RG 0.5 w 54 756 m 558 756 l S
+0 0 0 rg
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 730 Td (2. Incoming Acute Transfer Requests \(Continued\)) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 725 m 558 725 l S
+0 0 0 rg
+0.95 0.96 0.98 rg
+54 709 504 15 re f
+0.10 0.22 0.36 rg
+BT /F2 10 Tf 60 712 Td (Transfer Request 3 - TRF-2026-009 \(Decompensated CHF Monitoring\)) Tj ET
+0 0 0 rg
+BT /F1 9 Tf 64 696 Td (transfer_id: TRF-2026-009 | request_date: 2026-11-24 | patient_ref: PT-88425) Tj ET
+BT /F1 9 Tf 64 683.5 Td (referring_physician: Dr. Priya Nair | attending_email: pnair@metroclinical.org) Tj ET
+BT /F1 9 Tf 64 671 Td (target_unit_id: HICU-03 | target_unit_name: Cardiac ICU) Tj ET
+BT /F1 9 Tf 64 658.5 Td (beds_requested: 1 | beds_assigned: 0 | transfer_status: Pending) Tj ET
+0.85 0.85 0.85 RG 0.4 w 54 648 m 558 648 l S
+0.95 0.96 0.98 rg
+54 633 504 15 re f
+0.10 0.22 0.36 rg
+BT /F2 10 Tf 60 636 Td (Transfer Request 4 - TRF-2026-010 \(Subarachnoid Hemorrhage Observation\)) Tj ET
+0 0 0 rg
+BT /F1 9 Tf 64 620 Td (transfer_id: TRF-2026-010 | request_date: 2026-11-24 | patient_ref: PT-88431) Tj ET
+BT /F1 9 Tf 64 607.5 Td (referring_physician: Dr. David Chen | attending_email: dchen@metroclinical.org) Tj ET
+BT /F1 9 Tf 64 595 Td (target_unit_id: HICU-05 | target_unit_name: Neuro Critical Care ICU) Tj ET
+BT /F1 9 Tf 64 582.5 Td (beds_requested: 1 | beds_assigned: 0 | transfer_status: Pending) Tj ET
+0.85 0.85 0.85 RG 0.4 w 54 572 m 558 572 l S
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 554 Td (3. Transfer Desk Verification Notes) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 549 m 558 549 l S
+0 0 0 rg
+BT /F1 9.5 Tf 62 536 Td (- All transfers must be verified against live clean_beds in hospital_units matched by) Tj ET
+BT /F1 9.5 Tf 70 523 Td (unit_id = target_unit_id prior to bed confirmation.) Tj ET
+BT /F1 9.5 Tf 62 508 Td (- Direct outcome dispatches must be sent to all four attending_email contacts once) Tj ET
+BT /F1 9.5 Tf 70 495 Td (surge-reserve screening completes.) Tj ET
+0.75 0.75 0.75 RG 0.5 w 54 48 m 558 48 l S
+0.45 0.45 0.45 rg
+BT /F1 8 Tf 54 36 Td (Clinical Operations Record - Handle per Hospital Capacity Governance) Tj ET
+BT /F1 8 Tf 490 36 Td (Page 2 of 2) Tj ET
+endstream
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000218 00000 n 
+0000000320 00000 n 
+0000000456 00000 n 
+0000003433 00000 n 
+0000003569 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+5948
+%%EOF

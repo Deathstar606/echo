@@ -574,6 +574,7 @@ function createInMemoryPostgresPool() {
         ai_draft_reply: null,
         ai_draft_category: null,
         ai_draft_missing_info: null,
+        ai_draft_citations: '[]',
         ai_draft_message_id: null,
         ai_draft_updated_at: null,
         created_at: now,
@@ -589,6 +590,9 @@ function createInMemoryPostgresPool() {
       ) ||
       normalized.startsWith(
         'SELECT ID, BUSINESS_ID, CUSTOMER_ID, STATUS, AI_DRAFT_REPLY, AI_DRAFT_CATEGORY, AI_DRAFT_MISSING_INFO, AI_DRAFT_MESSAGE_ID, AI_DRAFT_UPDATED_AT, CREATED_AT, UPDATED_AT FROM CONVERSATIONS WHERE ID = $1 AND BUSINESS_ID = $2'
+      ) ||
+      normalized.startsWith(
+        'SELECT ID, BUSINESS_ID, CUSTOMER_ID, STATUS, AI_DRAFT_REPLY, AI_DRAFT_CATEGORY, AI_DRAFT_MISSING_INFO, AI_DRAFT_CITATIONS, AI_DRAFT_MESSAGE_ID, AI_DRAFT_UPDATED_AT, CREATED_AT, UPDATED_AT FROM CONVERSATIONS WHERE ID = $1 AND BUSINESS_ID = $2'
       )
     ) {
       const [conversationId, businessId] = params;
@@ -635,6 +639,9 @@ function createInMemoryPostgresPool() {
     if (
       normalized.startsWith(
         'SELECT ID, BUSINESS_ID, CUSTOMER_ID, STATUS, AI_DRAFT_REPLY, AI_DRAFT_CATEGORY, AI_DRAFT_MISSING_INFO, AI_DRAFT_MESSAGE_ID, AI_DRAFT_UPDATED_AT, CREATED_AT, UPDATED_AT FROM CONVERSATIONS WHERE BUSINESS_ID = $1 ORDER BY UPDATED_AT DESC, CREATED_AT DESC, ID DESC'
+      ) ||
+      normalized.startsWith(
+        'SELECT ID, BUSINESS_ID, CUSTOMER_ID, STATUS, AI_DRAFT_REPLY, AI_DRAFT_CATEGORY, AI_DRAFT_MISSING_INFO, AI_DRAFT_CITATIONS, AI_DRAFT_MESSAGE_ID, AI_DRAFT_UPDATED_AT, CREATED_AT, UPDATED_AT FROM CONVERSATIONS WHERE BUSINESS_ID = $1 ORDER BY UPDATED_AT DESC, CREATED_AT DESC, ID DESC'
       )
     ) {
       const [businessId] = params;
@@ -667,6 +674,9 @@ function createInMemoryPostgresPool() {
     if (
       normalized.startsWith(
         'UPDATE CONVERSATIONS SET AI_DRAFT_REPLY = $3, AI_DRAFT_CATEGORY = $4, AI_DRAFT_MISSING_INFO = $5::JSONB, AI_DRAFT_MESSAGE_ID = $6, AI_DRAFT_UPDATED_AT = NOW() WHERE ID = $1 AND BUSINESS_ID = $2'
+      ) ||
+      normalized.startsWith(
+        'UPDATE CONVERSATIONS SET AI_DRAFT_REPLY = $3, AI_DRAFT_CATEGORY = $4, AI_DRAFT_MISSING_INFO = $5::JSONB, AI_DRAFT_CITATIONS = $7::JSONB, AI_DRAFT_MESSAGE_ID = $6, AI_DRAFT_UPDATED_AT = NOW() WHERE ID = $1 AND BUSINESS_ID = $2'
       )
     ) {
       const [
@@ -676,6 +686,7 @@ function createInMemoryPostgresPool() {
         draftCategory,
         draftMissingInfo,
         draftMessageId,
+        draftCitations,
       ] = params;
       const conv = conversations.get(conversationId);
       if (!conv || conv.business_id !== businessId) {
@@ -684,6 +695,7 @@ function createInMemoryPostgresPool() {
       conv.ai_draft_reply = draftReply;
       conv.ai_draft_category = draftCategory;
       conv.ai_draft_missing_info = draftMissingInfo;
+      conv.ai_draft_citations = draftCitations ?? '[]';
       conv.ai_draft_message_id = draftMessageId;
       conv.ai_draft_updated_at = nextIsoTimestamp();
       return { rows: [{ ...conv }], rowCount: 1 };
@@ -692,6 +704,9 @@ function createInMemoryPostgresPool() {
     if (
       normalized.startsWith(
         'UPDATE CONVERSATIONS SET AI_DRAFT_REPLY = NULL, AI_DRAFT_CATEGORY = NULL, AI_DRAFT_MISSING_INFO = NULL, AI_DRAFT_MESSAGE_ID = NULL, AI_DRAFT_UPDATED_AT = NOW() WHERE ID = $1 AND BUSINESS_ID = $2'
+      ) ||
+      normalized.startsWith(
+        "UPDATE CONVERSATIONS SET AI_DRAFT_REPLY = NULL, AI_DRAFT_CATEGORY = NULL, AI_DRAFT_MISSING_INFO = NULL, AI_DRAFT_CITATIONS = '[]'::JSONB, AI_DRAFT_MESSAGE_ID = NULL, AI_DRAFT_UPDATED_AT = NOW() WHERE ID = $1 AND BUSINESS_ID = $2"
       )
     ) {
       const [conversationId, businessId] = params;
@@ -702,6 +717,7 @@ function createInMemoryPostgresPool() {
       conv.ai_draft_reply = null;
       conv.ai_draft_category = null;
       conv.ai_draft_missing_info = null;
+      conv.ai_draft_citations = '[]';
       conv.ai_draft_message_id = null;
       conv.ai_draft_updated_at = nextIsoTimestamp();
       return { rows: [{ ...conv }], rowCount: 1 };
@@ -743,6 +759,7 @@ function createInMemoryPostgresPool() {
         ai_suggestion: null,
         ai_category: null,
         ai_missing_info: null,
+        ai_citations: '[]',
         created_at: nextIsoTimestamp(),
       };
       messages.push(row);
@@ -752,9 +769,12 @@ function createInMemoryPostgresPool() {
     if (
       normalized.startsWith(
         'UPDATE MESSAGES SET AI_SUGGESTION = $3, AI_CATEGORY = $4, AI_MISSING_INFO = $5::JSONB WHERE ID = $1 AND CONVERSATION_ID = $2'
+      ) ||
+      normalized.startsWith(
+        'UPDATE MESSAGES SET AI_SUGGESTION = $3, AI_CATEGORY = $4, AI_MISSING_INFO = $5::JSONB, AI_CITATIONS = $6::JSONB WHERE ID = $1 AND CONVERSATION_ID = $2'
       )
     ) {
-      const [messageId, conversationId, suggestion, category, missingInfo] =
+      const [messageId, conversationId, suggestion, category, missingInfo, citations] =
         params;
       const msg = messages.find(
         (m) => m.id === messageId && m.conversation_id === conversationId
@@ -765,6 +785,7 @@ function createInMemoryPostgresPool() {
       msg.ai_suggestion = suggestion;
       msg.ai_category = category;
       msg.ai_missing_info = missingInfo;
+      msg.ai_citations = citations ?? '[]';
       return { rows: [{ ...msg }], rowCount: 1 };
     }
 
@@ -812,6 +833,9 @@ function createInMemoryPostgresPool() {
       ) ||
       normalized.startsWith(
         'SELECT ID, CONVERSATION_ID, SENDER_TYPE, CONTENT, AI_SUGGESTION, AI_CATEGORY, AI_MISSING_INFO, CREATED_AT FROM MESSAGES WHERE CONVERSATION_ID = $1 ORDER BY CREATED_AT ASC, ID ASC'
+      ) ||
+      normalized.startsWith(
+        'SELECT ID, CONVERSATION_ID, SENDER_TYPE, CONTENT, AI_SUGGESTION, AI_CATEGORY, AI_MISSING_INFO, AI_CITATIONS, CREATED_AT FROM MESSAGES WHERE CONVERSATION_ID = $1 ORDER BY CREATED_AT ASC, ID ASC'
       )
     ) {
       const [conversationId] = params;

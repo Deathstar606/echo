@@ -1,10 +1,10 @@
 const express = require('express');
 const { findBusinessOrThrow } = require('../controllers/businessController');
-const { assertGoogleServiceAllowed } = require('../services/googleAuthService');
+const { assertGoogleServiceAllowed } = require('../services/operations/googleAuthService');
 const {
   fetchPrimaryInboxMessages,
   sendGmailThreadReply,
-} = require('../services/gmailService');
+} = require('../services/comms/gmailService');
 const router = express.Router();
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -100,7 +100,7 @@ router.post('/suggest-reply', async (req, res, next) => {
       await findBusinessOrThrow(String(wsId), requestUserId);
     }
     const { messageText, senderName, subject } = body;
-    const { generateAiDraftForGmailMessage } = require('../services/gmailService');
+    const { generateAiDraftForGmailMessage } = require('../services/comms/gmailService');
     const result = await generateAiDraftForGmailMessage(wsId || businessId, {
       messageText,
       senderName,

@@ -1,0 +1,7 @@
+preorder_id,order_date,retailer_company,buyer_name,buyer_email,sku_id,product_name,quantity_requested,quantity_allocated,order_status
+RBS-ORD-095,2026-11-15,Soho Thread Archive,Oliver Bennett,oliver@sohothread.co.uk,RBS-FB-BLK-01,Black Fisherman Beanie,10,10,Fulfilled
+RBS-ORD-096,2026-11-16,Vesterbro Apparel Co,Astrid Holm,astrid@vesterbroapparel.dk,RBS-FB-NVY-04,Navy Fisherman Beanie,8,8,Fulfilled
+RBS-ORD-097,2026-11-18,Antwerp Knit Lab,Pieter De Vries,pieter@antwerpknitlab.be,RBS-FB-MST-07,Mustard Fisherman Beanie,6,0,On Hold
+RBS-ORD-098,2026-11-19,Mitte Collective Store,Hannah Richter,hannah@mittecollective.de,RBS-SB-OLV-10,Olive Short Beanie,10,10,Fulfilled
+RBS-ORD-099,2026-11-21,Le Marais Garments,Theo Moreau,theo@lemaraisgarments.fr,RBS-SB-CLY-12,Clay Short Beanie,5,0,On Hold
+RBS-ORD-100,2026-11-22,Brixton Concrete Wear,Maya Patel,maya@brixtonconcrete.co.uk,RBS-FB-CHR-03,Charcoal Fisherman Beanie,12,12,Fulfilled

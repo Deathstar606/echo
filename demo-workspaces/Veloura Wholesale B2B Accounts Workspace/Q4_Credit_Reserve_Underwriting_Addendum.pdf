@@ -1,0 +1,113 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 2388 >>
+stream
+0.10 0.22 0.36 rg
+BT /F2 15 Tf 54 736 Td (VELOURA CORPORATE TREASURY & CREDIT RISK COMMITTEE) Tj ET
+0 0 0 rg
+BT /F2 13 Tf 54 718 Td (Q4 CREDIT RESERVE UNDERWRITING POLICY ADDENDUM) Tj ET
+0.30 0.30 0.30 rg
+BT /F1 9 Tf 54 703 Td (Policy Code: POL-FIN-2026-Q4A | Effective Date: 2026-10-15 | Supplements: Finance Credit Control Policy) Tj ET
+0.15 0.32 0.52 RG 1.2 w 54 693 m 558 693 l S
+0 0 0 rg
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 669 Td (1. Mandate & Scope) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 664 m 558 664 l S
+0 0 0 rg
+BT /F1 9.5 Tf 54 651 Td (During peak Q4 wholesale intake cycles, Veloura Corporate Treasury enforces a mandatory) Tj ET
+BT /F1 9.5 Tf 54 637.5 Td (minimum liquidity cushion on active B2B trade credit lines recorded in) Tj ET
+BT /F1 9.5 Tf 54 624 Td (wholesale_accunts_dataset. This addendum supplements the baseline Finance Credit Control) Tj ET
+BT /F1 9.5 Tf 54 610.5 Td (Policy and governs all pending invoices submitted to b2b_invoices_receivables.) Tj ET
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 587 Td (2. Mandatory $2,000 Credit Limit Reserve Buffer Rule) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 582 m 558 582 l S
+0 0 0 rg
+BT /F1 9.5 Tf 54 569 Td (Before approving a pending wholesale invoice for Net-30 release, credit analysts must) Tj ET
+BT /F1 9.5 Tf 54 555.5 Td (cross-check the customer account in wholesale_accunts_dataset by matching account_id and) Tj ET
+BT /F1 9.5 Tf 54 542 Td (confirming two mandatory conditions:) Tj ET
+BT /F1 9.5 Tf 62 524.5 Td (- Zero Past-Due Delinquency: The customer account must have overdue_balance equal to 0.) Tj ET
+BT /F1 9.5 Tf 62 509.5 Td (- Minimum $2,000 Post-Invoice Credit Buffer: Deducting invoice_amount_usd from the) Tj ET
+BT /F1 9.5 Tf 70 496.5 Td (account current credit_limit must leave at least $2,000 USD in unencumbered credit) Tj ET
+BT /F1 9.5 Tf 70 483.5 Td (reserve \(credit_limit - invoice_amount_usd >= 2000\).) Tj ET
+BT /F1 9.5 Tf 62 468.5 Td (- Underwriting Hold Condition: If credit_limit - invoice_amount_usd is strictly less) Tj ET
+BT /F1 9.5 Tf 70 455.5 Td (than $2,000 USD, the invoice fails credit reserve clearance even if invoice_amount_usd) Tj ET
+BT /F1 9.5 Tf 70 442.5 Td (does not exceed the raw credit_limit.) Tj ET
+0.75 0.75 0.75 RG 0.5 w 54 48 m 558 48 l S
+0.45 0.45 0.45 rg
+BT /F1 8 Tf 54 36 Td (Treasury Risk Governance - Wholesale Credit Reserve Policy) Tj ET
+BT /F1 8 Tf 490 36 Td (Page 1 of 2) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 8 0 R >>
+endobj
+8 0 obj
+<< /Length 2367 >>
+stream
+0.45 0.45 0.45 rg
+BT /F1 8 Tf 54 762 Td (Veloura Corporate Treasury - POL-FIN-2026-Q4A) Tj ET
+BT /F1 8 Tf 410 762 Td (Effective: 2026-10-15) Tj ET
+0.80 0.80 0.80 RG 0.5 w 54 756 m 558 756 l S
+0 0 0 rg
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 730 Td (3. Conditional Ledger Allocation & Credit Limit Deduction) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 725 m 558 725 l S
+0 0 0 rg
+BT /F1 9.5 Tf 54 712 Td (Underwriting approvals must execute atomically across both workspace tables without mutating) Tj ET
+BT /F1 9.5 Tf 54 698.5 Td (held accounts:) Tj ET
+BT /F1 9.5 Tf 62 681 Td (- Approved Invoices \(credit_limit - invoice_amount_usd >= 2000\): Deduct) Tj ET
+BT /F1 9.5 Tf 70 668 Td (invoice_amount_usd from wholesale_accunts_dataset.credit_limit for the matched) Tj ET
+BT /F1 9.5 Tf 70 655 Td (account_id, and update b2b_invoices_receivables.escalation_stage to "Approved - Credit) Tj ET
+BT /F1 9.5 Tf 70 642 Td (Allocated".) Tj ET
+BT /F1 9.5 Tf 62 627 Td (- Held Invoices \(credit_limit - invoice_amount_usd < 2000\): Do NOT modify or deduct) Tj ET
+BT /F1 9.5 Tf 70 614 Td (wholesale_accunts_dataset.credit_limit. Update b2b_invoices_receivables.escalation_stage) Tj ET
+BT /F1 9.5 Tf 70 601 Td (to "Held - Credit Reserve Buffer" until a partial wire prepayment or credit-line) Tj ET
+BT /F1 9.5 Tf 70 588 Td (expansion is executed.) Tj ET
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 567 Td (4. Mandatory Account Manager Notification Protocol) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 562 m 558 562 l S
+0 0 0 rg
+BT /F1 9.5 Tf 54 549 Td (Every pending invoice submission reviewed under this policy requires direct email) Tj ET
+BT /F1 9.5 Tf 54 535.5 Td (notification to the designated account manager via wholesale_accunts_dataset.contact_email:) Tj ET
+BT /F1 9.5 Tf 62 518 Td (- For cleared accounts, confirm invoice_id clearance, approved Net-30 amount, and) Tj ET
+BT /F1 9.5 Tf 70 505 Td (updated remaining credit_limit.) Tj ET
+BT /F1 9.5 Tf 62 490 Td (- For held accounts, notify the account manager of the invoice_id hold, current) Tj ET
+BT /F1 9.5 Tf 70 477 Td (credit_limit, and explain that approval would breach the mandatory $2,000 minimum credit) Tj ET
+BT /F1 9.5 Tf 70 464 Td (reserve buffer.) Tj ET
+0.75 0.75 0.75 RG 0.5 w 54 48 m 558 48 l S
+0.45 0.45 0.45 rg
+BT /F1 8 Tf 54 36 Td (Treasury Risk Governance - Wholesale Credit Reserve Policy) Tj ET
+BT /F1 8 Tf 490 36 Td (Page 2 of 2) Tj ET
+endstream
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000218 00000 n 
+0000000320 00000 n 
+0000000456 00000 n 
+0000002895 00000 n 
+0000003031 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+5449
+%%EOF

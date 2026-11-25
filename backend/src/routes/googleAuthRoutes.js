@@ -5,7 +5,7 @@ const {
   handleAuthCallback,
   getAuthStatus,
   disconnectGoogleAuth,
-} = require("../services/googleAuthService");
+} = require("../services/operations/googleAuthService");
 const router = express.Router();
 
 function resolveIdentifier(req) {
@@ -48,8 +48,8 @@ function resolveFrontendOrigin(req, stateData = null) {
       // Ignore malformed referer
     }
   }
-  return "https://echo-oyzy.vercel.app";
-  //return "http://localhost:5173";
+  //return "https://echo-oyzy.vercel.app";
+  return "http://localhost:5173";
 }
 
 // GET /api/auth/google/url

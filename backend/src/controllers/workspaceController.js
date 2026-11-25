@@ -12,25 +12,41 @@ const {
   updateDocumentContentById,
   deleteDocumentById,
   clearDocumentsForBusiness,
-} = require('../services/documentIngestionService');
-const { normalizeEntityName } = require('../services/sheetSchemaService');
+} = require('../services/rag/documentIngestionService');
+const { normalizeEntityName } = require('../services/sheets/sheetSchemaService');
 const {
   detectEntityFromCsv,
   createOrRegisterDynamicTableFromCsv,
   parseAndValidateSheetCsv,
   importSheetRecordsToDatabase,
-} = require('../services/sheetCsvImportService');
+} = require('../services/sheets/sheetCsvImportService');
 const {
   executeWorkspaceOperation,
   resolveSocraticWorkflow,
   confirmWorkspaceOperation,
-} = require('../services/socraticOperationsService');
+} = require('../services/operations/socraticOperationsService');
 const {
   generateWorkspaceCustomerReply,
-} = require('../services/workspaceReplyService');
+} = require('../services/operations/workspaceReplyService');
 const {
   normalizeConversationHistory,
 } = require('../utils/conversationHistory');
+const {
+  recordTurnState,
+} = require('../services/memory/turnMemoryService');
+
+function resolveSessionIdFromReq(req, businessId, entity = 'user') {
+  const explicit =
+    req.body?.session_id ||
+    req.body?.sessionId ||
+    req.body?.conversation_id ||
+    req.body?.conversationId ||
+    req.headers?.['x-session-id'] ||
+    '';
+  const clean = String(explicit || '').trim();
+  if (clean) return clean;
+  return `ws:${businessId}:${entity}`;
+}
 
 function resolveBusinessIdFromReq(req) {
   return (
@@ -310,15 +326,37 @@ async function executeOperation(req, res, next) {
     const normalizedHistory = normalizeConversationHistory(
       req.body?.conversation_history ?? req.body?.history
     );
+    const sessionId = resolveSessionIdFromReq(req, businessId, requestEntity);
 
     if (requestEntity === 'customer') {
-      const { aiResponse, suggestion, retrievedContext } =
+      const { aiResponse, suggestion, retrievedContext, citations, reactTelemetry } =
         await generateWorkspaceCustomerReply({
           workspace: await findBusinessOrThrow(businessId),
           customerMessage: prompt,
           customerContext: req.body?.customer_context || {},
           conversationHistory: normalizedHistory,
+          sessionId,
         });
+      if (!reactTelemetry) {
+        const rowKeys = (retrievedContext?.table_rows || [])
+          .map((r) => r.row_identifier)
+          .filter(Boolean);
+        const docCits = (retrievedContext?.document_chunks || [])
+          .map((c) => `${c.filename}#p${c.page_number || 1}`)
+          .filter(Boolean);
+        await recordTurnState({
+          workspaceId: businessId,
+          sessionId,
+          entity: 'customer',
+          userIntentSummary: prompt,
+          actionTaken: `CUSTOMER_REPLY (${aiResponse.category || 'inquiry'})`,
+          touchedTables: [...new Set((retrievedContext?.table_rows || []).map((r) => r.table_name).filter(Boolean))],
+          touchedRowKeys: rowKeys,
+          touchedDocCitations: docCits,
+          outcomeSummary: suggestion,
+        }).catch(() => {});
+      }
+
       return res.status(200).json({
         status: 'CONVERSATIONAL',
         conversational: true,
@@ -328,7 +366,8 @@ async function executeOperation(req, res, next) {
         suggestedReply: suggestion,
         category: aiResponse.category,
         missing_information: aiResponse.missing_information,
-        citations: retrievedContext?.citations || [],
+        citations: citations || retrievedContext?.citations || [],
+        ...(reactTelemetry ? { react_telemetry: reactTelemetry } : {}),
       });
     }
 
@@ -337,6 +376,7 @@ async function executeOperation(req, res, next) {
       prompt,
       entity: tableEntity,
       history: normalizedHistory,
+      sessionId,
     });
 
     return res.status(200).json(result);
@@ -398,6 +438,7 @@ async function confirmOperation(req, res, next) {
       req.body?.allow_partial_nullable ?? req.body?.allowPartialNullable ?? false
     );
 
+    const sessionId = resolveSessionIdFromReq(req, businessId, 'user');
     const result = await confirmWorkspaceOperation({
       workflowId,
       businessId,
@@ -407,6 +448,7 @@ async function confirmOperation(req, res, next) {
       action,
       editedMutations,
       allowPartialNullable,
+      sessionId,
     });
 
     return res.status(200).json(result);

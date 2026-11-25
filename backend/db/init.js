@@ -5,7 +5,7 @@ const { getPool } = require('./index');
 const {
   parseAndValidateProductsCsv,
   importProductsToDatabase,
-} = require('../src/services/sheetCsvImportService');
+} = require('../src/services/sheets/sheetCsvImportService');
 
 const DEFAULT_BUSINESS_ID = '684a8863-5094-4c8b-9b15-c50c06335b7f';
 

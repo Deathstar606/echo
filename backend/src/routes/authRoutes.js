@@ -4,7 +4,7 @@ const {
   registerUser,
   loginDemoUser,
   getUserWorkspaces,
-} = require('../services/authService');
+} = require('../services/operations/authService');
 const { query } = require('../../db');
 const router = express.Router();
 

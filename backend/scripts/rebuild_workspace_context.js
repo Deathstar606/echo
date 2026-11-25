@@ -1,16 +1,16 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { getPool } = require('../db');
-const { quoteIdentifier } = require('../src/services/sheetSchemaService');
+const { quoteIdentifier } = require('../src/services/sheets/sheetSchemaService');
 const {
   createOrRegisterDynamicTableFromCsv,
   parseAndValidateSheetCsv,
   importSheetRecordsToDatabase,
-} = require('../src/services/sheetCsvImportService');
+} = require('../src/services/sheets/sheetCsvImportService');
 const {
   clearDocumentsForBusiness,
   ingestDocumentFromPath,
-} = require('../src/services/documentIngestionService');
+} = require('../src/services/rag/documentIngestionService');
 
 const REPOSITORY_ROOT = path.resolve(__dirname, '..', '..');
 const MIGRATION_FILE = '012_workspace_context_catalog.sql';

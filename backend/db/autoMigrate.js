@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { getPool } = require('./index');
+const { runPhase1Migration } = require('../src/db/migrations/phase1_hybrid_rag_and_memory');
 
 const DEFAULT_BUSINESS_ID = '684a8863-5094-4c8b-9b15-c50c06335b7f';
 const DEMO_OPS_BUSINESS_ID = '11111111-2222-3333-4444-555555555555';
@@ -69,6 +70,12 @@ async function autoMigrateDatabase() {
           console.log(`[AutoMigrate] Migration ${file} applied successfully.`);
         }
       }
+    }
+
+    try {
+      await runPhase1Migration(pool);
+    } catch (phase1Err) {
+      console.warn('[AutoMigrate] Phase 1 migration check warning:', phase1Err.message);
     }
 
     // 3. Ensure default workspace and demo operations workspace exist
@@ -148,7 +155,7 @@ async function autoMigrateDatabase() {
             createOrRegisterDynamicTableFromCsv,
             parseAndValidateSheetCsv,
             importSheetRecordsToDatabase,
-          } = require('../src/services/sheetCsvImportService');
+          } = require('../src/services/sheets/sheetCsvImportService');
           const buffer = fs.readFileSync(demoCsvPath);
           const schema = await createOrRegisterDynamicTableFromCsv(
             'orders',

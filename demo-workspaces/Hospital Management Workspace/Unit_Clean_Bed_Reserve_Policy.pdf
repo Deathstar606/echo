@@ -1,0 +1,112 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 2180 >>
+stream
+0.10 0.22 0.36 rg
+BT /F2 15 Tf 54 736 Td (METROPOLITAN CLINICAL OPERATIONS AUTHORITY) Tj ET
+0 0 0 rg
+BT /F2 13 Tf 54 718 Td (CLINICAL BED FLOW & CLEAN-BED SURGE RESERVE DIRECTIVE) Tj ET
+0.30 0.30 0.30 rg
+BT /F1 9 Tf 54 703 Td (Directive Code: SOP-CLIN-2026-04 | Effective Date: 2026-09-01 | Authority: Chief Medical Operations Officer) Tj ET
+0.15 0.32 0.52 RG 1.2 w 54 693 m 558 693 l S
+0 0 0 rg
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 669 Td (1. Clinical Purpose & Alignment) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 664 m 558 664 l S
+0 0 0 rg
+BT /F1 9.5 Tf 54 651 Td (To protect internal rapid-response code teams, emergency surgical recovery, and) Tj ET
+BT /F1 9.5 Tf 54 637.5 Td (infection-control turnaround windows, every acute inpatient unit tracked in hospital_units) Tj ET
+BT /F1 9.5 Tf 54 624 Td (must preserve a sterile surge capacity margin before accepting elective or inter-facility) Tj ET
+BT /F1 9.5 Tf 54 610.5 Td (transfers from patient_transfer_requests.) Tj ET
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 587 Td (2. Mandatory 2-Clean-Bed Surge Reserve Clause) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 582 m 558 582 l S
+0 0 0 rg
+BT /F1 9.5 Tf 54 569 Td (Every critical-care and progressive-care unit \(including ICU and PCU designations in) Tj ET
+BT /F1 9.5 Tf 54 555.5 Td (hospital_units\) must retain a minimum of 2 sanitized, ready clean_beds after fulfilling any) Tj ET
+BT /F1 9.5 Tf 54 542 Td (external transfer request.) Tj ET
+BT /F1 9.5 Tf 62 524.5 Td (- Reserve Capacity Rule: For each transfer matched on hospital_units.unit_id =) Tj ET
+BT /F1 9.5 Tf 70 511.5 Td (patient_transfer_requests.target_unit_id, the unit must satisfy clean_beds -) Tj ET
+BT /F1 9.5 Tf 70 498.5 Td (beds_requested >= 2.) Tj ET
+BT /F1 9.5 Tf 62 483.5 Td (- Surge Buffer Breach: Any transfer request where clean_beds - beds_requested < 2 must) Tj ET
+BT /F1 9.5 Tf 70 470.5 Td (be denied immediate bed assignment to prevent falling below the mandatory 2-clean-bed) Tj ET
+BT /F1 9.5 Tf 70 457.5 Td (reserve threshold.) Tj ET
+0.75 0.75 0.75 RG 0.5 w 54 48 m 558 48 l S
+0.45 0.45 0.45 rg
+BT /F1 8 Tf 54 36 Td (Clinical Safety & Infection Control Capacity Governance) Tj ET
+BT /F1 8 Tf 490 36 Td (Page 1 of 2) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 8 0 R >>
+endobj
+8 0 obj
+<< /Length 2568 >>
+stream
+0.45 0.45 0.45 rg
+BT /F1 8 Tf 54 762 Td (Metropolitan Clinical Operations Authority - SOP-CLIN-2026-04) Tj ET
+BT /F1 8 Tf 410 762 Td (Effective: 2026-09-01) Tj ET
+0.80 0.80 0.80 RG 0.5 w 54 756 m 558 756 l S
+0 0 0 rg
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 730 Td (3. Conditional Bed Allocation & Status Update Protocol) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 725 m 558 725 l S
+0 0 0 rg
+BT /F1 9.5 Tf 54 712 Td (When executing transfer allocations across hospital_units and patient_transfer_requests, bed) Tj ET
+BT /F1 9.5 Tf 54 698.5 Td (control personnel must enforce strict conditional segregation:) Tj ET
+BT /F1 9.5 Tf 62 681 Td (- Approved Transfers \(clean_beds - beds_requested >= 2\): Deduct beds_requested from) Tj ET
+BT /F1 9.5 Tf 70 668 Td (hospital_units.clean_beds, increment hospital_units.occupied_beds by beds_requested, set) Tj ET
+BT /F1 9.5 Tf 70 655 Td (patient_transfer_requests.beds_assigned equal to beds_requested, and transition) Tj ET
+BT /F1 9.5 Tf 70 642 Td (transfer_status from "Pending" to "Approved".) Tj ET
+BT /F1 9.5 Tf 62 627 Td (- Diverted Transfers \(clean_beds - beds_requested < 2\): Do NOT alter) Tj ET
+BT /F1 9.5 Tf 70 614 Td (hospital_units.clean_beds or occupied_beds for that unit, keep beds_assigned at 0, and) Tj ET
+BT /F1 9.5 Tf 70 601 Td (update patient_transfer_requests.transfer_status to "Diverted" \(or maintain pending) Tj ET
+BT /F1 9.5 Tf 70 588 Td (hold\) awaiting terminal environmental cleaning clearance.) Tj ET
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 567 Td (4. Referring Physician Notification Standard) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 562 m 558 562 l S
+0 0 0 rg
+BT /F1 9.5 Tf 54 549 Td (Immediately following bed control adjudication, email notifications must be transmitted to) Tj ET
+BT /F1 9.5 Tf 54 535.5 Td (every referring attending physician listed in patient_transfer_requests.attending_email:) Tj ET
+BT /F1 9.5 Tf 62 518 Td (- Approved Physicians: Provide transfer_id, confirmed target_unit_name, assigned bed) Tj ET
+BT /F1 9.5 Tf 70 505 Td (count, and receiving charge-desk reporting time.) Tj ET
+BT /F1 9.5 Tf 62 490 Td (- Diverted Physicians: Provide transfer_id, target_unit_name, current clean_beds count,) Tj ET
+BT /F1 9.5 Tf 70 477 Td (and clearly explain that placement cannot proceed because allocation would breach the) Tj ET
+BT /F1 9.5 Tf 70 464 Td (mandatory 2-clean-bed infection-control surge reserve buffer.) Tj ET
+0.75 0.75 0.75 RG 0.5 w 54 48 m 558 48 l S
+0.45 0.45 0.45 rg
+BT /F1 8 Tf 54 36 Td (Clinical Safety & Infection Control Capacity Governance) Tj ET
+BT /F1 8 Tf 490 36 Td (Page 2 of 2) Tj ET
+endstream
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000218 00000 n 
+0000000320 00000 n 
+0000000456 00000 n 
+0000002687 00000 n 
+0000002823 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+5442
+%%EOF

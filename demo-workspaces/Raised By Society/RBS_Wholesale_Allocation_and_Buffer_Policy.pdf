@@ -1,0 +1,109 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 2207 >>
+stream
+0.10 0.22 0.36 rg
+BT /F2 15 Tf 54 736 Td (RAISED BY SOCIETY APPAREL LTD.) Tj ET
+0 0 0 rg
+BT /F2 13 Tf 54 718 Td (WHOLESALE STOCKIST ALLOCATION & SAFETY BUFFER POLICY) Tj ET
+0.30 0.30 0.30 rg
+BT /F1 9 Tf 54 703 Td (Policy Reference: RBS-POL-WH-2026 | Effective Date: 2026-10-01 | Division: Wholesale & Inventory Control) Tj ET
+0.15 0.32 0.52 RG 1.2 w 54 693 m 558 693 l S
+0 0 0 rg
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 669 Td (1. Overview & D2C Ring-Fencing Mandate) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 664 m 558 664 l S
+0 0 0 rg
+BT /F1 9.5 Tf 54 651 Td (Raised By Society maintains parallel direct-to-consumer \(D2C\) flagship e-commerce drops) Tj ET
+BT /F1 9.5 Tf 54 637.5 Td (alongside curated European wholesale stockist accounts. To ensure flagship online customers) Tj ET
+BT /F1 9.5 Tf 54 624 Td (never encounter sudden mid-season sell-outs from wholesale bulk picks, all wholesale) Tj ET
+BT /F1 9.5 Tf 54 610.5 Td (preorders in retailer_preorders are strictly governed by SKU-level reserve rules.) Tj ET
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 587 Td (2. Per-SKU Safety Buffer Retention Rule) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 582 m 558 582 l S
+0 0 0 rg
+BT /F1 9.5 Tf 54 569 Td (Every SKU in raised_by_society_beanies_catalog carries an explicit safety_buffer quantity) Tj ET
+BT /F1 9.5 Tf 54 555.5 Td (\(typically 10 units for core continuity colorways and 5 units for limited seasonal knit) Tj ET
+BT /F1 9.5 Tf 54 542 Td (runs\). Wholesale allocations MUST respect this dedicated buffer at all times:) Tj ET
+BT /F1 9.5 Tf 62 524.5 Td (- Safety Buffer Formula: A preorder is eligible for allocation only if remaining catalog) Tj ET
+BT /F1 9.5 Tf 70 511.5 Td (stock meets or exceeds the SKU safety buffer \(stock_quantity - quantity_requested >=) Tj ET
+BT /F1 9.5 Tf 70 498.5 Td (safety_buffer\).) Tj ET
+BT /F1 9.5 Tf 62 483.5 Td (- Buffer Breach Hold: If stock_quantity - quantity_requested < safety_buffer, the SKU) Tj ET
+BT /F1 9.5 Tf 70 470.5 Td (has insufficient allocatable wholesale stock and must remain unallocated.) Tj ET
+0.75 0.75 0.75 RG 0.5 w 54 48 m 558 48 l S
+0.45 0.45 0.45 rg
+BT /F1 8 Tf 54 36 Td (Brand Operations & Wholesale Allocation Governance) Tj ET
+BT /F1 8 Tf 490 36 Td (Page 1 of 2) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 8 0 R >>
+endobj
+8 0 obj
+<< /Length 2334 >>
+stream
+0.45 0.45 0.45 rg
+BT /F1 8 Tf 54 762 Td (Raised By Society Apparel Ltd. - RBS-POL-WH-2026) Tj ET
+BT /F1 8 Tf 410 762 Td (Effective: 2026-10-01) Tj ET
+0.80 0.80 0.80 RG 0.5 w 54 756 m 558 756 l S
+0 0 0 rg
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 730 Td (3. Atomic Allocation & Ledger Status Updates) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 725 m 558 725 l S
+0 0 0 rg
+BT /F1 9.5 Tf 54 712 Td (Wholesale coordinators must apply allocation updates deterministically across both tables:) Tj ET
+BT /F1 9.5 Tf 62 694.5 Td (- Eligible Preorders \(stock_quantity - quantity_requested >= safety_buffer\): Deduct) Tj ET
+BT /F1 9.5 Tf 70 681.5 Td (quantity_requested from raised_by_society_beanies_catalog.stock_quantity for the matched) Tj ET
+BT /F1 9.5 Tf 70 668.5 Td (sku_id, set retailer_preorders.quantity_allocated equal to quantity_requested, and) Tj ET
+BT /F1 9.5 Tf 70 655.5 Td (update order_status from "Pending" to "Fulfilled".) Tj ET
+BT /F1 9.5 Tf 62 640.5 Td (- Held Preorders \(stock_quantity - quantity_requested < safety_buffer\): Leave) Tj ET
+BT /F1 9.5 Tf 70 627.5 Td (raised_by_society_beanies_catalog.stock_quantity untouched, retain quantity_allocated at) Tj ET
+BT /F1 9.5 Tf 70 614.5 Td (0, and mark or retain order_status as "On Hold" pending next mill replenishment.) Tj ET
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 593.5 Td (4. Stockist Buyer Notification Standard) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 588.5 m 558 588.5 l S
+0 0 0 rg
+BT /F1 9.5 Tf 54 575.5 Td (Upon completion of allocation screening, send a dedicated wholesale status email to ALL) Tj ET
+BT /F1 9.5 Tf 54 562 Td (retail buyers listed in retailer_preorders.buyer_email:) Tj ET
+BT /F1 9.5 Tf 62 544.5 Td (- Fulfilled Stockists: Confirm preorder_id, product_name, allocated quantity, and EU) Tj ET
+BT /F1 9.5 Tf 70 531.5 Td (courier dispatch schedule.) Tj ET
+BT /F1 9.5 Tf 62 516.5 Td (- On-Hold Stockists: State preorder_id, requested quantity, and explain that allocation) Tj ET
+BT /F1 9.5 Tf 70 503.5 Td (is held to preserve the mandatory SKU safety_buffer \(minimum 5-10 units per SKU\),) Tj ET
+BT /F1 9.5 Tf 70 490.5 Td (providing priority placement on the upcoming knitting mill batch.) Tj ET
+0.75 0.75 0.75 RG 0.5 w 54 48 m 558 48 l S
+0.45 0.45 0.45 rg
+BT /F1 8 Tf 54 36 Td (Brand Operations & Wholesale Allocation Governance) Tj ET
+BT /F1 8 Tf 490 36 Td (Page 2 of 2) Tj ET
+endstream
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000218 00000 n 
+0000000320 00000 n 
+0000000456 00000 n 
+0000002714 00000 n 
+0000002850 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+5235
+%%EOF

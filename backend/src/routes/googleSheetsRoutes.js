@@ -4,7 +4,7 @@ const {
   listGoogleSpreadsheets,
   importGoogleSheetToPostgres,
   getSyncedSheetsMetadata,
-} = require('../services/googleSheetsSyncService');
+} = require('../services/sheets/googleSheetsSyncService');
 const router = express.Router();
 
 // GET /api/google/sheets/list

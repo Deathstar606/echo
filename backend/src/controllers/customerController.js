@@ -1,7 +1,7 @@
 const AppError = require('../utils/AppError');
 const { normalizeEmail, isValidEmail } = require('../middleware/validate');
 const { findBusinessOrThrow } = require('./businessController');
-const { createCustomer } = require('../services/customerService');
+const { createCustomer } = require('../services/comms/customerService');
 
 /**
  * POST /api/businesses/:businessId/customers

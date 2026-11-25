@@ -1,0 +1,161 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 3968 >>
+stream
+0.10 0.22 0.36 rg
+BT /F2 15 Tf 54 736 Td (ECHO WORKSTATION SYSTEMS INC.) Tj ET
+0 0 0 rg
+BT /F2 13 Tf 54 718 Td (RUSH ORDER DISPATCH & HUB INTAKE MANIFEST \(BATCH OPS-MAN-2026-114\)) Tj ET
+0.30 0.30 0.30 rg
+BT /F1 9 Tf 54 703 Td (Division: Commercial Fulfillment Operations | Hub: Dhaka Central | Manifest Date: 2026-11-24 | Currency: BDT) Tj ET
+0.15 0.32 0.52 RG 1.2 w 54 693 m 558 693 l S
+0 0 0 rg
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 669 Td (1. Operational Summary & Intake Scope) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 664 m 558 664 l S
+0 0 0 rg
+BT /F1 9.5 Tf 54 651 Td (This dispatch intake manifest consolidates four priority commercial orders cleared through) Tj ET
+BT /F1 9.5 Tf 54 637.5 Td (corporate billing on 2026-11-24 for assignment at the Dhaka Central Fulfillment Hub. All) Tj ET
+BT /F1 9.5 Tf 54 624 Td (unit prices, subtotals, shipping fees, and batch assignments have been reconciled with the) Tj ET
+BT /F1 9.5 Tf 54 610.5 Td (central accounts desk prior to warehouse release.) Tj ET
+BT /F1 9.5 Tf 54 593 Td (Receiving supervisors and order coordinators must register these four orders into the active) Tj ET
+BT /F1 9.5 Tf 54 579.5 Td (orders ledger prior to inventory reserve verification under Standard Operating Procedure) Tj ET
+BT /F1 9.5 Tf 54 566 Td (SOP-WH-2026-09 \(Hub Reserve Allocation Policy\). No stock should be deducted at the intake) Tj ET
+BT /F1 9.5 Tf 54 552.5 Td (stage; initial Dispatch_Status remains Processing pending hub reserve clearance.) Tj ET
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 529 Td (2. Structured Rush Order Line Items) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 524 m 558 524 l S
+0 0 0 rg
+0.95 0.96 0.98 rg
+54 508 504 15 re f
+0.10 0.22 0.36 rg
+BT /F2 10 Tf 60 511 Td (Order Entry 1 - ORD-2026-1033 \(Enterprise Workstation Hardware\)) Tj ET
+0 0 0 rg
+BT /F1 9 Tf 64 495 Td (Order_ID: ORD-2026-1033 | Order_Date: 2026-11-24 | Dispatch_Status: Processing |) Tj ET
+BT /F1 9 Tf 64 482.5 Td (Shipping_Tier: Expedited) Tj ET
+BT /F1 9 Tf 64 470 Td (Customer_Name: Nadia Chowdhury | Customer_Email: nadia.chowdhury@apexfintech.com.bd |) Tj ET
+BT /F1 9 Tf 64 457.5 Td (Delivery_City: Dhaka) Tj ET
+BT /F1 9 Tf 64 445 Td (Item_SKU: EW-DOCK-G4 | Item_Name: Echo Workstation Gen-4 Dock | Batch_Code: B-501 |) Tj ET
+BT /F1 9 Tf 64 432.5 Td (Fulfillment_Hub: Dhaka Central) Tj ET
+BT /F1 9 Tf 64 420 Td (Quantity: 10 | Unit_Price_BDT: 28500 | Order_Subtotal_BDT: 285000 | Shipping_Cost_BDT:) Tj ET
+BT /F1 9 Tf 64 407.5 Td (600 | Total_Amount_BDT: 285600) Tj ET
+BT /F1 9 Tf 64 395 Td (Payment_Method: Bank Transfer | Delay_Hours: 0 | SLA_Voucher_Issued: false |) Tj ET
+BT /F1 9 Tf 64 382.5 Td (Promo_Discount_Pct: 0 | Refund_Status: None) Tj ET
+0.85 0.85 0.85 RG 0.4 w 54 372 m 558 372 l S
+0.95 0.96 0.98 rg
+54 357 504 15 re f
+0.10 0.22 0.36 rg
+BT /F2 10 Tf 60 360 Td (Order Entry 2 - ORD-2026-1034 \(Commercial Switching Infrastructure\)) Tj ET
+0 0 0 rg
+BT /F1 9 Tf 64 344 Td (Order_ID: ORD-2026-1034 | Order_Date: 2026-11-24 | Dispatch_Status: Processing |) Tj ET
+BT /F1 9 Tf 64 331.5 Td (Shipping_Tier: Priority) Tj ET
+BT /F1 9 Tf 64 319 Td (Customer_Name: Tariqul Islam | Customer_Email: tariqul.islam@metrogrid.com.bd |) Tj ET
+BT /F1 9 Tf 64 306.5 Td (Delivery_City: Dhaka) Tj ET
+BT /F1 9 Tf 64 294 Td (Item_SKU: EW-KVM-PRO | Item_Name: Echo Pro 4-Port KVM Switch | Batch_Code: B-502 |) Tj ET
+BT /F1 9 Tf 64 281.5 Td (Fulfillment_Hub: Dhaka Central) Tj ET
+BT /F1 9 Tf 64 269 Td (Quantity: 8 | Unit_Price_BDT: 19200 | Order_Subtotal_BDT: 153600 | Shipping_Cost_BDT:) Tj ET
+BT /F1 9 Tf 64 256.5 Td (450 | Total_Amount_BDT: 154050) Tj ET
+BT /F1 9 Tf 64 244 Td (Payment_Method: Credit Card | Delay_Hours: 0 | SLA_Voucher_Issued: false |) Tj ET
+BT /F1 9 Tf 64 231.5 Td (Promo_Discount_Pct: 5 | Refund_Status: None) Tj ET
+0.85 0.85 0.85 RG 0.4 w 54 221 m 558 221 l S
+0.75 0.75 0.75 RG 0.5 w 54 48 m 558 48 l S
+0.45 0.45 0.45 rg
+BT /F1 8 Tf 54 36 Td (Confidential - Internal Logistics & Hub Operations Record) Tj ET
+BT /F1 8 Tf 490 36 Td (Page 1 of 2) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 8 0 R >>
+endobj
+8 0 obj
+<< /Length 3548 >>
+stream
+0.45 0.45 0.45 rg
+BT /F1 8 Tf 54 762 Td (Echo Workstation Systems Inc. - Commercial Fulfillment Desk) Tj ET
+BT /F1 8 Tf 410 762 Td (Doc ID: OPS-MAN-2026-114) Tj ET
+0.80 0.80 0.80 RG 0.5 w 54 756 m 558 756 l S
+0 0 0 rg
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 730 Td (2. Structured Rush Order Line Items \(Continued\)) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 725 m 558 725 l S
+0 0 0 rg
+0.95 0.96 0.98 rg
+54 709 504 15 re f
+0.10 0.22 0.36 rg
+BT /F2 10 Tf 60 712 Td (Order Entry 3 - ORD-2026-1035 \(Executive Office Furnishings\)) Tj ET
+0 0 0 rg
+BT /F1 9 Tf 64 696 Td (Order_ID: ORD-2026-1035 | Order_Date: 2026-11-24 | Dispatch_Status: Processing |) Tj ET
+BT /F1 9 Tf 64 683.5 Td (Shipping_Tier: Expedited) Tj ET
+BT /F1 9 Tf 64 671 Td (Customer_Name: Farhana Kabir | Customer_Email: farhana.kabir@gulshandesign.com.bd |) Tj ET
+BT /F1 9 Tf 64 658.5 Td (Delivery_City: Dhaka) Tj ET
+BT /F1 9 Tf 64 646 Td (Item_SKU: FUR-OF-018 | Item_Name: Executive Leather Recliner | Batch_Code: B-100 |) Tj ET
+BT /F1 9 Tf 64 633.5 Td (Fulfillment_Hub: Dhaka Central) Tj ET
+BT /F1 9 Tf 64 621 Td (Quantity: 12 | Unit_Price_BDT: 34000 | Order_Subtotal_BDT: 408000 | Shipping_Cost_BDT:) Tj ET
+BT /F1 9 Tf 64 608.5 Td (2400 | Total_Amount_BDT: 410400) Tj ET
+BT /F1 9 Tf 64 596 Td (Payment_Method: Bank Transfer | Delay_Hours: 0 | SLA_Voucher_Issued: false |) Tj ET
+BT /F1 9 Tf 64 583.5 Td (Promo_Discount_Pct: 0 | Refund_Status: None) Tj ET
+0.85 0.85 0.85 RG 0.4 w 54 573 m 558 573 l S
+0.95 0.96 0.98 rg
+54 558 504 15 re f
+0.10 0.22 0.36 rg
+BT /F2 10 Tf 60 561 Td (Order Entry 4 - ORD-2026-1036 \(Corporate Hospitality Cold-Chain\)) Tj ET
+0 0 0 rg
+BT /F1 9 Tf 64 545 Td (Order_ID: ORD-2026-1036 | Order_Date: 2026-11-24 | Dispatch_Status: Processing |) Tj ET
+BT /F1 9 Tf 64 532.5 Td (Shipping_Tier: Priority) Tj ET
+BT /F1 9 Tf 64 520 Td (Customer_Name: Mahmudul Hasan | Customer_Email: mahmudul.hasan@bananicatering.com.bd |) Tj ET
+BT /F1 9 Tf 64 507.5 Td (Delivery_City: Dhaka) Tj ET
+BT /F1 9 Tf 64 495 Td (Item_SKU: CK-103 | Item_Name: Hazelnut Praline Tart \(1kg\) | Batch_Code: B-100 |) Tj ET
+BT /F1 9 Tf 64 482.5 Td (Fulfillment_Hub: Dhaka Central) Tj ET
+BT /F1 9 Tf 64 470 Td (Quantity: 18 | Unit_Price_BDT: 1450 | Order_Subtotal_BDT: 26100 | Shipping_Cost_BDT: 350) Tj ET
+BT /F1 9 Tf 64 457.5 Td (| Total_Amount_BDT: 26450) Tj ET
+BT /F1 9 Tf 64 445 Td (Payment_Method: bKash | Delay_Hours: 0 | SLA_Voucher_Issued: false | Promo_Discount_Pct:) Tj ET
+BT /F1 9 Tf 64 432.5 Td (0 | Refund_Status: None) Tj ET
+0.85 0.85 0.85 RG 0.4 w 54 422 m 558 422 l S
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 404 Td (3. Sign-Off & Hub Verification Instructions) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 399 m 558 399 l S
+0 0 0 rg
+BT /F1 9.5 Tf 62 386 Td (- Before finalizing allocation, cross-reference each order Item_SKU and Batch_Code) Tj ET
+BT /F1 9.5 Tf 70 373 Td (against active cleared rows in warehouse_inventory_batches.) Tj ET
+BT /F1 9.5 Tf 62 358 Td (- Verify post-allocation stock compliance under the 10-Unit Hub Reserve Buffer) Tj ET
+BT /F1 9.5 Tf 70 345 Td (requirement and communicate dispatch or reserve-hold outcomes directly to each listed) Tj ET
+BT /F1 9.5 Tf 70 332 Td (Customer_Email.) Tj ET
+BT /F1 9.5 Tf 54 317 Td (Prepared by: Rashedul Karim, Senior Dispatch Coordinator, Dhaka Central Hub | Approved by:) Tj ET
+BT /F1 9.5 Tf 54 303.5 Td (Operations Control Desk \(2026-11-24 09:15 BST\).) Tj ET
+0.75 0.75 0.75 RG 0.5 w 54 48 m 558 48 l S
+0.45 0.45 0.45 rg
+BT /F1 8 Tf 54 36 Td (Confidential - Internal Logistics & Hub Operations Record) Tj ET
+BT /F1 8 Tf 490 36 Td (Page 2 of 2) Tj ET
+endstream
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000218 00000 n 
+0000000320 00000 n 
+0000000456 00000 n 
+0000004475 00000 n 
+0000004611 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+8210
+%%EOF

@@ -3,7 +3,7 @@ const { findBusinessOrThrow } = require('../controllers/businessController');
 const {
   listGoogleDocs,
   importGoogleDocToRAG,
-} = require('../services/googleDocsParserService');
+} = require('../services/rag/googleDocsParserService');
 const router = express.Router();
 
 // GET /api/google/docs/list

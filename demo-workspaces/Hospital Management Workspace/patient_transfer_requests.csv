@@ -1,0 +1,7 @@
+transfer_id,request_date,patient_ref,referring_physician,attending_email,target_unit_id,target_unit_name,beds_requested,beds_assigned,transfer_status
+TRF-2026-001,2026-11-18,PT-88104,Dr. Hannah Mercer,hmercer@metroclinical.org,HICU-01,Medical ICU West,1,1,Approved
+TRF-2026-002,2026-11-19,PT-88119,Dr. Samuel Okafor,sokafor@metroclinical.org,HPCU-01,Cardiac Step-Down PCU,2,2,Approved
+TRF-2026-003,2026-11-20,PT-88142,Dr. Claire Lin,clin@metroclinical.org,HICU-03,Cardiac ICU,1,0,Diverted
+TRF-2026-004,2026-11-21,PT-88167,Dr. Tariq Al-Mansoor,talmansoor@metroclinical.org,HMED-04,General Medicine North,2,2,Approved
+TRF-2026-005,2026-11-22,PT-88205,Dr. Nina Kowalski,nkowalski@metroclinical.org,HICU-04,Surgical Trauma ICU,1,1,Approved
+TRF-2026-006,2026-11-23,PT-88238,Dr. Benjamin Grant,bgrant@metroclinical.org,HICU-05,Neuro Critical Care ICU,1,0,Diverted

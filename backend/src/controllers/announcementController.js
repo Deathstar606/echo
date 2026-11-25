@@ -2,17 +2,17 @@ const AppError = require('../utils/AppError');
 const { findBusinessOrThrow } = require('./businessController');
 const {
   getCustomersMatchingAnnouncementCriteria,
-} = require('../services/customerService');
+} = require('../services/comms/customerService');
 const {
   buildAnnouncementDraftPrompt,
   extractAndValidateAudienceTargeting,
-} = require('../services/announcementPromptBuilderService');
-const { generateAiAnnouncementDraft } = require('../services/geminiService');
+} = require('../services/llm/announcementPromptBuilderService');
+const { generateAiAnnouncementDraft } = require('../services/llm/geminiService');
 const {
   saveAnnouncementDraft,
   listAnnouncementsForBusiness,
   sendAnnouncementCampaign,
-} = require('../services/announcementService');
+} = require('../services/comms/announcementService');
 
 const MAX_ANNOUNCEMENT_LENGTH = 5000;
 const MAX_SUBJECT_LENGTH = 255;

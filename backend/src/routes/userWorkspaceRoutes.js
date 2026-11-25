@@ -8,7 +8,7 @@ const {
   revokeWorkspaceShare,
   createWorkspaceForUser,
   updateWorkspaceName,
-} = require('../services/authService');
+} = require('../services/operations/authService');
 const {
   getDocumentChunks,
   updateDocument,

@@ -50,12 +50,49 @@ function buildSslConfig() {
   return sslConfig;
 }
 
+function trimTrailingSlash(value) {
+  return String(value || '').trim().replace(/\/+$/, '');
+}
+
+/**
+ * Expands runtime ${CLOUDFLARE_ACCOUNT_ID} / $CLOUDFLARE_ACCOUNT_ID placeholders and
+ * builds a normalized Cloudflare Workers AI OpenAI-compatible base URL.
+ *
+ * @param {string} rawUrl
+ * @param {string} accountId
+ * @returns {string}
+ */
+function resolveCloudflareBaseUrl(rawUrl, accountId) {
+  const cleanAccountId = String(accountId || '').trim();
+  const raw = String(rawUrl || '').trim();
+  let resolved = raw;
+
+  if (resolved) {
+    resolved = resolved
+      .replace(/\$\{CLOUDFLARE_ACCOUNT_ID\}/g, cleanAccountId)
+      .replace(/\$CLOUDFLARE_ACCOUNT_ID\b/g, cleanAccountId);
+  } else if (cleanAccountId) {
+    resolved = `https://api.cloudflare.com/client/v4/accounts/${cleanAccountId}/ai/v1`;
+  }
+
+  resolved = trimTrailingSlash(resolved);
+  if (!resolved || resolved.includes('${')) {
+    return '';
+  }
+  return resolved;
+}
+
+const cloudflareAccountId = process.env.CLOUDFLARE_ACCOUNT_ID
+  ? process.env.CLOUDFLARE_ACCOUNT_ID.trim()
+  : '';
+
 const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   host: process.env.HOST || 'localhost',
   port: parsePositiveInt(process.env.PORT, 3000),
   databaseUrl: process.env.DATABASE_URL || '',
   dbSsl: buildSslConfig(),
+  pgPoolMax: Math.min(6, parsePositiveInt(process.env.PG_POOL_MAX, 6)),
   maxUploadSizeBytes: parsePositiveInt(
     process.env.MAX_UPLOAD_SIZE_BYTES,
     2 * 1024 * 1024 // 2 MB default
@@ -65,6 +102,35 @@ const env = {
     process.env.CONVERSATION_HISTORY_LIMIT,
     20
   ),
+  groqApiKey: process.env.GROQ_API_KEY
+    ? process.env.GROQ_API_KEY.trim()
+    : '',
+  groqBaseUrl: trimTrailingSlash(
+    process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1'
+  ),
+  groqFastModel: process.env.GROQ_FAST_MODEL
+    ? process.env.GROQ_FAST_MODEL.trim()
+    : 'openai/gpt-oss-20b',
+  groqReasoningModel: process.env.GROQ_REASONING_MODEL
+    ? process.env.GROQ_REASONING_MODEL.trim()
+    : 'openai/gpt-oss-120b',
+  groqReasoningBackupModel: process.env.GROQ_REASONING_BACKUP_MODEL
+    ? process.env.GROQ_REASONING_BACKUP_MODEL.trim()
+    : 'qwen/qwen3.8-27b',
+  cloudflareAccountId,
+  cloudflareApiKey: process.env.CLOUDFLARE_API_KEY
+    ? process.env.CLOUDFLARE_API_KEY.trim()
+    : '',
+  cloudflareBaseUrl: resolveCloudflareBaseUrl(
+    process.env.CLOUDFLARE_BASE_URL,
+    cloudflareAccountId
+  ),
+  cloudflareFastModel: process.env.CLOUDFLARE_FAST_MODEL
+    ? process.env.CLOUDFLARE_FAST_MODEL.trim()
+    : '@cf/qwen/qwen3-30b-a3b-fp8',
+  cloudflareReasoningModel: process.env.CLOUDFLARE_REASONING_MODEL
+    ? process.env.CLOUDFLARE_REASONING_MODEL.trim()
+    : '@cf/openai/gpt-oss-120b',
   geminiApiKey: process.env.GEMINI_API_KEY
     ? process.env.GEMINI_API_KEY.trim()
     : '',
@@ -77,6 +143,15 @@ const env = {
   geminiModel: process.env.GEMINI_MODEL
     ? process.env.GEMINI_MODEL.trim()
     : 'gemini-3.5-flash',
+  llmTimeoutMs: parsePositiveInt(process.env.LLM_TIMEOUT_MS, 18000),
+  llmDefaultCooldownMs: parsePositiveInt(
+    process.env.LLM_DEFAULT_COOLDOWN_MS,
+    60000
+  ),
+  llmProviderOverride: process.env.LLM_PROVIDER_OVERRIDE
+    ? process.env.LLM_PROVIDER_OVERRIDE.trim().toLowerCase()
+    : '',
+  resolveCloudflareBaseUrl,
   smtpHost: process.env.SMTP_HOST
     ? process.env.SMTP_HOST.trim()
     : 'smtp.gmail.com',

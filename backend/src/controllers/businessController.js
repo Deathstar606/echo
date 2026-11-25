@@ -5,7 +5,7 @@ const {
   DEMO_USER_ID,
   updateWorkspaceName,
   hasWorkspaceAccess,
-} = require('../services/authService');
+} = require('../services/operations/authService');
 
 /**
  * Fetches a workspace (business) by UUID or throws a 404 AppError if not found.

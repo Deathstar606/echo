@@ -2,7 +2,7 @@ const AppError = require('./AppError');
 const {
   parseCleanNumber,
   coerceBooleanValue,
-} = require('../services/sheetSchemaService');
+} = require('../services/sheets/sheetSchemaService');
 
 /**
  * Validates and coerces a raw input value into the native JS/SQL type

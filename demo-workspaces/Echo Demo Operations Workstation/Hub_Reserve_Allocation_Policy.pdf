@@ -1,0 +1,125 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R 7 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 3252 >>
+stream
+0.10 0.22 0.36 rg
+BT /F2 15 Tf 54 736 Td (ECHO WORKSTATION SYSTEMS INC.) Tj ET
+0 0 0 rg
+BT /F2 13 Tf 54 718 Td (STANDARD OPERATING PROCEDURE: HUB RESERVE BUFFER & ORDER ALLOCATION) Tj ET
+0.30 0.30 0.30 rg
+BT /F1 9 Tf 54 703 Td (Document Code: SOP-WH-2026-09 | Effective Date: 2026-10-01 | Owner: National Supply Chain & Hub Ops) Tj ET
+0.15 0.32 0.52 RG 1.2 w 54 693 m 558 693 l S
+0 0 0 rg
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 669 Td (1. Purpose & Applicability) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 664 m 558 664 l S
+0 0 0 rg
+BT /F1 9.5 Tf 54 651 Td (This Standard Operating Procedure governs outbound stock allocation across all Echo) Tj ET
+BT /F1 9.5 Tf 54 637.5 Td (Workstation Systems fulfillment hubs, including Dhaka Central, Chittagong Port, Rajshahi) Tj ET
+BT /F1 9.5 Tf 54 624 Td (Regional, Sylhet Depot, and Khulna Hub. It establishes strict safety thresholds that protect) Tj ET
+BT /F1 9.5 Tf 54 610.5 Td (high-velocity fulfillment lanes and prevent warehouse stockouts on active batches.) Tj ET
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 587 Td (2. Clean Batch Eligibility & Quarantine Exclusion) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 582 m 558 582 l S
+0 0 0 rg
+BT /F1 9.5 Tf 54 569 Td (Order allocations may only draw from certified, non-quarantined inventory rows in) Tj ET
+BT /F1 9.5 Tf 54 555.5 Td (warehouse_inventory_batches where Available_Units > 0 and QC_Status does not carry a recall) Tj ET
+BT /F1 9.5 Tf 54 542 Td (or quarantine hold \(for example, Certified Clean Salvage, Certified Clean Firmware, Cleared) Tj ET
+BT /F1 9.5 Tf 54 528.5 Td (General Merchandise, or Cold-Chain Active\).) Tj ET
+BT /F1 9.5 Tf 62 511 Td (- Recalled or quarantined batches \(such as B-404 and B-412 with 0 Available_Units\) must) Tj ET
+BT /F1 9.5 Tf 70 498 Td (never be selected for allocation; coordinators must match both Item_SKU and the) Tj ET
+BT /F1 9.5 Tf 70 485 Td (designated cleared Batch_Code \(e.g., B-501, B-502, B-100\).) Tj ET
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 464 Td (3. Mandatory 10-Unit Hub Reserve Buffer Clause) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 459 m 558 459 l S
+0 0 0 rg
+BT /F1 9.5 Tf 54 446 Td (To insulate regional hubs against urgent warranty replacements, walk-in enterprise SLAs, and) Tj ET
+BT /F1 9.5 Tf 54 432.5 Td (cycle-count variance, every cleared inventory batch in warehouse_inventory_batches must) Tj ET
+BT /F1 9.5 Tf 54 419 Td (maintain a mandatory minimum reserve buffer of 10 units after allocation.) Tj ET
+BT /F1 9.5 Tf 62 401.5 Td (- Buffer Compliance Rule: Available_Units minus ordered Quantity must be greater than or) Tj ET
+BT /F1 9.5 Tf 70 388.5 Td (equal to 10 \(Available_Units - Quantity >= 10\).) Tj ET
+BT /F1 9.5 Tf 62 373.5 Td (- Insufficient Stock Definition: Any order whose fulfillment would reduce remaining) Tj ET
+BT /F1 9.5 Tf 70 360.5 Td (Available_Units on the matched batch below the 10-unit reserve buffer \(Available_Units -) Tj ET
+BT /F1 9.5 Tf 70 347.5 Td (Quantity < 10\) is classified as having insufficient stock for immediate dispatch and) Tj ET
+BT /F1 9.5 Tf 70 334.5 Td (MUST NOT be allocated.) Tj ET
+0.75 0.75 0.75 RG 0.5 w 54 48 m 558 48 l S
+0.45 0.45 0.45 rg
+BT /F1 8 Tf 54 36 Td (Controlled Operations Policy - Hub Reserve & Allocation Governance) Tj ET
+BT /F1 8 Tf 490 36 Td (Page 1 of 2) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 8 0 R >>
+endobj
+8 0 obj
+<< /Length 2719 >>
+stream
+0.45 0.45 0.45 rg
+BT /F1 8 Tf 54 762 Td (Echo Workstation Systems Inc. - SOP-WH-2026-09) Tj ET
+BT /F1 8 Tf 410 762 Td (Effective: 2026-10-01) Tj ET
+0.80 0.80 0.80 RG 0.5 w 54 756 m 558 756 l S
+0 0 0 rg
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 730 Td (4. Atomic Inventory Deduction & Dispatch Status Transition) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 725 m 558 725 l S
+0 0 0 rg
+BT /F1 9.5 Tf 54 712 Td (Once buffer compliance is verified across all pending orders in an intake batch, hub) Tj ET
+BT /F1 9.5 Tf 54 698.5 Td (automation or operations specialists must apply conditional updates deterministically:) Tj ET
+BT /F1 9.5 Tf 62 681 Td (- Qualifying Orders \(Post-Allocation Balance >= 10\): Deduct the exact order Quantity) Tj ET
+BT /F1 9.5 Tf 70 668 Td (from warehouse_inventory_batches.Available_Units on the matched clean batch, and update) Tj ET
+BT /F1 9.5 Tf 70 655 Td (the corresponding row in orders from Dispatch_Status "Processing" to "Ready for) Tj ET
+BT /F1 9.5 Tf 70 642 Td (Expedited Dispatch".) Tj ET
+BT /F1 9.5 Tf 62 627 Td (- Non-Qualifying Orders \(Post-Allocation Balance < 10\): Leave) Tj ET
+BT /F1 9.5 Tf 70 614 Td (warehouse_inventory_batches.Available_Units untouched \(zero deduction\), and place or) Tj ET
+BT /F1 9.5 Tf 70 601 Td (retain the order on reserve hold \(Dispatch_Status "Delayed" or "Processing" with no) Tj ET
+BT /F1 9.5 Tf 70 588 Td (stock release\) until replenishment arrives at the hub.) Tj ET
+0.10 0.22 0.36 rg
+BT /F2 11 Tf 54 567 Td (5. Dual-Outcome Customer Notification Standard) Tj ET
+0.75 0.78 0.82 RG 0.6 w 54 562 m 558 562 l S
+0 0 0 rg
+BT /F1 9.5 Tf 54 549 Td (Within two hours of running batch allocation, the order desk must transmit an individualized) Tj ET
+BT /F1 9.5 Tf 54 535.5 Td (email notification to EVERY customer included in the intake manifest using) Tj ET
+BT /F1 9.5 Tf 54 522 Td (orders.Customer_Email, regardless of whether their order was cleared or placed on hold:) Tj ET
+BT /F1 9.5 Tf 62 504.5 Td (- Fulfilled Customers: Confirm Order_ID, Item_Name, Quantity allocated, Batch_Code, and) Tj ET
+BT /F1 9.5 Tf 70 491.5 Td (expedited dispatch status.) Tj ET
+BT /F1 9.5 Tf 62 476.5 Td (- Reserve-Held Customers: Clearly communicate the Order_ID, requested Quantity, and) Tj ET
+BT /F1 9.5 Tf 70 463.5 Td (explain that shipment is temporarily paused because allocating the full order would) Tj ET
+BT /F1 9.5 Tf 70 450.5 Td (breach our mandatory 10-unit hub safety reserve buffer, along with estimated) Tj ET
+BT /F1 9.5 Tf 70 437.5 Td (replenishment scheduling.) Tj ET
+0.75 0.75 0.75 RG 0.5 w 54 48 m 558 48 l S
+0.45 0.45 0.45 rg
+BT /F1 8 Tf 54 36 Td (Controlled Operations Policy - Hub Reserve & Allocation Governance) Tj ET
+BT /F1 8 Tf 490 36 Td (Page 2 of 2) Tj ET
+endstream
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000218 00000 n 
+0000000320 00000 n 
+0000000456 00000 n 
+0000003759 00000 n 
+0000003895 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+6665
+%%EOF

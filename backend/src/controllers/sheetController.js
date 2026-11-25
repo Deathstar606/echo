@@ -10,16 +10,16 @@ const {
   importSheetRecordsToDatabase,
   deleteSheetForWorkspace,
   parseCsvBoolean,
-} = require('../services/sheetCsvImportService');
+} = require('../services/sheets/sheetCsvImportService');
 const {
   getAllRows,
   normalizeProductRow,
   executeSpreadsheetQuery,
-} = require('../services/sheetQueryService');
-const { discoverWorkspaceSources } = require('../services/queryRouterService');
-const { prewarmWorkspaceDocumentCaches } = require('../services/documentIngestionService');
-const { interpretNaturalLanguageQuery } = require('../services/sheetQueryPromptBuilder');
-const { executeMutation } = require('../services/sheetMutationService');
+} = require('../services/sheets/sheetQueryService');
+const { discoverWorkspaceSources } = require('../services/rag/queryRouterService');
+const { prewarmWorkspaceDocumentCaches } = require('../services/rag/documentIngestionService');
+const { interpretNaturalLanguageQuery } = require('../services/sheets/sheetQueryPromptBuilder');
+const { executeMutation } = require('../services/sheets/sheetMutationService');
 const {
   normalizeEntityName,
   getSchema,
@@ -29,22 +29,22 @@ const {
   ensureTableExists,
   findColumnDef,
   quoteIdentifier,
-} = require('../services/sheetSchemaService');
+} = require('../services/sheets/sheetSchemaService');
 const {
   refreshWorkspaceTableMetadata,
-} = require('../services/workspaceTableMetadataService');
+} = require('../services/sheets/workspaceTableMetadataService');
 const {
   listWorkspaceTableMetadataCached,
-} = require('../services/workspaceTableMetadataService');
+} = require('../services/sheets/workspaceTableMetadataService');
 const {
   summarizeQueryRowsWithAi,
   buildHighlightedRows,
   isBasicTableQueryCandidate,
   isBasicTableMutationCandidate,
-} = require('../services/fastTableQueryService');
+} = require('../services/sheets/fastTableQueryService');
 const {
   hasCustomSheetGeminiGenerator,
-} = require('../services/geminiService');
+} = require('../services/llm/geminiService');
 const {
   normalizeConversationHistory,
 } = require('../utils/conversationHistory');
@@ -787,7 +787,7 @@ async function insertSheetRow(req, res, next) {
 
     // Write-back sync to Google Sheet if applicable
     try {
-      const { syncMutationsToGoogleSheet } = require('../services/googleSheetsSyncService');
+      const { syncMutationsToGoogleSheet } = require('../services/sheets/googleSheetsSyncService');
       await syncMutationsToGoogleSheet(business.id, schema.tableName, [
         { ...cleanRowInput, operation: 'create' },
       ]);
@@ -1034,7 +1034,7 @@ async function updateSheetRows(req, res, next) {
 
     // Write-back sync to Google Sheets if this table is synced (best-effort)
     try {
-      const { syncMutationsToGoogleSheet } = require('../services/googleSheetsSyncService');
+      const { syncMutationsToGoogleSheet } = require('../services/sheets/googleSheetsSyncService');
       await syncMutationsToGoogleSheet(
         business.id,
         schema.tableName,

@@ -5,7 +5,7 @@ const {
   addFilteredContactOneClick,
   removeWorkspaceContact,
   importWorkspaceCustomerCsv,
-} = require('../services/workspaceContactsService');
+} = require('../services/comms/workspaceContactsService');
 
 const upload = multer({
   storage: multer.memoryStorage(),

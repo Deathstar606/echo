@@ -40,7 +40,7 @@ function getPool() {
   poolInstance = new Pool({
     connectionString: normalizeConnectionString(env.databaseUrl, env.dbSsl),
     ssl: env.dbSsl,
-    max: 10,
+    max: Math.min(6, Number(env.pgPoolMax) || 6),
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 10000,
   });

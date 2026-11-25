@@ -12,10 +12,10 @@ const {
   getRecentConversationMessages,
   addMessageToConversation,
   updateConversationStatus,
-} = require('../services/conversationService');
+} = require('../services/comms/conversationService');
 const {
   generateWorkspaceCustomerReply,
-} = require('../services/workspaceReplyService');
+} = require('../services/operations/workspaceReplyService');
 
 const MAX_MESSAGE_LENGTH = 5000;
 
